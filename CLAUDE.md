@@ -20,6 +20,8 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - Telemetry logging from both sensors (encoder + IMU)
 - Log lag and angle difference over time for troubleshooting and debugging
 - Implement control loops with lag compensation
+- Implement bidirectional DShot for ESC telemetry (RPM, voltage, temperature)
+- Analyze motor response lag (time between throttle command and RPM reaching target)
 
 ## Hardware Components
 
@@ -60,6 +62,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 ### Motor Control (`dshot/`)
 
 - `dshot/jrddupont/dshot_pio.py` - DShot protocol via RP2040 PIO. Supports DSHOT150/300/600/1200.
+- See `resources/dshot_protocol.md` for full protocol specification (packet structure, timing, special commands, bidirectional DShot, telemetry).
 
 ### Examples (`examples/`)
 
@@ -79,3 +82,6 @@ Small standalone scripts for testing individual sensors, calibration routines, a
 
 - BNO085 reset: Pin 2
 - BNO085 interrupt: Pin 3
+- Motor 1 (DShot): Pin 4
+- Motor 2 (DShot): Pin 5
+- Display buttons: Pins 12 (A), 13 (B), 14 (X), 15 (Y)
