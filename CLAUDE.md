@@ -30,6 +30,21 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **2x Drone Motors + ESCs** - DShot protocol control via PIO
 - **Power Distribution Board** - Motor power supply
 
+## Project Structure
+
+```
+├── main.py              # Entry point - upload to Pico, runs on boot
+├── adafruit/            # Sensor drivers (upload to Pico)
+├── pimoroni/            # Display driver (upload to Pico)
+├── dshot/               # Motor control (upload to Pico)
+├── examples/            # Test scripts - do NOT upload to Pico
+└── resources/           # Docs, datasheets
+```
+
+**Deployment:** Upload `main.py` + `adafruit/` + `pimoroni/` + `dshot/` to Pico. The `examples/` folder stays on your PC.
+
+**Running examples:** Temporarily copy an example script to Pico as `main.py`, or run directly via Thonny/mpremote.
+
 ## Architecture
 
 ### Sensor Drivers (`adafruit/`)
@@ -37,7 +52,6 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - `adafruit/encoder/as5600.py` - AS5600 driver. Key function: `to_degrees(raw_angle, axis_center)` converts raw 12-bit readings to degrees relative to a calibrated center position.
 - `adafruit/imu/bradcar/bno08x.py` - BNO08x driver adapted from Adafruit. Uses interrupt-driven sensor updates with precise timestamp tracking.
 - `adafruit/imu/bradcar/i2c.py` - I2C transport layer for BNO08x.
-- `adafruit/imu/bradcar/test_*.py` - Test scripts for calibration, frequency, and report types.
 
 ### Display (`pimoroni/display/`)
 
@@ -45,7 +59,11 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 ### Motor Control (`dshot/`)
 
-- `dshot/jrddupont/DShotPIO.py` - DShot protocol via RP2040 PIO. Supports DSHOT150/300/600/1200.
+- `dshot/jrddupont/dshot_pio.py` - DShot protocol via RP2040 PIO. Supports DSHOT150/300/600/1200.
+
+### Examples (`examples/`)
+
+Small standalone scripts for testing individual sensors, calibration routines, and experiments. Not part of the main application.
 
 ## Key Constants
 
