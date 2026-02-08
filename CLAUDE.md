@@ -14,14 +14,16 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 ## Development Approach
 
-**Current milestone:** Characterize BNO085 sensor performance by measuring angle error and time lag against the AS5600 reference. This data is critical because a flight controller must compensate for sensor lag—controlling based on "where you are now" with a delayed sensor leads to instability and crashes. The control system needs to predict where it *will be* and adjust thrust accordingly.
+**Completed:** M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/ADR-001-pid-lever-stabilization.md`.
 
-**Future milestones:**
-- Telemetry logging from both sensors (encoder + IMU)
-- Log lag and angle difference over time for troubleshooting and debugging
-- Implement control loops with lag compensation
-- Implement bidirectional DShot for ESC telemetry (RPM, voltage, temperature)
-- Analyze motor response lag (time between throttle command and RPM reaching target)
+**Current focus:** M2 — Switch PID input from AS5600 to BNO085 IMU. The IMU will be the primary and only control input (as on a real drone). AS5600 becomes telemetry-only ground truth for measuring IMU lag and angle error.
+
+**Roadmap (see README.md for full details):**
+- M2: BNO085 as primary control input (depends on driver work)
+- M2a: Telemetry logging via Adalogger PiCowbell — RTC timestamps + SD card black box (see `decision/ADR-002-telemetry-logging.md`)
+- M3: Mixer abstraction (pure refactor)
+- M4: Cascaded PID — angle loop + rate loop using raw gyro (depends on M2, M2a, M3)
+- M5: Multi-axis control (depends on hardware evolution)
 
 ## Hardware Components
 
@@ -30,43 +32,56 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **AS5600 Magnetic Encoder** - 12-bit absolute position encoder (reference sensor)
 - **Pimoroni Pico Display Pack** - 240x135 LCD for real-time data visualization
 - **2x Drone Motors + ESCs** - DShot protocol control via PIO
+- **Adafruit PiCowbell Adalogger** - PCF8523 RTC + MicroSD for telemetry logging (planned, see ADR-002)
 - **Power Distribution Board** - Motor power supply
 
 ## Project Structure
 
 ```
 ├── main.py              # Entry point - upload to Pico, runs on boot
-├── adafruit/            # Sensor drivers (upload to Pico)
+├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
+│   └── driver/as5600.py
+├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
+│   └── driver/
+│       ├── bno08x.py
+│       └── i2c.py
+├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
+│   └── driver/
+│       ├── dshot_pio.py
+│       └── motor_throttle_group.py
 ├── pimoroni/            # Display driver (upload to Pico)
-├── dshot/               # Motor control (upload to Pico)
-├── examples/            # Test scripts - do NOT upload to Pico
+├── decision/            # Architecture Decision Records
 └── resources/           # Docs, datasheets
 ```
 
-**Deployment:** Upload `main.py` + `adafruit/` + `pimoroni/` + `dshot/` to Pico. The `examples/` folder stays on your PC.
+**Deployment:** Upload the following files to Pico root (flat structure):
+- `main.py`
+- `AS5600/driver/as5600.py`
+- `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
+- `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
+- `pimoroni/display/display_pack.py`
 
-**Running examples:** Temporarily copy an example script to Pico as `main.py`, or run directly via Thonny/mpremote.
+All driver files are uploaded flat to Pico root so MicroPython resolves imports without `sys.path` manipulation.
 
 ## Architecture
 
-### Sensor Drivers (`adafruit/`)
+### AS5600 Encoder (`AS5600/driver/as5600.py`)
 
-- `adafruit/encoder/as5600.py` - AS5600 driver. Key function: `to_degrees(raw_angle, axis_center)` converts raw 12-bit readings to degrees relative to a calibrated center position.
-- `adafruit/imu/bradcar/bno08x.py` - BNO08x driver adapted from Adafruit. Uses interrupt-driven sensor updates with precise timestamp tracking.
-- `adafruit/imu/bradcar/i2c.py` - I2C transport layer for BNO08x.
+Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center)` converts raw 12-bit readings to degrees relative to a calibrated center position. Includes low-latency filter configuration and diagnostic telemetry.
+
+### BNO085 IMU (`BNO085/driver/`)
+
+- `bno08x.py` - BNO08x driver with SHTP protocol, interrupt-driven sensor updates, quaternion/euler output, and precise timestamp tracking.
+- `i2c.py` - I2C transport layer for BNO08x. Handles non-standard clock stretching and fragment reassembly.
 
 ### Display (`pimoroni/display/`)
 
 - `display_pack.py` - Display abstraction using PicoGraphics library.
 
-### Motor Control (`dshot/`)
+### Motor Control (`DShot/driver/`)
 
-- `dshot/jrddupont/dshot_pio.py` - DShot protocol via RP2040 PIO. Supports DSHOT150/300/600/1200.
-- See `resources/dshot_protocol.md` for full protocol specification (packet structure, timing, special commands, bidirectional DShot, telemetry).
-
-### Examples (`examples/`)
-
-Small standalone scripts for testing individual sensors, calibration routines, and experiments. Not part of the main application.
+- `dshot_pio.py` - Low-level DShot protocol via RP2040/RP2350 PIO. Supports DSHOT150/300/600/1200.
+- `motor_throttle_group.py` - Dual-core facade for managing multiple motors. Core 1 runs a dedicated 1kHz command loop for reliable ESC communication. Provides arming, throttle control, emergency stop, and health monitoring.
 
 ## Key Constants
 
@@ -82,6 +97,8 @@ Small standalone scripts for testing individual sensors, calibration routines, a
 
 - BNO085 reset: Pin 2
 - BNO085 interrupt: Pin 3
-- Motor 1 (DShot): Pin 4
-- Motor 2 (DShot): Pin 5
+- Motor 1 (DShot): Pin 4 (will move to Pin 6 when Adalogger is integrated — see ADR-002)
+- Motor 2 (DShot): Pin 5 (will move to Pin 7 when Adalogger is integrated — see ADR-002)
 - Display buttons: Pins 12 (A), 13 (B), 14 (X), 15 (Y)
+- Adalogger SD card (planned): MOSI=Pin 19, MISO=Pin 16, SCK=Pin 18, CS=Pin 17
+- Adalogger RTC I2C (planned): SDA=Pin 4, SCL=Pin 5 (I2C bus 1)

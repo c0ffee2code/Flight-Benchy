@@ -1,0 +1,9 @@
+[submodule "AS5600"]
+	path = AS5600
+	url = https://github.com/c0ffee2code/AS5600.git
+[submodule "BNO085"]
+	path = BNO085
+	url = https://github.com/c0ffee2code/BNO085.git
+[submodule "DShot"]
+	path = DShot
+	url = https://github.com/c0ffee2code/DShot.git
