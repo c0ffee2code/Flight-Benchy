@@ -8,6 +8,7 @@ from dshot_pio import DSHOT_SPEEDS
 from display_pack import (draw_disarmed, draw_arming, draw_ready,
                           draw_stabilizing, draw_error)
 from pid import PID
+from telemetry import TelemetryRecorder
 
 # =====================================================
 # Hardware
@@ -40,6 +41,9 @@ PID_INTERVAL_MS = const(20)  # 50 Hz
 # Display update (every N-th PID cycle to avoid display overhead each loop)
 DISPLAY_EVERY = const(5)  # 10 Hz display refresh
 
+# Telemetry decimation: 1=every cycle, N=every Nth (high for REPL, lower for SD)
+TELEMETRY_SAMPLE_EVERY = const(10)
+
 
 def clamp(value, lo, hi):
     if value < lo:
@@ -59,6 +63,7 @@ def buttons_by_held():
 # =====================================================
 def main():
     pid = PID(kp=5.0, ki=0.5, kd=0.0, integral_limit=200.0)
+    telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY)
     motors = MotorThrottleGroup([MOTOR1_PIN, MOTOR2_PIN], DSHOT_SPEEDS.DSHOT600)
 
     try:
@@ -82,6 +87,7 @@ def main():
 
             # ----- STATE 4: STABILIZING -----
             pid.reset()
+            telemetry.begin_session()
             loop_count = 0
             prev_ms = utime.ticks_ms()
 
@@ -112,6 +118,12 @@ def main():
                 motors.setThrottle(0, m1)
                 motors.setThrottle(1, m2)
 
+                telemetry.record(
+                    now_ms, angle, None,
+                    angle, pid.last_p, pid.last_i, pid.last_d,
+                    output, m1, m2
+                )
+
                 # Display at reduced rate
                 loop_count += 1
                 if loop_count >= DISPLAY_EVERY:
@@ -119,6 +131,7 @@ def main():
                     draw_stabilizing(angle, m1, m2)
 
             # ----- DISARM -----
+            telemetry.end_session()
             motors.disarm()
             motors.stop()
 

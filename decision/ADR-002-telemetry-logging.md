@@ -73,21 +73,21 @@ Separating the RTC onto its own bus avoids adding traffic to the sensor bus, whi
 
 ### Log format
 
-CSV with pipe delimiter for grep-friendliness (consistent with AS5600 diagnostic format):
+CSV with comma delimiter (standard CSV):
 
 ```
-T_RTC,T_MS,ENC_DEG,IMU_DEG,ERR,P,I,D,M1,M2
-2026-02-08T14:30:01,12345,+0.5,+0.8,-0.3,2.5,0.1,0.0,165,135
+T_MS,ENC_DEG,IMU_DEG,ERR,P,I,D,PID_OUT,M1,M2
+12345,+0.5,,+0.5,2.50,0.10,0.00,2.60,303,297
 ```
 
 Fields:
-- `T_RTC` — Wall clock from PCF8523 (ISO 8601, second resolution)
-- `T_MS` — `ticks_ms` since boot (sub-ms precision for inter-sample timing)
+- `T_MS` — `ticks_ms` since boot (sufficient without RTC; `T_RTC` column added as first column when Adalogger hardware arrives)
 - `ENC_DEG` — AS5600 angle in degrees (ground truth)
-- `IMU_DEG` — BNO085 angle in degrees (when available, empty otherwise)
+- `IMU_DEG` — BNO085 angle in degrees (empty until M2)
 - `ERR` — PID error term
 - `P`, `I`, `D` — Individual PID contributions
-- `M1`, `M2` — Motor throttle values
+- `PID_OUT` — Raw PID output before clamping to motor range (shows PID saturation)
+- `M1`, `M2` — Motor throttle values (integers)
 
 ### Write strategy
 
@@ -108,6 +108,19 @@ SD card root/
 ```
 
 Each file gets a header row on creation. RTC timestamp in the first data row provides the wall clock reference; subsequent rows use `T_MS` deltas for precise inter-sample timing.
+
+### Sampling & decoupling
+
+The telemetry pipeline separates data collection from I/O through a facade pattern:
+
+- **`TelemetryRecorder`** — facade called from the main loop. Accepts all telemetry fields per cycle, handles decimation, and delegates output to a pluggable sink.
+- **`PrintSink`** — current backend. Prints CSV rows to REPL serial console. No buffering needed.
+- **`SdSink`** (future) — buffers N rows in RAM, flushes to SD card file. Plug in when Adalogger hardware arrives — no structural changes to main loop or recorder.
+
+Configurable decimation via `TELEMETRY_SAMPLE_EVERY` constant in `main.py`:
+- Set high (e.g., 10000) for REPL output to avoid serial flood
+- Set to 1–5 for SD card logging to capture full-rate data
+- Decimation is cycle-count based: every N-th call to `record()` emits a row
 
 ## Consequences
 
