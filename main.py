@@ -8,7 +8,8 @@ from dshot_pio import DSHOT_SPEEDS
 from display_pack import (draw_disarmed, draw_arming, draw_ready,
                           draw_stabilizing, draw_error)
 from pid import PID
-from telemetry import TelemetryRecorder
+from recorder import TelemetryRecorder
+from mixer import LeverMixer
 
 # =====================================================
 # Hardware
@@ -45,14 +46,6 @@ DISPLAY_EVERY = const(5)  # 10 Hz display refresh
 TELEMETRY_SAMPLE_EVERY = const(10)
 
 
-def clamp(value, lo, hi):
-    if value < lo:
-        return lo
-    if value > hi:
-        return hi
-    return value
-
-
 def buttons_by_held():
     """Return True if B+Y are both pressed (active low)."""
     return not btn_B.value() and not btn_Y.value()
@@ -63,6 +56,7 @@ def buttons_by_held():
 # =====================================================
 def main():
     pid = PID(kp=5.0, ki=0.5, kd=0.0, integral_limit=200.0)
+    mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX)
     telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY)
     motors = MotorThrottleGroup([MOTOR1_PIN, MOTOR2_PIN], DSHOT_SPEEDS.DSHOT600)
 
@@ -112,8 +106,7 @@ def main():
                 # PID — target is 0°, error = angle (sign verified on hardware)
                 output = pid.compute(angle, dt)
 
-                m1 = clamp(int(BASE_THROTTLE + output), THROTTLE_MIN, THROTTLE_MAX)
-                m2 = clamp(int(BASE_THROTTLE - output), THROTTLE_MIN, THROTTLE_MAX)
+                m1, m2 = mixer.compute(output)
 
                 motors.setThrottle(0, m1)
                 motors.setThrottle(1, m2)

@@ -34,9 +34,9 @@ Log timestamped data from both sensors + PID internals to SD card via Adalogger 
 
 **Depends on:** Adalogger hardware integration, motor pin reassignment (GPIO 4/5 → 6/7).
 
-### M3: Mixer abstraction
+### M3: Mixer abstraction — DONE
 
-Extract `base ± output` motor mapping into a configurable mixer module. Makes code drone-topology-agnostic — swap a mix table to support different frame types (2-motor lever, quadcopter X-frame, etc.).
+Extracted `base ± output` motor mapping into `LeverMixer` class (`mixer.py`). Makes code drone-topology-agnostic — swap a mix table to support different frame types (2-motor lever, quadcopter X-frame, etc.). Also reorganized telemetry into `telemetry/` package.
 
 **Depends on:** M1 (pure code refactor, no hardware dependency).
 
@@ -60,6 +60,10 @@ See [ADR-001, "Test Bench vs Real Drone" section](decision/ADR-001-pid-lever-sta
 
 ```
 ├── main.py              # Entry point — upload to Pico, runs on boot
+├── mixer.py             # LeverMixer — differential thrust for 2-motor lever
+├── telemetry/           # Telemetry recording and output sinks
+│   ├── recorder.py      # TelemetryRecorder + PrintSink
+│   └── sdcard.py        # SD card sink (planned)
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
 ├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
@@ -77,6 +81,8 @@ git clone --recurse-submodules <repo-url>
 
 Upload to Pico root (flat structure):
 - `main.py`
+- `mixer.py`
+- `telemetry/recorder.py` (as `recorder.py`)
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `i2c.py`
 - `DShot/driver/dshot_pio.py` + `motor_throttle_group.py`
