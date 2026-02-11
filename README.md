@@ -60,6 +60,7 @@ See [ADR-001, "Test Bench vs Real Drone" section](decision/ADR-001-pid-lever-sta
 
 ```
 ├── main.py              # Entry point — upload to Pico, runs on boot
+├── pid.py               # PID controller with anti-windup and term introspection
 ├── mixer.py             # LeverMixer — differential thrust for 2-motor lever
 ├── telemetry/           # Telemetry recording and output sinks
 │   ├── recorder.py      # TelemetryRecorder + PrintSink
@@ -81,6 +82,7 @@ git clone --recurse-submodules <repo-url>
 
 Upload to Pico root (flat structure):
 - `main.py`
+- `pid.py`
 - `mixer.py`
 - `telemetry/recorder.py` (as `recorder.py`)
 - `AS5600/driver/as5600.py`

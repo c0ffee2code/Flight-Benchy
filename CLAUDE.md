@@ -40,6 +40,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 ```
 ├── main.py              # Entry point - upload to Pico, runs on boot
+├── pid.py               # PID controller with anti-windup and term introspection
 ├── mixer.py             # LeverMixer — differential thrust for 2-motor lever
 ├── telemetry/
 │   ├── recorder.py      # TelemetryRecorder + PrintSink (CSV decimation & output)
@@ -61,6 +62,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 **Deployment:** Upload the following files to Pico root (flat structure):
 - `main.py`
+- `pid.py`
 - `mixer.py`
 - `telemetry/recorder.py` (deployed as `recorder.py`)
 - `AS5600/driver/as5600.py`
