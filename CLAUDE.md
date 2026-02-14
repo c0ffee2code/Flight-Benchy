@@ -16,13 +16,13 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 **Completed:**
 - M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/ADR-001-pid-lever-stabilization.md`.
+- M2a — Black box telemetry logging to SD card via Adalogger PiCowbell. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package.
 
 **Current focus:** M2 — Switch PID input from AS5600 to BNO085 IMU. The IMU will be the primary and only control input (as on a real drone). AS5600 becomes telemetry-only ground truth for measuring IMU lag and angle error.
 
 **Roadmap (see README.md for full details):**
 - M2: BNO085 as primary control input (depends on driver work)
-- M2a: Telemetry logging via Adalogger PiCowbell — RTC timestamps + SD card black box (see `decision/ADR-002-telemetry-logging.md`)
 - M4: Cascaded PID — angle loop + rate loop using raw gyro (depends on M2, M2a, M3)
 - M5: Multi-axis control (depends on hardware evolution)
 
@@ -33,7 +33,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **AS5600 Magnetic Encoder** - 12-bit absolute position encoder (reference sensor)
 - **Pimoroni Pico Display Pack** - 240x135 LCD for real-time data visualization
 - **2x Drone Motors + ESCs** - DShot protocol control via PIO
-- **Adafruit PiCowbell Adalogger** - PCF8523 RTC + MicroSD for telemetry logging (planned, see ADR-002)
+- **Adafruit PiCowbell Adalogger** - PCF8523 RTC + MicroSD for telemetry logging (see ADR-002)
 - **Power Distribution Board** - Motor power supply
 
 ## Project Structure
@@ -43,8 +43,8 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 ├── pid.py               # PID controller with anti-windup and term introspection
 ├── mixer.py             # LeverMixer — differential thrust for 2-motor lever
 ├── telemetry/
-│   ├── recorder.py      # TelemetryRecorder + PrintSink (CSV decimation & output)
-│   └── sdcard.py        # SD card sink (planned)
+│   ├── recorder.py      # TelemetryRecorder, PrintSink, SdSink, read_rtc
+│   └── sdcard.py        # SD card SPI driver (micropython-lib, with stop bit fix)
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 │   └── driver/as5600.py
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
@@ -65,14 +65,22 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - `pid.py`
 - `mixer.py`
 - `telemetry/recorder.py` (deployed as `recorder.py`)
+- `telemetry/sdcard.py` (deployed as `sdcard.py`)
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
 - `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
 - `pimoroni/display/display_pack.py`
 
-All driver files are uploaded flat to Pico root so MicroPython resolves imports without `sys.path` manipulation.
-
 ## Architecture
+
+### Telemetry (`telemetry/`)
+
+- `recorder.py` — Contains the full telemetry pipeline:
+  - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink.
+  - `PrintSink` — prints CSV rows to REPL serial console.
+  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, RTC read, file create, write, unmount). Constructed with pin numbers; encapsulates all Adalogger hardware interaction.
+  - `read_rtc(sda, scl)` — one-shot SoftI2C read of PCF8523 RTC. Used by `SdSink` for filename generation.
+- `sdcard.py` — SD card SPI driver from micropython-lib with a stop bit fix (`crc | 0x01`). The upstream driver omits the mandatory end bit in the SPI command frame, which causes some cards to reject all commands after CMD8.
 
 ### AS5600 Encoder (`AS5600/driver/as5600.py`)
 
@@ -95,19 +103,34 @@ Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center
 ## Key Constants
 
 - `AXIS_CENTER` in `main.py` - Encoder offset for horizontal lever position (recalibrate when mechanical setup changes)
-- I2C: SCL=Pin 1, SDA=Pin 0, 400kHz
 
 ## I2C Addresses
 
 - AS5600 encoder: `0x36`
 - BNO085 IMU: `0x4a`
+- PCF8523 RTC: `0x68`
 
 ## Pin Assignments
 
-- BNO085 reset: Pin 2
-- BNO085 interrupt: Pin 3
-- Motor 1 (DShot): Pin 4 (will move to Pin 6 when Adalogger is integrated — see ADR-002)
-- Motor 2 (DShot): Pin 5 (will move to Pin 7 when Adalogger is integrated — see ADR-002)
-- Display buttons: Pins 12 (A), 13 (B), 14 (X), 15 (Y)
-- Adalogger SD card (planned): MOSI=Pin 19, MISO=Pin 16, SCK=Pin 18, CS=Pin 17
-- Adalogger RTC I2C (planned): SDA=Pin 4, SCL=Pin 5 (I2C bus 1)
+All pin constants are defined in `main.py` with descriptive names:
+
+| GPIO | Constant | Function |
+|------|----------|----------|
+| 0 | `PIN_I2C0_SDA` | I2C bus 0 SDA — sensors (AS5600 + BNO085) |
+| 1 | `PIN_I2C0_SCL` | I2C bus 0 SCL |
+| 2 | `PIN_IMU_RST` | BNO085 reset |
+| 3 | `PIN_IMU_INT` | BNO085 interrupt |
+| 4 | `PIN_RTC_SDA` | Adalogger RTC SoftI2C SDA |
+| 5 | `PIN_RTC_SCL` | Adalogger RTC SoftI2C SCL |
+| 6 | `PIN_MOTOR1` | Motor 1 DShot |
+| 7 | `PIN_MOTOR2` | Motor 2 DShot |
+| 12 | `PIN_BTN_A` | Display button A |
+| 13 | `PIN_BTN_B` | Display button B |
+| 14 | `PIN_BTN_X` | Display button X |
+| 15 | `PIN_BTN_Y` | Display button Y |
+| 16 | `PIN_SD_MISO` | Adalogger SD card MISO (SPI0) |
+| 17 | `PIN_SD_CS` | Adalogger SD card CS (SPI0) |
+| 18 | `PIN_SD_SCK` | Adalogger SD card SCK (SPI0) |
+| 19 | `PIN_SD_MOSI` | Adalogger SD card MOSI (SPI0) |
+
+**Note:** GPIO 4/5 are I2C0 alternate pins on RP2350, not I2C1. The RTC uses SoftI2C (bit-banged) to avoid conflicting with the sensor I2C bus on GPIO 0/1. See ADR-002 for details.

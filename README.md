@@ -9,7 +9,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **BNO085 IMU** — 9-axis IMU with onboard sensor fusion (future primary control input)
 - **2x Drone Motors + ESCs** — DShot600 protocol via PIO, mounted on opposite ends of lever
 - **Pimoroni Pico Display Pack** — 240x135 LCD for real-time status
-- **Adafruit PiCowbell Adalogger** — PCF8523 RTC + MicroSD for black box telemetry (planned)
+- **Adafruit PiCowbell Adalogger** — PCF8523 RTC + MicroSD for black box telemetry logging
 - **Power Distribution Board** — Motor power supply
 
 ## Mechanical Setup
@@ -28,11 +28,11 @@ Replace AS5600 with BNO085 quaternion/euler output as the sole PID input. AS5600
 
 **Depends on:** BNO085 driver delivering reliable, low-latency quaternion data.
 
-### M2a: Telemetry logging (black box)
+### M2a: Telemetry logging (black box) — DONE
 
-Log timestamped data from both sensors + PID internals to SD card via Adalogger PiCowbell. Enables post-experiment analysis with Python/pandas. See [ADR-002](decision/ADR-002-telemetry-logging.md).
+Timestamped CSV logging to SD card via Adalogger PiCowbell. RTC provides wall-clock filenames (`log_YYYY-MM-DD_hh-mm-ss.csv`), `ticks_ms` provides precise row timing. Logs stored under `/sd/blackbox/`. See [ADR-002](decision/ADR-002-telemetry-logging.md).
 
-**Depends on:** Adalogger hardware integration, motor pin reassignment (GPIO 4/5 → 6/7).
+Motor pins reassigned from GPIO 4/5 to GPIO 6/7 to free I2C for the Adalogger RTC.
 
 ### M3: Mixer abstraction — DONE
 
@@ -62,9 +62,9 @@ See [ADR-001, "Test Bench vs Real Drone" section](decision/ADR-001-pid-lever-sta
 ├── main.py              # Entry point — upload to Pico, runs on boot
 ├── pid.py               # PID controller with anti-windup and term introspection
 ├── mixer.py             # LeverMixer — differential thrust for 2-motor lever
-├── telemetry/           # Telemetry recording and output sinks
-│   ├── recorder.py      # TelemetryRecorder + PrintSink
-│   └── sdcard.py        # SD card sink (planned)
+├── telemetry/
+│   ├── recorder.py      # TelemetryRecorder, PrintSink, SdSink, read_rtc
+│   └── sdcard.py        # SD card SPI driver (micropython-lib, with stop bit fix)
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
 ├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
@@ -85,6 +85,7 @@ Upload to Pico root (flat structure):
 - `pid.py`
 - `mixer.py`
 - `telemetry/recorder.py` (as `recorder.py`)
+- `telemetry/sdcard.py` (as `sdcard.py`)
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `i2c.py`
 - `DShot/driver/dshot_pio.py` + `motor_throttle_group.py`

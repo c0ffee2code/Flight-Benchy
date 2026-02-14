@@ -8,22 +8,49 @@ from dshot_pio import DSHOT_SPEEDS
 from display_pack import (draw_disarmed, draw_arming, draw_ready,
                           draw_stabilizing, draw_error)
 from pid import PID
-from recorder import TelemetryRecorder
+from recorder import TelemetryRecorder, SdSink
 from mixer import LeverMixer
+
+# =====================================================
+# Pin assignments
+# =====================================================
+# I2C bus 0 — sensors (AS5600 encoder + BNO085 IMU)
+PIN_I2C0_SDA   = const(0)
+PIN_I2C0_SCL   = const(1)
+
+# BNO085 IMU control
+PIN_IMU_RST    = const(2)
+PIN_IMU_INT    = const(3)
+
+# Adalogger RTC — SoftI2C (GP4/5 are I2C0 alt pins, bit-bang to avoid conflict)
+PIN_RTC_SDA    = const(4)
+PIN_RTC_SCL    = const(5)
+
+# DShot motors (moved from GP4/5 to free I2C for Adalogger, see ADR-002)
+PIN_MOTOR1     = const(6)
+PIN_MOTOR2     = const(7)
+
+# Display buttons (active LOW)
+PIN_BTN_A      = const(12)
+PIN_BTN_B      = const(13)
+PIN_BTN_X      = const(14)
+PIN_BTN_Y      = const(15)
+
+# Adalogger SD card — SPI0
+PIN_SD_MISO    = const(16)
+PIN_SD_CS      = const(17)
+PIN_SD_SCK     = const(18)
+PIN_SD_MOSI    = const(19)
 
 # =====================================================
 # Hardware
 # =====================================================
-i2c = I2C(0, scl=Pin(1), sda=Pin(0), freq=400_000)
+i2c = I2C(0, scl=Pin(PIN_I2C0_SCL), sda=Pin(PIN_I2C0_SDA), freq=400_000)
 encoder = AS5600(i2c=i2c)
 
-MOTOR1_PIN = Pin(4)
-MOTOR2_PIN = Pin(5)
-
-# Buttons (active LOW)
-btn_A = Pin(12, Pin.IN, Pin.PULL_UP)
-btn_B = Pin(13, Pin.IN, Pin.PULL_UP)
-btn_Y = Pin(15, Pin.IN, Pin.PULL_UP)
+btn_A = Pin(PIN_BTN_A, Pin.IN, Pin.PULL_UP)
+btn_B = Pin(PIN_BTN_B, Pin.IN, Pin.PULL_UP)
+btn_Y = Pin(PIN_BTN_Y, Pin.IN, Pin.PULL_UP)
 
 # =====================================================
 # Constants
@@ -42,7 +69,7 @@ PID_INTERVAL_MS = const(20)  # 50 Hz
 # Display update (every N-th PID cycle to avoid display overhead each loop)
 DISPLAY_EVERY = const(5)  # 10 Hz display refresh
 
-# Telemetry decimation: 1=every cycle, N=every Nth (high for REPL, lower for SD)
+# Telemetry decimation: 1=every cycle, N=every Nth
 TELEMETRY_SAMPLE_EVERY = const(10)
 
 
@@ -57,8 +84,7 @@ def buttons_by_held():
 def main():
     pid = PID(kp=5.0, ki=0.5, kd=0.0, integral_limit=200.0)
     mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX)
-    telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY)
-    motors = MotorThrottleGroup([MOTOR1_PIN, MOTOR2_PIN], DSHOT_SPEEDS.DSHOT600)
+    motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
 
     try:
         while True:
@@ -81,6 +107,12 @@ def main():
 
             # ----- STATE 4: STABILIZING -----
             pid.reset()
+            sink = SdSink(
+                sck=PIN_SD_SCK, mosi=PIN_SD_MOSI,
+                miso=PIN_SD_MISO, cs=PIN_SD_CS,
+                rtc_sda=PIN_RTC_SDA, rtc_scl=PIN_RTC_SCL,
+            )
+            telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY, sink=sink)
             telemetry.begin_session()
             loop_count = 0
             prev_ms = utime.ticks_ms()
@@ -134,6 +166,5 @@ def main():
 
     finally:
         motors.stop()
-
 
 main()
