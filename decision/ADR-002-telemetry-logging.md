@@ -35,15 +35,29 @@ Stacks directly onto the Raspberry Pi Pico 2. Provides:
 | **I2C** | STEMMA QT connector on GPIO 4 (SDA) / GPIO 5 (SCL) |
 | **SD detect** | Optional, GPIO 15 |
 
-### Pin Conflict
+### Pin Conflicts
 
-The Adalogger's I2C bus (GPIO 4/5) and optional SD card detect (GPIO 15) conflict with current pin assignments:
+**Conflict 1 — I2C (resolved):** The Adalogger's I2C bus (GPIO 4/5) overlaps with the original motor pins:
 
-| GPIO | Current use | Adalogger use |
-|------|-------------|---------------|
+| GPIO | Original use | Adalogger use |
+|------|--------------|---------------|
 | 4 | Motor 1 DShot | I2C SDA (RTC + STEMMA QT) |
 | 5 | Motor 2 DShot | I2C SCL (RTC + STEMMA QT) |
-| 15 | Button Y | SD card detect (optional) |
+
+Resolved by moving motors to GPIO 6/7 (see Decision below).
+
+**Conflict 2 — SPI0 vs Pimoroni Display Pack (resolved — see ADR-004):** The Adalogger's SD card and the Pimoroni Pico Display Pack both claim SPI0 on GPIO 16–19 with incompatible pin roles:
+
+| GPIO | Adalogger SD card | Pimoroni Display |
+|------|-------------------|------------------|
+| 16 | SPI0 MISO (data from card) | DC (data/command select) |
+| 17 | SPI0 CS (chip select) | CS (chip select) |
+| 18 | SPI0 SCK | SPI0 SCK |
+| 19 | SPI0 MOSI | SPI0 MOSI |
+
+SPI buses *can* host multiple devices sharing SCK/MOSI/MISO with separate CS lines. However, these two boards cannot coexist because: (1) GPIO 17 is CS for both — no way to select one without selecting the other, and (2) GPIO 16 serves fundamentally different electrical functions (bidirectional data vs unidirectional control signal). When `SdSink` initializes SPI0 for SD card access, it reconfigures the bus the display depends on, freezing the LCD.
+
+**SD card detect** on GPIO 15 — skipped. The SD library detects the card by attempting to mount. Button Y (GPIO 15) is more valuable for the UI.
 
 ### I2C bus mapping gotcha
 
@@ -62,6 +76,8 @@ Move DShot motor outputs to unused GPIOs. The PIO state machine can use any GPIO
 
 This frees GPIO 4/5 for the Adalogger's RTC (via SoftI2C) and preserves the existing I2C bus on GPIO 0/1 for sensors (AS5600 + BNO085).
 
+**Note:** Motors later moved from GPIO 6/7 to GPIO 10/11 (ADR-004) to free pins for the RGB LED.
+
 SD card detect on GPIO 15 — skip it. The SD library can detect the card by attempting to mount. Button Y (GPIO 15) is more valuable for the UI.
 
 ### Resulting bus topology
@@ -71,11 +87,13 @@ I2C Bus 0 (GPIO 0/1, 400 kHz)     SoftI2C (GPIO 4/5, 100 kHz)
 ├── AS5600 encoder  [0x36]          └── PCF8523 RTC  [0x68]
 └── BNO085 IMU      [0x4A]
 
-SPI Bus 0 (GPIO 16/17/18/19)
-└── MicroSD card
+SPI Bus 0 (GPIO 16/17/18/19)       ← conflict resolved: LCD disconnected (ADR-004)
+└── MicroSD card (Adalogger)
 ```
 
 Separating the RTC onto a bit-banged bus avoids adding traffic to the sensor bus, which is latency-sensitive for the control loop. SoftI2C is acceptable because the RTC is read once per session for filename generation only.
+
+**SPI0 conflict status:** Resolved in ADR-004. The display pack LCD is disconnected; only buttons (GPIO 12–15) and RGB LED (GPIO 6/7/8) are wired. SD card has exclusive use of SPI0. Motors moved from GPIO 6/7 to GPIO 10/11 to free RGB LED pins.
 
 ### Timestamp strategy
 
@@ -155,7 +173,8 @@ A production flight controller would isolate telemetry failures from the control
 
 ### Risks
 
-- **SPI bandwidth** — SD writes share SPI pins with nothing else currently, but SPI transactions take time. If PID jitter is observed, add RAM buffering.
+- **~~SPI0 pin conflict~~** — Resolved in ADR-004 (LCD disconnected, SD card has exclusive SPI0 access).
+- **SPI bandwidth** — SD writes take time. If PID jitter is observed after the SPI conflict is resolved, add RAM buffering.
 - **Power loss** — With direct writes, the last few lines may be lost. Acceptable for a test bench.
 - **SD card reliability** — Frequent small writes can wear SD cards. Log files are small (few MB per run), so this is not a practical concern.
 - **PCF8523 drift** — RTC accuracy is ±2 ppm (~1 minute/year). Adequate for filename timestamps; not a precision time source.
@@ -163,4 +182,4 @@ A production flight controller would isolate telemetry failures from the control
 ## Dependencies
 
 - `sdcard.py` MicroPython driver (from micropython-lib, with stop bit fix applied)
-- Motor pin reassignment in `main.py` (GPIO 4/5 → GPIO 6/7) — done
+- Motor pin reassignment in `main.py` (GPIO 4/5 → GPIO 6/7 → GPIO 10/11) — done (final move in ADR-004)

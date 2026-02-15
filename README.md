@@ -8,7 +8,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **AS5600 Magnetic Encoder** — 12-bit absolute position at pivot (ground truth reference, ~0.088° resolution)
 - **BNO085 IMU** — 9-axis IMU with onboard sensor fusion (future primary control input)
 - **2x Drone Motors + ESCs** — DShot600 protocol via PIO, mounted on opposite ends of lever
-- **Pimoroni Pico Display Pack** — 240x135 LCD for real-time status
+- **Pimoroni Pico Display Pack** — Buttons + RGB LED only; LCD disconnected (see [ADR-004](decision/ADR-004-operator-interface.md))
 - **Adafruit PiCowbell Adalogger** — PCF8523 RTC + MicroSD for black box telemetry logging
 - **Power Distribution Board** — Motor power supply
 
@@ -32,7 +32,7 @@ Replace AS5600 with BNO085 quaternion/euler output as the sole PID input. AS5600
 
 Timestamped CSV logging to SD card via Adalogger PiCowbell. RTC provides wall-clock filenames (`log_YYYY-MM-DD_hh-mm-ss.csv`), `ticks_ms` provides precise row timing. Logs stored under `/sd/blackbox/`. See [ADR-002](decision/ADR-002-telemetry-logging.md).
 
-Motor pins reassigned from GPIO 4/5 to GPIO 6/7 to free I2C for the Adalogger RTC.
+Motor pins reassigned from GPIO 4/5 → 6/7 → 10/11 (freeing I2C for Adalogger RTC, then RGB LED pins).
 
 ### M3: Mixer abstraction — DONE
 
@@ -68,7 +68,7 @@ See [ADR-001, "Test Bench vs Real Drone" section](decision/ADR-001-pid-lever-sta
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
 ├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
-├── pimoroni/display/    # Display driver
+├── pimoroni/            # Display driver (not deployed — LCD disconnected)
 ├── decision/            # Architecture Decision Records
 └── resources/           # Datasheets, protocol docs
 ```
@@ -89,7 +89,6 @@ Upload to Pico root (flat structure):
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `i2c.py`
 - `DShot/driver/dshot_pio.py` + `motor_throttle_group.py`
-- `pimoroni/display/display_pack.py`
 
 ## License
 

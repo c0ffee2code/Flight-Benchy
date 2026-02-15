@@ -5,8 +5,6 @@ import utime
 from as5600 import AS5600, to_degrees
 from motor_throttle_group import MotorThrottleGroup
 from dshot_pio import DSHOT_SPEEDS
-from display_pack import (draw_disarmed, draw_arming, draw_ready,
-                          draw_stabilizing, draw_error)
 from pid import PID
 from recorder import TelemetryRecorder, SdSink
 from mixer import LeverMixer
@@ -26,9 +24,14 @@ PIN_IMU_INT    = const(3)
 PIN_RTC_SDA    = const(4)
 PIN_RTC_SCL    = const(5)
 
-# DShot motors (moved from GP4/5 to free I2C for Adalogger, see ADR-002)
-PIN_MOTOR1     = const(6)
-PIN_MOTOR2     = const(7)
+# RGB LED from display pack (active HIGH, accent colors only — LCD disconnected)
+PIN_LED_R      = const(6)   # Red — error
+PIN_LED_G      = const(7)   # Green — armed / stabilizing
+PIN_LED_B      = const(8)   # Blue — idle / ready to arm
+
+# DShot motors (moved from GP6/7 to free RGB LED pins, see ADR-004)
+PIN_MOTOR1     = const(10)
+PIN_MOTOR2     = const(11)
 
 # Display buttons (active LOW)
 PIN_BTN_A      = const(12)
@@ -48,6 +51,10 @@ PIN_SD_MOSI    = const(19)
 i2c = I2C(0, scl=Pin(PIN_I2C0_SCL), sda=Pin(PIN_I2C0_SDA), freq=400_000)
 encoder = AS5600(i2c=i2c)
 
+led_r = Pin(PIN_LED_R, Pin.OUT)
+led_g = Pin(PIN_LED_G, Pin.OUT)
+led_b = Pin(PIN_LED_B, Pin.OUT)
+
 btn_A = Pin(PIN_BTN_A, Pin.IN, Pin.PULL_UP)
 btn_B = Pin(PIN_BTN_B, Pin.IN, Pin.PULL_UP)
 btn_Y = Pin(PIN_BTN_Y, Pin.IN, Pin.PULL_UP)
@@ -66,17 +73,19 @@ BASE_THROTTLE = const(300)
 # Control loop timing
 PID_INTERVAL_MS = const(20)  # 50 Hz
 
-# Display update (every N-th PID cycle to avoid display overhead each loop)
-DISPLAY_EVERY = const(5)  # 10 Hz display refresh
-
 # Telemetry decimation: 1=every cycle, N=every Nth
 TELEMETRY_SAMPLE_EVERY = const(10)
+
+def set_led(r=0, g=0, b=0):
+    """Set RGB LED state. Active LOW (common anode) — 0 turns LED on."""
+    led_r.value(not r)
+    led_g.value(not g)
+    led_b.value(not b)
 
 
 def buttons_by_held():
     """Return True if B+Y are both pressed (active low)."""
     return not btn_B.value() and not btn_Y.value()
-
 
 # =====================================================
 # Main
@@ -89,20 +98,18 @@ def main():
     try:
         while True:
             # ----- STATE 1: DISARMED -----
-            draw_disarmed()
+            set_led(b=1)
             while not buttons_by_held():
                 utime.sleep_ms(50)
 
             # ----- STATE 2: ARMING -----
             motors.start()
-            draw_arming()
+            set_led(g=1)
             motors.arm()
             motors.setAllThrottles([THROTTLE_MIN, THROTTLE_MIN])
 
             # ----- STATE 3: READY CHECK -----
             while btn_A.value():  # wait for A press
-                angle = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
-                draw_ready(angle)
                 utime.sleep_ms(100)
 
             # ----- STATE 4: STABILIZING -----
@@ -114,7 +121,6 @@ def main():
             )
             telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY, sink=sink)
             telemetry.begin_session()
-            loop_count = 0
             prev_ms = utime.ticks_ms()
 
             while True:
@@ -149,19 +155,13 @@ def main():
                     output, m1, m2
                 )
 
-                # Display at reduced rate
-                loop_count += 1
-                if loop_count >= DISPLAY_EVERY:
-                    loop_count = 0
-                    draw_stabilizing(angle, m1, m2)
-
             # ----- DISARM -----
             telemetry.end_session()
             motors.disarm()
             motors.stop()
 
     except Exception as e:
-        draw_error(str(e))
+        set_led(r=1)
         raise
 
     finally:

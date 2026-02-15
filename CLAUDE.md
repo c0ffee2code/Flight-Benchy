@@ -18,6 +18,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/ADR-001-pid-lever-stabilization.md`.
 - M2a — Black box telemetry logging to SD card via Adalogger PiCowbell. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package.
+- ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
 
 **Current focus:** M2 — Switch PID input from AS5600 to BNO085 IMU. The IMU will be the primary and only control input (as on a real drone). AS5600 becomes telemetry-only ground truth for measuring IMU lag and angle error.
 
@@ -31,7 +32,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **Raspberry Pi Pico 2** - Main microcontroller
 - **BNO085 IMU** - 9-axis IMU with onboard sensor fusion, provides quaternion output
 - **AS5600 Magnetic Encoder** - 12-bit absolute position encoder (reference sensor)
-- **Pimoroni Pico Display Pack** - 240x135 LCD for real-time data visualization
+- **Pimoroni Pico Display Pack** - Buttons (GPIO 12–15) + RGB LED (GPIO 6/7/8) only; LCD disconnected to resolve SPI0 conflict (see ADR-004)
 - **2x Drone Motors + ESCs** - DShot protocol control via PIO
 - **Adafruit PiCowbell Adalogger** - PCF8523 RTC + MicroSD for telemetry logging (see ADR-002)
 - **Power Distribution Board** - Motor power supply
@@ -55,7 +56,8 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   └── driver/
 │       ├── dshot_pio.py
 │       └── motor_throttle_group.py
-├── pimoroni/            # Display driver (upload to Pico)
+├── pimoroni/
+│   └── pico_display_pack.py  # Display driver (NOT deployed — LCD disconnected, see ADR-004)
 ├── decision/            # Architecture Decision Records
 └── resources/           # Docs, datasheets
 ```
@@ -69,7 +71,6 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
 - `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
-- `pimoroni/display/display_pack.py`
 
 ## Architecture
 
@@ -91,9 +92,9 @@ Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center
 - `bno08x.py` - BNO08x driver with SHTP protocol, interrupt-driven sensor updates, quaternion/euler output, and precise timestamp tracking.
 - `i2c.py` - I2C transport layer for BNO08x. Handles non-standard clock stretching and fragment reassembly.
 
-### Display (`pimoroni/display/`)
+### Operator Interface (buttons + RGB LED)
 
-- `display_pack.py` - Display abstraction using PicoGraphics library.
+Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8 from the Pimoroni Display Pack. LCD is disconnected (SPI0 conflict with Adalogger SD card, see ADR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `pimoroni/pico_display_pack.py` remains in repo for reference but is not deployed.
 
 ### Motor Control (`DShot/driver/`)
 
@@ -122,12 +123,15 @@ All pin constants are defined in `main.py` with descriptive names:
 | 3 | `PIN_IMU_INT` | BNO085 interrupt |
 | 4 | `PIN_RTC_SDA` | Adalogger RTC SoftI2C SDA |
 | 5 | `PIN_RTC_SCL` | Adalogger RTC SoftI2C SCL |
-| 6 | `PIN_MOTOR1` | Motor 1 DShot |
-| 7 | `PIN_MOTOR2` | Motor 2 DShot |
-| 12 | `PIN_BTN_A` | Display button A |
-| 13 | `PIN_BTN_B` | Display button B |
-| 14 | `PIN_BTN_X` | Display button X |
-| 15 | `PIN_BTN_Y` | Display button Y |
+| 6 | `PIN_LED_R` | RGB LED Red — error |
+| 7 | `PIN_LED_G` | RGB LED Green — armed/stabilizing |
+| 8 | `PIN_LED_B` | RGB LED Blue — ready to arm |
+| 10 | `PIN_MOTOR1` | Motor 1 DShot |
+| 11 | `PIN_MOTOR2` | Motor 2 DShot |
+| 12 | `PIN_BTN_A` | Button A |
+| 13 | `PIN_BTN_B` | Button B |
+| 14 | `PIN_BTN_X` | Button X |
+| 15 | `PIN_BTN_Y` | Button Y |
 | 16 | `PIN_SD_MISO` | Adalogger SD card MISO (SPI0) |
 | 17 | `PIN_SD_CS` | Adalogger SD card CS (SPI0) |
 | 18 | `PIN_SD_SCK` | Adalogger SD card SCK (SPI0) |
