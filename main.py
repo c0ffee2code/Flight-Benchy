@@ -1,8 +1,11 @@
 from micropython import const
 from machine import I2C, Pin
+from math import sin, cos, radians, degrees, atan2
 import utime
 
 from as5600 import AS5600, to_degrees
+from bno08x import BNO08X
+from i2c import BNO08X_I2C
 from motor_throttle_group import MotorThrottleGroup
 from dshot_pio import DSHOT_SPEEDS
 from pid import PID
@@ -50,6 +53,12 @@ PIN_SD_MOSI    = const(19)
 # =====================================================
 i2c = I2C(0, scl=Pin(PIN_I2C0_SCL), sda=Pin(PIN_I2C0_SDA), freq=400_000)
 encoder = AS5600(i2c=i2c)
+imu = BNO08X_I2C(
+    i2c,
+    address=0x4A,
+    reset_pin=Pin(PIN_IMU_RST, Pin.OUT),
+    int_pin=Pin(PIN_IMU_INT, Pin.IN, Pin.PULL_UP),
+)
 
 led_r = Pin(PIN_LED_R, Pin.OUT)
 led_g = Pin(PIN_LED_G, Pin.OUT)
@@ -73,6 +82,9 @@ BASE_THROTTLE = const(300)
 # Control loop timing
 PID_INTERVAL_MS = const(20)  # 50 Hz
 
+# IMU report rate — 2x PID rate ensures fresh data each cycle
+IMU_REPORT_HZ = const(100)
+
 # Telemetry decimation: 1=every cycle, N=every Nth
 TELEMETRY_SAMPLE_EVERY = const(10)
 
@@ -83,6 +95,12 @@ def set_led(r=0, g=0, b=0):
     led_b.value(not b)
 
 
+def angle_to_quat(deg):
+    """Convert single-axis (roll/X) angle in degrees to quaternion (qr, qi, qj, qk)."""
+    half = radians(deg) / 2
+    return (cos(half), sin(half), 0.0, 0.0)
+
+
 def buttons_by_held():
     """Return True if B+Y are both pressed (active low)."""
     return not btn_B.value() and not btn_Y.value()
@@ -91,7 +109,7 @@ def buttons_by_held():
 # Main
 # =====================================================
 def main():
-    pid = PID(kp=5.0, ki=0.5, kd=0.0, integral_limit=200.0)
+    pid = PID(kp=3.5, ki=0.4, kd=0.3, integral_limit=50.0)
     mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX)
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
 
@@ -114,13 +132,41 @@ def main():
 
             # ----- STATE 4: STABILIZING -----
             pid.reset()
+            imu.game_quaternion.enable(hertz=IMU_REPORT_HZ)
             sink = SdSink(
                 sck=PIN_SD_SCK, mosi=PIN_SD_MOSI,
                 miso=PIN_SD_MISO, cs=PIN_SD_CS,
                 rtc_sda=PIN_RTC_SDA, rtc_scl=PIN_RTC_SCL,
             )
             telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY, sink=sink)
-            telemetry.begin_session()
+            config = (
+                "# Flight Benchy run configuration\n"
+                "imu:\n"
+                "  report: game_rotation_vector\n"
+                "  report_hz: {}\n"
+                "pid:\n"
+                "  hz: {}\n"
+                "  kp: {}\n"
+                "  ki: {}\n"
+                "  kd: {}\n"
+                "  integral_limit: {}\n"
+                "motor:\n"
+                "  base_throttle: {}\n"
+                "  throttle_min: {}\n"
+                "  throttle_max: {}\n"
+                "encoder:\n"
+                "  axis_center: {}\n"
+                "telemetry:\n"
+                "  sample_every: {}\n"
+            ).format(
+                IMU_REPORT_HZ,
+                1000 // PID_INTERVAL_MS,
+                pid.kp, pid.ki, pid.kd, pid.integral_limit,
+                BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX,
+                AXIS_CENTER,
+                TELEMETRY_SAMPLE_EVERY,
+            )
+            telemetry.begin_session(config=config)
             prev_ms = utime.ticks_ms()
 
             while True:
@@ -138,11 +184,19 @@ def main():
 
                 dt = dt_ms / 1000.0
 
-                # Read angle
-                angle = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
+                # Read IMU quaternion (no euler conversion in hot loop)
+                imu.update_sensors()
+                iqr, iqi, iqj, iqk = imu.game_quaternion
 
-                # PID — target is 0°, error = angle (sign verified on hardware)
-                output = pid.compute(angle, dt)
+                # Extract roll angle for PID (single atan2, cheaper than full euler)
+                imu_roll = degrees(2.0 * atan2(iqi, iqr))
+
+                # Read encoder (ground truth, telemetry only)
+                enc_angle = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
+                eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
+
+                # PID — target is 0°, input is IMU roll
+                output = pid.compute(imu_roll, dt)
 
                 m1, m2 = mixer.compute(output)
 
@@ -150,8 +204,10 @@ def main():
                 motors.setThrottle(1, m2)
 
                 telemetry.record(
-                    now_ms, angle, None,
-                    angle, pid.last_p, pid.last_i, pid.last_d,
+                    now_ms,
+                    eqr, eqi, eqj, eqk,
+                    iqr, iqi, iqj, iqk,
+                    imu_roll, pid.last_p, pid.last_i, pid.last_d,
                     output, m1, m2
                 )
 

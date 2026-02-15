@@ -6,7 +6,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 - **Raspberry Pi Pico 2** — Main microcontroller (RP2350, dual-core)
 - **AS5600 Magnetic Encoder** — 12-bit absolute position at pivot (ground truth reference, ~0.088° resolution)
-- **BNO085 IMU** — 9-axis IMU with onboard sensor fusion (future primary control input)
+- **BNO085 IMU** — 9-axis IMU with onboard sensor fusion (primary control input, game rotation vector)
 - **2x Drone Motors + ESCs** — DShot600 protocol via PIO, mounted on opposite ends of lever
 - **Pimoroni Pico Display Pack** — Buttons + RGB LED only; LCD disconnected (see [ADR-004](decision/ADR-004-operator-interface.md))
 - **Adafruit PiCowbell Adalogger** — PCF8523 RTC + MicroSD for black box telemetry logging
@@ -22,15 +22,13 @@ Metal frame with 3D-printed elements forming a swinging lever pivoting around a 
 
 Single PI(D) loop at 50 Hz using AS5600 encoder feedback. Differential thrust mixer for 2 motors. Lever holds at 0° within ±3°. See [ADR-001](decision/ADR-001-pid-lever-stabilization.md).
 
-### M2: Switch to BNO085 IMU as primary control input
+### M2: Switch to BNO085 IMU as primary control input — DONE
 
-Replace AS5600 with BNO085 quaternion/euler output as the sole PID input. AS5600 becomes telemetry-only for measuring IMU-vs-encoder error and lag. This is the critical step — a real drone has no encoder.
-
-**Depends on:** BNO085 driver delivering reliable, low-latency quaternion data.
+PID input switched from AS5600 encoder to BNO085 game rotation vector (gyro+accel, no magnetometer). Roll angle extracted from quaternion via single `atan2`. AS5600 encoder retained as telemetry-only ground truth. Telemetry now stores raw quaternions from both sensors for offline analysis. See [ADR-005](decision/ADR-005-bno085-pid-input.md).
 
 ### M2a: Telemetry logging (black box) — DONE
 
-Timestamped CSV logging to SD card via Adalogger PiCowbell. RTC provides wall-clock filenames (`log_YYYY-MM-DD_hh-mm-ss.csv`), `ticks_ms` provides precise row timing. Logs stored under `/sd/blackbox/`. See [ADR-002](decision/ADR-002-telemetry-logging.md).
+Timestamped CSV logging to SD card via Adalogger PiCowbell. Each run creates a folder (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml` (system settings snapshot). `ticks_ms` provides precise row timing. See [ADR-002](decision/ADR-002-telemetry-logging.md).
 
 Motor pins reassigned from GPIO 4/5 → 6/7 → 10/11 (freeing I2C for Adalogger RTC, then RGB LED pins).
 
@@ -68,6 +66,9 @@ See [ADR-001, "Test Bench vs Real Drone" section](decision/ADR-001-pid-lever-sta
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
 ├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
+├── tools/
+│   └── analyse_telemetry.py  # Desktop telemetry analyser (matplotlib + numpy)
+├── test_runs/           # Copied run folders from SD card for offline analysis
 ├── pimoroni/            # Display driver (not deployed — LCD disconnected)
 ├── decision/            # Architecture Decision Records
 └── resources/           # Datasheets, protocol docs

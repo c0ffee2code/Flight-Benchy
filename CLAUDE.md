@@ -16,14 +16,14 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 **Completed:**
 - M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/ADR-001-pid-lever-stabilization.md`.
+- M2 — BNO085 IMU as primary PID input (game rotation vector). AS5600 encoder is telemetry-only ground truth. Quaternion telemetry format. See `decision/ADR-005-bno085-pid-input.md`.
 - M2a — Black box telemetry logging to SD card via Adalogger PiCowbell. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package.
 - ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
 
-**Current focus:** M2 — Switch PID input from AS5600 to BNO085 IMU. The IMU will be the primary and only control input (as on a real drone). AS5600 becomes telemetry-only ground truth for measuring IMU lag and angle error.
+**Current focus:** M4 — Cascaded PID (angle loop + rate loop using raw gyro).
 
 **Roadmap (see README.md for full details):**
-- M2: BNO085 as primary control input (depends on driver work)
 - M4: Cascaded PID — angle loop + rate loop using raw gyro (depends on M2, M2a, M3)
 - M5: Multi-axis control (depends on hardware evolution)
 
@@ -56,6 +56,12 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   └── driver/
 │       ├── dshot_pio.py
 │       └── motor_throttle_group.py
+├── tools/
+│   └── analyse_telemetry.py  # Desktop telemetry analyser (not deployed to Pico)
+├── test_runs/           # Copied run folders from SD card for analysis
+│   └── YYYY-MM-DD_hh-mm-ss/  # One folder per run
+│       ├── config.yaml  # System settings snapshot (PID gains, motor limits, etc.)
+│       └── log.csv      # Telemetry CSV
 ├── pimoroni/
 │   └── pico_display_pack.py  # Display driver (NOT deployed — LCD disconnected, see ADR-004)
 ├── decision/            # Architecture Decision Records
@@ -77,10 +83,10 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 ### Telemetry (`telemetry/`)
 
 - `recorder.py` — Contains the full telemetry pipeline:
-  - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink.
-  - `PrintSink` — prints CSV rows to REPL serial console.
-  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, RTC read, file create, write, unmount). Constructed with pin numbers; encapsulates all Adalogger hardware interaction.
-  - `read_rtc(sda, scl)` — one-shot SoftI2C read of PCF8523 RTC. Used by `SdSink` for filename generation.
+  - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink. `begin_session(config=None)` accepts an optional YAML config string. CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,ERR,P,I,D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
+  - `PrintSink` — prints CSV rows to REPL serial console. No-op `write_config()`.
+  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, RTC read, directory create, write, unmount). Creates a folder-per-run directory (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml`.
+  - `read_rtc(sda, scl)` — one-shot SoftI2C read of PCF8523 RTC. Used by `SdSink` for directory naming.
 - `sdcard.py` — SD card SPI driver from micropython-lib with a stop bit fix (`crc | 0x01`). The upstream driver omits the mandatory end bit in the SPI command frame, which causes some cards to reject all commands after CMD8.
 
 ### AS5600 Encoder (`AS5600/driver/as5600.py`)
@@ -101,9 +107,25 @@ Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8 from the Pimoroni Display Pack
 - `dshot_pio.py` - Low-level DShot protocol via RP2040/RP2350 PIO. Supports DSHOT150/300/600/1200.
 - `motor_throttle_group.py` - Dual-core facade for managing multiple motors. Core 1 runs a dedicated 1kHz command loop for reliable ESC communication. Provides arming, throttle control, emergency stop, and health monitoring.
 
+### Telemetry Analyser (`tools/analyse_telemetry.py`)
+
+Desktop Python script (not deployed to Pico). Reads run folders from `test_runs/`, converts quaternions to roll angles offline, produces 4-subplot diagnostic figures and console statistics. Supports single-run analysis and two-run side-by-side comparison. Dependencies: `numpy`, `matplotlib`, `pyyaml`.
+
+### Folder-per-run Convention
+
+Each stabilisation session creates a timestamped directory on the SD card:
+```
+/sd/blackbox/YYYY-MM-DD_hh-mm-ss/
+    config.yaml    # System settings (PID gains, motor limits, IMU rate, etc.)
+    log.csv        # Telemetry CSV
+```
+
+`config.yaml` is written as plain string formatting on MicroPython (no YAML library) and parsed with `pyyaml` on desktop. Contains: `imu`, `pid`, `motor`, `encoder`, `telemetry` sections.
+
 ## Key Constants
 
 - `AXIS_CENTER` in `main.py` - Encoder offset for horizontal lever position (recalibrate when mechanical setup changes)
+- `IMU_REPORT_HZ` in `main.py` - BNO085 game rotation vector report rate (100 Hz, 2x PID rate)
 
 ## I2C Addresses
 

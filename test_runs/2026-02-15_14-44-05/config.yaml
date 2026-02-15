@@ -1,0 +1,18 @@
+# Flight Benchy run configuration
+imu:
+  report: game_rotation_vector
+  report_hz: 100
+pid:
+  hz: 50
+  kp: 5.0
+  ki: 0.5
+  kd: 0.0
+  integral_limit: 200.0
+motor:
+  base_throttle: 300
+  throttle_min: 70
+  throttle_max: 600
+encoder:
+  axis_center: 422
+telemetry:
+  sample_every: 10

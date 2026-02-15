@@ -33,6 +33,10 @@ def read_rtc(sda, scl, addr=0x68):
 class PrintSink:
     """Output backend that prints CSV rows to REPL serial console."""
 
+    def write_config(self, yaml_str):
+        """No-op — config only relevant for SD card runs."""
+        pass
+
     def write(self, line):
         """Emit a single CSV line to stdout."""
         print(line)
@@ -55,7 +59,7 @@ class SdSink:
     """
 
     def __init__(self, sck, mosi, miso, cs, rtc_sda, rtc_scl):
-        """Mount SD card, read RTC, and open a new log file.
+        """Mount SD card, read RTC, and create a run directory.
 
         Args:
             sck, mosi, miso, cs: SD card SPI0 pin numbers.
@@ -70,23 +74,34 @@ class SdSink:
         self._vfs = os.VfsFat(self._sd)
         os.mount(self._vfs, _SD_MOUNT)
 
-        # Read RTC for filename
+        # Read RTC for directory name
         dt = read_rtc(sda=rtc_sda, scl=rtc_scl)
 
-        # Create log directory and open file
+        # Create blackbox/ and run directory
         try:
             os.mkdir(_LOG_DIR)
         except OSError:
             pass  # already exists
-        self._path = "{}/log_{:04d}-{:02d}-{:02d}_{:02d}-{:02d}-{:02d}.csv".format(
+        self._run_dir = "{}/{:04d}-{:02d}-{:02d}_{:02d}-{:02d}-{:02d}".format(
             _LOG_DIR, dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]
         )
+        os.mkdir(self._run_dir)
+
+        # Open log file inside run directory
+        self._path = self._run_dir + "/log.csv"
         self._f = open(self._path, "w")
 
     @property
     def path(self):
-        """Return the log file path (useful for diagnostics)."""
-        return self._path
+        """Return the run directory path (useful for diagnostics)."""
+        return self._run_dir
+
+    def write_config(self, yaml_str):
+        """Write config.yaml into the run directory."""
+        cfg_path = self._run_dir + "/config.yaml"
+        f = open(cfg_path, "w")
+        f.write(yaml_str)
+        f.close()
 
     def write(self, line):
         """Append a CSV line to the log file."""
@@ -107,7 +122,7 @@ class SdSink:
 class TelemetryRecorder:
     """Facade that decimates and formats telemetry rows, delegating I/O to a sink."""
 
-    _HEADER = "T_MS,ENC_DEG,IMU_DEG,ERR,P,I,D,PID_OUT,M1,M2"
+    _HEADER = "T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,ERR,P,I,D,PID_OUT,M1,M2"
 
     def __init__(self, sample_every, sink=None):
         """Set decimation rate and output backend (defaults to PrintSink)."""
@@ -115,21 +130,27 @@ class TelemetryRecorder:
         self._sink = sink or PrintSink()
         self._counter = 0
 
-    def begin_session(self):
-        """Reset counter and emit CSV header. Call when entering STABILIZING state."""
+    def begin_session(self, config=None):
+        """Reset counter, write config (if provided), and emit CSV header.
+
+        Call when entering STABILIZING state.
+        """
         self._counter = 0
+        if config is not None:
+            self._sink.write_config(config)
         self._sink.write(self._HEADER)
 
-    def record(self, t_ms, enc_deg, imu_deg, err, p, i, d, pid_out, m1, m2):
+    def record(self, t_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
+               err, p, i, d, pid_out, m1, m2):
         """Format and emit a CSV row every sample_every-th call. Others are silently dropped."""
         self._counter += 1
         if self._counter < self._sample_every:
             return
         self._counter = 0
 
-        imu_s = "" if imu_deg is None else "{:.2f}".format(imu_deg)
-        line = "{},{:.2f},{},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{},{}".format(
-            t_ms, enc_deg, imu_s, err, p, i, d, pid_out, m1, m2
+        line = "{},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{},{}".format(
+            t_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
+            err, p, i, d, pid_out, m1, m2
         )
         self._sink.write(line)
 
