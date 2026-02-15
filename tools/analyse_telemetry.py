@@ -325,8 +325,14 @@ def plot_run(cols, config, label, axes=None):
     ax1, ax2, ax3, ax4 = axes
 
     # 1. Angle tracking
+    predicted_roll = cols.get("ERR")
+    has_prediction = (predicted_roll is not None
+                      and not np.allclose(predicted_roll, imu_roll, atol=0.01))
     ax1.plot(t_s, enc_roll, label="Encoder", linewidth=0.8)
-    ax1.plot(t_s, imu_roll, label="IMU", linewidth=0.8)
+    ax1.plot(t_s, imu_roll, label="IMU (raw)", linewidth=0.8, alpha=0.6)
+    if has_prediction:
+        ax1.plot(t_s, predicted_roll, label="Predicted", linewidth=0.8,
+                 linestyle="--")
     ax1.set_ylabel("Roll (deg)")
     ax1.set_title("Angle Tracking")
     ax1.legend(loc="upper right", fontsize=8)

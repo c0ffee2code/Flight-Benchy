@@ -88,6 +88,10 @@ IMU_REPORT_HZ = const(100)
 # Telemetry decimation: 1=every cycle, N=every Nth
 TELEMETRY_SAMPLE_EVERY = const(10)
 
+# Predictive correction — compensate IMU lag by extrapolating with angular rate
+# ~60ms = BNO085 fusion filter group delay. See ADR-006 for latency budget.
+LEAD_TIME_MS = const(60)
+
 def set_led(r=0, g=0, b=0):
     """Set RGB LED state. Active LOW (common anode) — 0 turns LED on."""
     led_r.value(not r)
@@ -105,6 +109,135 @@ def buttons_by_held():
     """Return True if B+Y are both pressed (active low)."""
     return not btn_B.value() and not btn_Y.value()
 
+
+# =====================================================
+# State helpers
+# =====================================================
+
+def wait_for_arm():
+    """Blue LED, block until B+Y held."""
+    set_led(b=1)
+    while not buttons_by_held():
+        utime.sleep_ms(50)
+
+
+def arm_motors(motors):
+    """Green LED, enable IMU fusion, start DShot, arm ESCs."""
+    set_led(g=1)
+    imu.game_quaternion.enable(hertz=IMU_REPORT_HZ)
+    motors.start()
+    motors.arm()
+    motors.setAllThrottles([THROTTLE_MIN, THROTTLE_MIN])
+
+
+def wait_for_go():
+    """Block until button A is pressed."""
+    while btn_A.value():
+        utime.sleep_ms(100)
+
+
+def init_session(pid):
+    """Create telemetry sink, write config, return TelemetryRecorder."""
+    sink = SdSink(
+        sck=PIN_SD_SCK, mosi=PIN_SD_MOSI,
+        miso=PIN_SD_MISO, cs=PIN_SD_CS,
+        rtc_sda=PIN_RTC_SDA, rtc_scl=PIN_RTC_SCL,
+    )
+    telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY, sink=sink)
+    config = (
+        "# Flight Benchy run configuration\n"
+        "imu:\n"
+        "  report: game_rotation_vector\n"
+        "  report_hz: {}\n"
+        "pid:\n"
+        "  hz: {}\n"
+        "  kp: {}\n"
+        "  ki: {}\n"
+        "  kd: {}\n"
+        "  integral_limit: {}\n"
+        "motor:\n"
+        "  base_throttle: {}\n"
+        "  throttle_min: {}\n"
+        "  throttle_max: {}\n"
+        "encoder:\n"
+        "  axis_center: {}\n"
+        "telemetry:\n"
+        "  sample_every: {}\n"
+        "prediction:\n"
+        "  lead_time_ms: {}\n"
+    ).format(
+        IMU_REPORT_HZ,
+        1000 // PID_INTERVAL_MS,
+        pid.kp, pid.ki, pid.kd, pid.integral_limit,
+        BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX,
+        AXIS_CENTER,
+        TELEMETRY_SAMPLE_EVERY,
+        LEAD_TIME_MS,
+    )
+    telemetry.begin_session(config=config)
+    return telemetry
+
+
+def stabilize(pid, mixer, motors, telemetry):
+    """Run PID control loop until B+Y disarm combo."""
+    # Seed previous roll for first-cycle rate estimate
+    imu.update_sensors()
+    iqr, iqi, iqj, iqk = imu.game_quaternion
+    prev_imu_roll = degrees(2.0 * atan2(iqi, iqr))
+    prev_ms = utime.ticks_ms()
+
+    lead_s = LEAD_TIME_MS / 1000.0
+
+    while True:
+        if buttons_by_held():
+            break
+
+        now_ms = utime.ticks_ms()
+        dt_ms = utime.ticks_diff(now_ms, prev_ms)
+        if dt_ms < PID_INTERVAL_MS:
+            utime.sleep_ms(PID_INTERVAL_MS - dt_ms)
+            now_ms = utime.ticks_ms()
+            dt_ms = utime.ticks_diff(now_ms, prev_ms)
+        prev_ms = now_ms
+
+        dt = dt_ms / 1000.0
+
+        imu.update_sensors()
+        iqr, iqi, iqj, iqk = imu.game_quaternion
+
+        imu_roll = degrees(2.0 * atan2(iqi, iqr))
+
+        # Predictive correction — estimate where lever is NOW
+        angular_rate = (imu_roll - prev_imu_roll) / dt if dt > 0 else 0.0
+        predicted_roll = imu_roll + angular_rate * lead_s
+        prev_imu_roll = imu_roll
+
+        enc_angle = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
+        eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
+
+        output = pid.compute(predicted_roll, dt)
+        m1, m2 = mixer.compute(output)
+
+        motors.setThrottle(0, m1)
+        motors.setThrottle(1, m2)
+
+        telemetry.record(
+            now_ms,
+            eqr, eqi, eqj, eqk,
+            iqr, iqi, iqj, iqk,
+            predicted_roll, pid.last_p, pid.last_i, pid.last_d,
+            output, m1, m2
+        )
+
+
+def disarm(motors, telemetry):
+    """End telemetry session, disarm and stop motors, blue LED."""
+    telemetry.end_session()
+    motors.disarm()
+    motors.stop()
+    set_led(b=1)
+
+
 # =====================================================
 # Main
 # =====================================================
@@ -114,107 +247,12 @@ def main():
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
 
     try:
-        while True:
-            # ----- STATE 1: DISARMED -----
-            set_led(b=1)
-            while not buttons_by_held():
-                utime.sleep_ms(50)
-
-            # ----- STATE 2: ARMING -----
-            motors.start()
-            set_led(g=1)
-            motors.arm()
-            motors.setAllThrottles([THROTTLE_MIN, THROTTLE_MIN])
-
-            # ----- STATE 3: READY CHECK -----
-            while btn_A.value():  # wait for A press
-                utime.sleep_ms(100)
-
-            # ----- STATE 4: STABILIZING -----
-            pid.reset()
-            imu.game_quaternion.enable(hertz=IMU_REPORT_HZ)
-            sink = SdSink(
-                sck=PIN_SD_SCK, mosi=PIN_SD_MOSI,
-                miso=PIN_SD_MISO, cs=PIN_SD_CS,
-                rtc_sda=PIN_RTC_SDA, rtc_scl=PIN_RTC_SCL,
-            )
-            telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY, sink=sink)
-            config = (
-                "# Flight Benchy run configuration\n"
-                "imu:\n"
-                "  report: game_rotation_vector\n"
-                "  report_hz: {}\n"
-                "pid:\n"
-                "  hz: {}\n"
-                "  kp: {}\n"
-                "  ki: {}\n"
-                "  kd: {}\n"
-                "  integral_limit: {}\n"
-                "motor:\n"
-                "  base_throttle: {}\n"
-                "  throttle_min: {}\n"
-                "  throttle_max: {}\n"
-                "encoder:\n"
-                "  axis_center: {}\n"
-                "telemetry:\n"
-                "  sample_every: {}\n"
-            ).format(
-                IMU_REPORT_HZ,
-                1000 // PID_INTERVAL_MS,
-                pid.kp, pid.ki, pid.kd, pid.integral_limit,
-                BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX,
-                AXIS_CENTER,
-                TELEMETRY_SAMPLE_EVERY,
-            )
-            telemetry.begin_session(config=config)
-            prev_ms = utime.ticks_ms()
-
-            while True:
-                # Check disarm combo
-                if buttons_by_held():
-                    break
-
-                now_ms = utime.ticks_ms()
-                dt_ms = utime.ticks_diff(now_ms, prev_ms)
-                if dt_ms < PID_INTERVAL_MS:
-                    utime.sleep_ms(PID_INTERVAL_MS - dt_ms)
-                    now_ms = utime.ticks_ms()
-                    dt_ms = utime.ticks_diff(now_ms, prev_ms)
-                prev_ms = now_ms
-
-                dt = dt_ms / 1000.0
-
-                # Read IMU quaternion (no euler conversion in hot loop)
-                imu.update_sensors()
-                iqr, iqi, iqj, iqk = imu.game_quaternion
-
-                # Extract roll angle for PID (single atan2, cheaper than full euler)
-                imu_roll = degrees(2.0 * atan2(iqi, iqr))
-
-                # Read encoder (ground truth, telemetry only)
-                enc_angle = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
-                eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
-
-                # PID — target is 0°, input is IMU roll
-                output = pid.compute(imu_roll, dt)
-
-                m1, m2 = mixer.compute(output)
-
-                motors.setThrottle(0, m1)
-                motors.setThrottle(1, m2)
-
-                telemetry.record(
-                    now_ms,
-                    eqr, eqi, eqj, eqk,
-                    iqr, iqi, iqj, iqk,
-                    imu_roll, pid.last_p, pid.last_i, pid.last_d,
-                    output, m1, m2
-                )
-
-            # ----- DISARM -----
-            telemetry.end_session()
-            motors.disarm()
-            motors.stop()
+        wait_for_arm()
+        arm_motors(motors)
+        wait_for_go()
+        telemetry = init_session(pid)
+        stabilize(pid, mixer, motors, telemetry)
+        disarm(motors, telemetry)
 
     except Exception as e:
         set_led(r=1)
