@@ -53,19 +53,21 @@ class PrintSink:
 class SdSink:
     """Output backend that writes CSV rows to a file on a mounted SD card.
 
-    Owns the full SD lifecycle: mount on init, unmount on close.
-    The filename is generated from the RTC time at construction.
-    Writes go directly to the file (no RAM buffering).
+    Owns the full SD lifecycle: mount on init, open run directory on
+    ``open_run()``, unmount on ``close()``.  Two-phase design lets callers
+    mount early (fail-fast) and create the run directory later.
     """
 
     def __init__(self, sck, mosi, miso, cs, rtc_sda, rtc_scl):
-        """Mount SD card, read RTC, and create a run directory.
+        """Mount SD card and validate it is accessible.
+
+        Raises OSError immediately if the card is missing or unreadable,
+        giving the operator a clear signal before motors are armed.
 
         Args:
             sck, mosi, miso, cs: SD card SPI0 pin numbers.
-            rtc_sda, rtc_scl: RTC SoftI2C pin numbers.
+            rtc_sda, rtc_scl: RTC SoftI2C pin numbers (stored for later use).
         """
-        # Mount SD card
         cs_pin = Pin(cs, Pin.OUT, value=1)
         spi = SPI(0, baudrate=400_000, polarity=0, phase=0,
                   sck=Pin(sck), mosi=Pin(mosi), miso=Pin(miso))
@@ -74,10 +76,18 @@ class SdSink:
         self._vfs = os.VfsFat(self._sd)
         os.mount(self._vfs, _SD_MOUNT)
 
-        # Read RTC for directory name
-        dt = read_rtc(sda=rtc_sda, scl=rtc_scl)
+        self._rtc_sda = rtc_sda
+        self._rtc_scl = rtc_scl
+        self._run_dir = None
+        self._f = None
 
-        # Create blackbox/ and run directory
+    def init_session(self):
+        """Read RTC, create a timestamped run directory, and open the log file.
+
+        Call once when the recording session actually starts (after arming).
+        """
+        dt = read_rtc(sda=self._rtc_sda, scl=self._rtc_scl)
+
         try:
             os.mkdir(_LOG_DIR)
         except OSError:
@@ -87,9 +97,7 @@ class SdSink:
         )
         os.mkdir(self._run_dir)
 
-        # Open log file inside run directory
-        self._path = self._run_dir + "/log.csv"
-        self._f = open(self._path, "w")
+        self._f = open(self._run_dir + "/log.csv", "w")
 
     @property
     def path(self):
@@ -114,8 +122,9 @@ class SdSink:
 
     def close(self):
         """Flush and close the log file, then unmount the SD card."""
-        self._f.flush()
-        self._f.close()
+        if self._f:
+            self._f.flush()
+            self._f.close()
         os.umount(_SD_MOUNT)
 
 

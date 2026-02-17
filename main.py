@@ -136,13 +136,9 @@ def wait_for_go():
         utime.sleep_ms(100)
 
 
-def init_session(pid):
-    """Create telemetry sink, write config, return TelemetryRecorder."""
-    sink = SdSink(
-        sck=PIN_SD_SCK, mosi=PIN_SD_MOSI,
-        miso=PIN_SD_MISO, cs=PIN_SD_CS,
-        rtc_sda=PIN_RTC_SDA, rtc_scl=PIN_RTC_SCL,
-    )
+def init_session(pid, sink):
+    """Open a recording session on a pre-mounted sink, write config, return TelemetryRecorder."""
+    sink.init_session()
     telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY, sink=sink)
     config = (
         "# Flight Benchy run configuration\n"
@@ -247,10 +243,15 @@ def main():
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
 
     try:
+        sd_sink = SdSink(
+            sck=PIN_SD_SCK, mosi=PIN_SD_MOSI,
+            miso=PIN_SD_MISO, cs=PIN_SD_CS,
+            rtc_sda=PIN_RTC_SDA, rtc_scl=PIN_RTC_SCL,
+        )
         wait_for_arm()
         arm_motors(motors)
         wait_for_go()
-        telemetry = init_session(pid)
+        telemetry = init_session(pid, sd_sink)
         stabilize(pid, mixer, motors, telemetry)
         disarm(motors, telemetry)
 
