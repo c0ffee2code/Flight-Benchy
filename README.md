@@ -26,6 +26,8 @@ Single PI(D) loop at 50 Hz using AS5600 encoder feedback. Differential thrust mi
 
 PID input switched from AS5600 encoder to BNO085 game rotation vector (gyro+accel, no magnetometer). Roll angle extracted from quaternion via single `atan2`. AS5600 encoder retained as telemetry-only ground truth. Telemetry now stores raw quaternions from both sensors for offline analysis. See [ADR-005](decision/ADR-005-bno085-pid-input.md).
 
+BNO085 sensor calibration (accel, gyro, magnetometer) and all-axes tare completed and saved to flash. Calibration + tare reduced MAE from 22 deg to 2.87 deg and eliminated limit cycle oscillation. See [BNO085 ADR-004](BNO085/decision/004-sensor-calibration.md).
+
 ### M2a: Telemetry logging (black box) — DONE
 
 Timestamped CSV logging to SD card via Adalogger PiCowbell. Each run creates a folder (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml` (system settings snapshot). `ticks_ms` provides precise row timing. See [ADR-002](decision/ADR-002-telemetry-logging.md).

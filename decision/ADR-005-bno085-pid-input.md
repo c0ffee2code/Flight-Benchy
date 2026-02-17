@@ -112,14 +112,31 @@ Tested PID gain progression:
 - **Integral limit should be tight**: reducing from 200 to 50 prevents windup during large transients while still allowing enough I accumulation to correct the ~7° IMU bias.
 - **IMU range vs encoder range**: in all runs, IMU range is 3-4x smaller than encoder range (e.g. 14.5° vs 45.4°). The BNO085's internal fusion filter smooths out peak excursions. This means the PID sees a "calmer" signal than reality — good for stability, bad for responsiveness.
 
-**Planned improvements (in order of complexity):**
+**Improvement path (in order of complexity):**
 
-1. **PID gain tuning** — continue iterating kp/ki/kd with telemetry analyser feedback. Current best: kp=3.5, ki=0.4, kd=0.3, integral_limit=50.
-2. **IMU tare at startup** — read IMU roll once before entering control loop, subtract as offset. Eliminates reference frame mismatch without full calibration. Requires BNO085 driver work.
-3. **BNO085 calibration** — run the BNO085's built-in calibration procedure (magnetometer, accelerometer, gyroscope) and save calibration data. Improves absolute accuracy and reduces bias.
-4. **Gyro-integrated rotation vector** — switch from game rotation vector (report 0x08, 344 Hz max, ~60ms lag) to gyro-integrated rotation vector (report 0x2A, 1000 Hz, 0–2ms lag). Test data in `BNO085/tests/report_rate/results/gyro_integrated_vector/` shows dramatically lower latency. Trade-off: drifts without accel correction, best combined with tare or periodic re-reference. May be ideal as the inner loop input for M4 cascaded PID.
+1. **PID gain tuning** — DONE. Current best: kp=3.5, ki=0.4, kd=0.3, integral_limit=50.
+2. **BNO085 calibration** — DONE (2026-02-16). All three MEMS sensors calibrated (accel accuracy 2, gyro 3, mag 3). DCD saved to flash, persists across power cycles. See `BNO085/decision/004-sensor-calibration.md`.
+3. **BNO085 tare** — DONE (2026-02-16). All-axes tare performed and saved. Eliminated ~3 deg systematic bias to 0.08 deg at rest. Requires calibrated magnetometer even for roll-only testing (all-axes tare uses Rotation Vector which fuses all three sensors). See `BNO085/decision/001-gap-analysis-bno085-driver.md`, Milestone 2.
+4. **Gyro-integrated rotation vector** — PENDING. Switch from game rotation vector (report 0x08, 344 Hz max, ~60ms lag) to gyro-integrated rotation vector (report 0x2A, 1000 Hz, 0–2ms lag). May be ideal as the inner loop input for M4 cascaded PID.
 
-Each step builds on the previous. Gain tuning is pure config changes; tare/calibration require BNO085 driver development; gyro-integrated RV may reshape the control architecture toward M4 cascaded PID.
+### Calibration + tare results (2026-02-17)
+
+Test run `2026-02-17_19-15-59` compared against pre-calibration run `2026-02-15_21-24-09` (identical PID gains, same hardware configuration):
+
+| Metric | Before | After | Change |
+|--------|--------|-------|--------|
+| MAE (overall) | 22.11 deg | **2.87 deg** | 7.7x better |
+| Max AE | 47.86 deg | **12.71 deg** | 3.8x better |
+| RMS Error | 24.48 deg | **2.94 deg** | 8.3x better |
+| Bias (IMU-ENC) | +6.85 deg | **-2.87 deg** | Reduced, now consistent |
+| IMU range | 25.6 deg | **77.7 deg** | Tracks encoder (86 deg) |
+| Oscillation freq | 0.08 Hz | **0.00 Hz** | Eliminated |
+
+Before calibration, the IMU range was only 25.6 deg vs 102 deg encoder range — the PID was working with a severely compressed, biased signal. After calibration + tare, the IMU faithfully tracks the full lever motion (77.7 vs 86.0 deg encoder range) and the limit cycle oscillation is gone.
+
+The remaining -2.87 deg bias is likely IMU lag manifesting as a systematic offset during active stabilization (predictive correction with `lead_time_ms=60` does not fully compensate). This is a dynamic effect — the static tare test showed only 0.08 deg bias at rest.
+
+See `test_runs/2026-02-17_19-15-59/` for data and plot.
 
 ## Dependencies
 

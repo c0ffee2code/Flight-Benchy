@@ -16,7 +16,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 **Completed:**
 - M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/ADR-001-pid-lever-stabilization.md`.
-- M2 — BNO085 IMU as primary PID input (game rotation vector). AS5600 encoder is telemetry-only ground truth. Quaternion telemetry format. See `decision/ADR-005-bno085-pid-input.md`.
+- M2 — BNO085 IMU as primary PID input (game rotation vector). AS5600 encoder is telemetry-only ground truth. Quaternion telemetry format. BNO085 calibrated (accel/gyro/mag) and tared — DCD and tare persisted to flash. MAE dropped from 22 deg to 2.87 deg. See `decision/ADR-005-bno085-pid-input.md`.
 - M2a — Black box telemetry logging to SD card via Adalogger PiCowbell. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package.
 - ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
