@@ -1,28 +1,31 @@
 """
-Analyse Flight Benchy telemetry runs.
+Analyse Flight Benchy telemetry runs (cascaded PID schema).
 
-Reads a run folder (containing log.csv and optional config.yaml) or a legacy
+Reads a run folder (containing log.csv and optional config.yaml) or a
 flat CSV file. Computes diagnostic statistics and produces matplotlib plots.
 
 Usage:
-    python tools/analyse_telemetry.py test_runs/2026-02-15_13-39-35/
-    python tools/analyse_telemetry.py test_runs/log_old.csv
+    python tools/analyse_telemetry.py test_runs/2026-02-17_21-15-21/
+    python tools/analyse_telemetry.py test_runs/log.csv
     python tools/analyse_telemetry.py run_a/ run_b/          # side-by-side comparison
 
-Plots (single figure with subplots):
+CSV schema (22 columns):
+    T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,
+    ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2
+
+Plots (single figure with 4 subplots):
     1. Angle tracking — encoder roll vs IMU roll
-    2. Angle error — IMU roll minus encoder roll
-    3. PID terms — P, I, D components
+    2. Rate tracking — GYRO_X (actual) vs RATE_SP (setpoint)
+    3. PID terms — angle loop (left axis) + rate loop (right axis)
     4. Motor output — M1, M2 throttle
 
 Statistics (printed to console):
     Sample rate, duration, angle error (MAE/RMS/max/bias), Pearson correlation,
     fast/slow motion MAE split, trail percentage, oscillation frequency,
-    integral windup events, encoder/IMU range.
+    angle windup events, rate windup events, encoder/IMU range.
 """
 
 import csv
-import math
 import sys
 from pathlib import Path
 
@@ -162,13 +165,21 @@ def compute_stats(cols, config):
     zero_crossings = np.sum(sign_changes != 0)
     osc_freq = zero_crossings / (2.0 * duration_s) if duration_s > 0 else 0
 
-    # --- Integral windup events ---
-    integral_limit = 200.0  # default
-    if config and "pid" in config:
-        integral_limit = config["pid"].get("integral_limit", 200.0)
-    windup_threshold = integral_limit * 0.5
-    i_term = cols["I"]
-    windup_events = np.sum(np.abs(i_term) > windup_threshold)
+    # --- Angle integral windup events ---
+    ang_integral_limit = 100.0  # default
+    if config and "angle_pid" in config:
+        ang_integral_limit = config["angle_pid"].get("integral_limit", 100.0)
+    ang_windup_threshold = ang_integral_limit * 0.5
+    ang_i_term = cols["ANG_I"]
+    ang_windup_events = np.sum(np.abs(ang_i_term) >= ang_windup_threshold)
+
+    # --- Rate integral windup events ---
+    rate_integral_limit = 50.0  # default
+    if config and "rate_pid" in config:
+        rate_integral_limit = config["rate_pid"].get("integral_limit", 50.0)
+    rate_windup_threshold = rate_integral_limit * 0.5
+    rate_i_term = cols["RATE_I"]
+    rate_windup_events = np.sum(np.abs(rate_i_term) >= rate_windup_threshold)
 
     return {
         "n_samples": n,
@@ -187,8 +198,10 @@ def compute_stats(cols, config):
         "enc_range": enc_range,
         "imu_range": imu_range,
         "osc_freq_hz": osc_freq,
-        "windup_events": int(windup_events),
-        "windup_threshold": windup_threshold,
+        "ang_windup_events": int(ang_windup_events),
+        "ang_windup_threshold": ang_windup_threshold,
+        "rate_windup_events": int(rate_windup_events),
+        "rate_windup_threshold": rate_windup_threshold,
     }
 
 
@@ -201,12 +214,17 @@ def print_config_summary(config, label):
     if config is None:
         print(f"  (no config.yaml for {label})")
         return
-    pid = config.get("pid", {})
+    angle = config.get("angle_pid", {})
+    rate = config.get("rate_pid", {})
     motor = config.get("motor", {})
-    imu = config.get("imu", {})
-    print(f"  PID: kp={pid.get('kp')}, ki={pid.get('ki')}, kd={pid.get('kd')}, "
-          f"integral_limit={pid.get('integral_limit')}, hz={pid.get('hz')}")
-    print(f"  IMU: report_hz={imu.get('report_hz')}")
+    imu_cfg = config.get("imu", {})
+    print(f"  Angle PID: kp={angle.get('kp')}, ki={angle.get('ki')}, "
+          f"kd={angle.get('kd')}, integral_limit={angle.get('integral_limit')}, "
+          f"hz={angle.get('hz')}")
+    print(f"  Rate PID:  kp={rate.get('kp')}, ki={rate.get('ki')}, "
+          f"kd={rate.get('kd')}, integral_limit={rate.get('integral_limit')}, "
+          f"hz={rate.get('hz')}")
+    print(f"  IMU: report_hz={imu_cfg.get('report_hz')}")
     print(f"  Motor: base={motor.get('base_throttle')}, "
           f"min={motor.get('throttle_min')}, max={motor.get('throttle_max')}")
 
@@ -264,7 +282,8 @@ def print_comparison(label_a, stats_a, config_a, label_b, stats_b, config_b):
 
     print(f"\n  --- Oscillation & Windup ---")
     row("Oscillation freq (Hz)", "osc_freq_hz", ".2f")
-    row("Windup events", "windup_events", ".0f")
+    row("Angle windup events", "ang_windup_events", ".0f")
+    row("Rate windup events", "rate_windup_events", ".0f")
 
     print("=" * w)
 
@@ -297,8 +316,10 @@ def _print_stats_block(stats):
 
     print("\n  --- Oscillation & Windup ---")
     row("Oscillation freq (Hz)", "osc_freq_hz", ".2f")
-    row("Windup events", "windup_events", ".0f")
-    print(f"  {'Windup threshold':<35} {stats['windup_threshold']:>12.1f}")
+    row("Angle windup events", "ang_windup_events", ".0f")
+    print(f"  {'Angle windup threshold':<35} {stats['ang_windup_threshold']:>12.1f}")
+    row("Rate windup events", "rate_windup_events", ".0f")
+    print(f"  {'Rate windup threshold':<35} {stats['rate_windup_threshold']:>12.1f}")
 
 
 # ---------------------------------------------------------------------------
@@ -306,9 +327,9 @@ def _print_stats_block(stats):
 # ---------------------------------------------------------------------------
 
 def plot_run(cols, config, label, axes=None):
-    """Plot 4 diagnostic subplots for a single run.
+    """Plot 5 diagnostic subplots for a single run.
 
-    If axes is provided (list of 4 Axes), plot onto them. Otherwise create a
+    If axes is provided (list of 5 Axes), plot onto them. Otherwise create a
     new figure.
     """
     t_ms = cols["T_MS"]
@@ -319,50 +340,56 @@ def plot_run(cols, config, label, axes=None):
 
     own_figure = axes is None
     if own_figure:
-        fig, axes = plt.subplots(4, 1, figsize=(12, 9), sharex=True)
+        fig, axes = plt.subplots(5, 1, figsize=(12, 11), sharex=True)
         fig.suptitle(f"Flight Benchy — {label}", fontsize=13)
 
-    ax1, ax2, ax3, ax4 = axes
+    ax1, ax2, ax3, ax4, ax5 = axes
 
     # 1. Angle tracking
-    predicted_roll = cols.get("ERR")
-    has_prediction = (predicted_roll is not None
-                      and not np.allclose(predicted_roll, imu_roll, atol=0.01))
     ax1.plot(t_s, enc_roll, label="Encoder", linewidth=0.8)
-    ax1.plot(t_s, imu_roll, label="IMU (raw)", linewidth=0.8, alpha=0.6)
-    if has_prediction:
-        ax1.plot(t_s, predicted_roll, label="Predicted", linewidth=0.8,
-                 linestyle="--")
+    ax1.plot(t_s, imu_roll, label="IMU", linewidth=0.8, alpha=0.6)
     ax1.set_ylabel("Roll (deg)")
     ax1.set_title("Angle Tracking")
     ax1.legend(loc="upper right", fontsize=8)
     ax1.grid(True, alpha=0.3)
 
-    # 2. Angle error
-    error = imu_roll - enc_roll
-    ax2.plot(t_s, error, linewidth=0.8, color="tab:red")
+    # 2. Rate tracking — GYRO_X (actual) vs RATE_SP (setpoint)
+    ax2.plot(t_s, cols["GYRO_X"], linewidth=0.6, color="tab:blue",
+             alpha=0.7, label="Gyro X (actual)")
+    ax2.plot(t_s, cols["RATE_SP"], linewidth=0.8, color="tab:orange",
+             label="Rate setpoint")
     ax2.axhline(0, color="gray", linewidth=0.5, linestyle="--")
-    ax2.set_ylabel("Error (deg)")
-    ax2.set_title("Angle Error (IMU - Encoder)")
+    ax2.set_ylabel("Rate (deg/s)")
+    ax2.set_title("Rate Tracking (setpoint vs actual)")
+    ax2.legend(loc="upper right", fontsize=8)
     ax2.grid(True, alpha=0.3)
 
-    # 3. PID terms
-    ax3.plot(t_s, cols["P"], label="P", linewidth=0.8)
-    ax3.plot(t_s, cols["I"], label="I", linewidth=0.8)
-    ax3.plot(t_s, cols["D"], label="D", linewidth=0.8)
-    ax3.set_ylabel("PID Output")
-    ax3.set_title("PID Terms")
+    # 3. Angle PID terms (outer loop, 50 Hz)
+    ax3.plot(t_s, cols["ANG_P"], label="P", linewidth=0.8, color="tab:blue")
+    ax3.plot(t_s, cols["ANG_I"], label="I", linewidth=0.8, color="tab:orange")
+    ax3.plot(t_s, cols["ANG_D"], label="D", linewidth=0.8, color="tab:green")
+    ax3.set_ylabel("Output (deg/s)")
+    ax3.set_title("Angle PID (outer loop)")
     ax3.legend(loc="upper right", fontsize=8)
     ax3.grid(True, alpha=0.3)
 
-    # 4. Motor output
-    ax4.plot(t_s, cols["M1"], label="M1", linewidth=0.8)
-    ax4.plot(t_s, cols["M2"], label="M2", linewidth=0.8)
-    ax4.set_ylabel("Throttle")
-    ax4.set_xlabel("Time (s)")
-    ax4.set_title("Motor Output")
+    # 4. Rate PID terms (inner loop, 200 Hz)
+    ax4.plot(t_s, cols["RATE_P"], label="P", linewidth=0.8, color="tab:blue")
+    ax4.plot(t_s, cols["RATE_I"], label="I", linewidth=0.8, color="tab:orange")
+    ax4.plot(t_s, cols["RATE_D"], label="D", linewidth=0.8, color="tab:green")
+    ax4.set_ylabel("Output (throttle)")
+    ax4.set_title("Rate PID (inner loop)")
     ax4.legend(loc="upper right", fontsize=8)
     ax4.grid(True, alpha=0.3)
+
+    # 5. Motor output
+    ax5.plot(t_s, cols["M1"], label="M1", linewidth=0.8)
+    ax5.plot(t_s, cols["M2"], label="M2", linewidth=0.8)
+    ax5.set_ylabel("Throttle")
+    ax5.set_xlabel("Time (s)")
+    ax5.set_title("Motor Output")
+    ax5.legend(loc="upper right", fontsize=8)
+    ax5.grid(True, alpha=0.3)
 
     if own_figure:
         fig.tight_layout()
@@ -370,10 +397,10 @@ def plot_run(cols, config, label, axes=None):
 
 
 def plot_comparison(runs):
-    """Plot two runs side by side (2 columns of 4 subplots)."""
-    fig, axes = plt.subplots(4, 2, figsize=(16, 10), sharex="col")
+    """Plot two runs side by side (2 columns of 5 subplots)."""
+    fig, axes = plt.subplots(5, 2, figsize=(16, 12), sharex="col")
     for col_idx, (cols, config, label) in enumerate(runs):
-        col_axes = [axes[row][col_idx] for row in range(4)]
+        col_axes = [axes[row][col_idx] for row in range(5)]
         plot_run(cols, config, label, axes=col_axes)
         axes[0][col_idx].set_title(f"{label}\nAngle Tracking", fontsize=10)
     fig.suptitle("Flight Benchy — Run Comparison", fontsize=13)

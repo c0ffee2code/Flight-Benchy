@@ -83,7 +83,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 ### Telemetry (`telemetry/`)
 
 - `recorder.py` — Contains the full telemetry pipeline:
-  - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink. `begin_session(config=None)` accepts an optional YAML config string. CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,ERR,P,I,D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
+  - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink. `begin_session(config=None)` accepts an optional YAML config string. CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
   - `PrintSink` — prints CSV rows to REPL serial console. No-op `write_config()`.
   - `SdSink` — owns the full SD card lifecycle (SPI init, mount, RTC read, directory create, write, unmount). Creates a folder-per-run directory (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml`.
   - `read_rtc(sda, scl)` — one-shot SoftI2C read of PCF8523 RTC. Used by `SdSink` for directory naming.
@@ -109,7 +109,7 @@ Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8 from the Pimoroni Display Pack
 
 ### Telemetry Analyser (`tools/analyse_telemetry.py`)
 
-Desktop Python script (not deployed to Pico). Reads run folders from `test_runs/`, converts quaternions to roll angles offline, produces 4-subplot diagnostic figures and console statistics. Supports single-run analysis and two-run side-by-side comparison. Dependencies: `numpy`, `matplotlib`, `pyyaml`.
+Desktop Python script (not deployed to Pico). Reads run folders from `test_runs/`, converts quaternions to roll angles offline, produces 4-subplot diagnostic figures (angle tracking, rate tracking, dual-axis PID terms, motor output) and console statistics including angle and rate windup events. Supports single-run analysis and two-run side-by-side comparison. Dependencies: `numpy`, `matplotlib`, `pyyaml`.
 
 ### Folder-per-run Convention
 
@@ -120,12 +120,14 @@ Each stabilisation session creates a timestamped directory on the SD card:
     log.csv        # Telemetry CSV
 ```
 
-`config.yaml` is written as plain string formatting on MicroPython (no YAML library) and parsed with `pyyaml` on desktop. Contains: `imu`, `pid`, `motor`, `encoder`, `telemetry` sections.
+`config.yaml` is written as plain string formatting on MicroPython (no YAML library) and parsed with `pyyaml` on desktop. Contains: `imu`, `angle_pid`, `rate_pid`, `motor`, `encoder`, `telemetry`, `prediction` sections.
 
 ## Key Constants
 
 - `AXIS_CENTER` in `main.py` - Encoder offset for horizontal lever position (recalibrate when mechanical setup changes)
-- `IMU_REPORT_HZ` in `main.py` - BNO085 game rotation vector report rate (100 Hz, 2x PID rate)
+- `INNER_INTERVAL_MS` in `main.py` - Inner (rate) loop period (5ms = 200 Hz)
+- `OUTER_INTERVAL_TICKS` in `main.py` - Outer (angle) loop runs every Nth inner cycle (4 = 50 Hz)
+- `IMU_REPORT_HZ` in `main.py` - BNO085 GIRV report rate (200 Hz, matches inner loop)
 
 ## I2C Addresses
 

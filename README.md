@@ -40,9 +40,9 @@ Extracted `base ± output` motor mapping into `LeverMixer` class (`mixer.py`). M
 
 **Depends on:** M1 (pure code refactor, no hardware dependency).
 
-### M4: Cascaded PID (angle loop + rate loop)
+### M4: Cascaded PID (angle loop + rate loop) — IN PROGRESS
 
-Replace single angle PID with two nested loops: an outer angle loop (~50-100 Hz) feeding desired rotation rate to an inner rate loop (~500+ Hz) using raw gyro data. This is how real flight controllers (Betaflight, ArduPilot) work — the inner loop uses near-zero-lag gyro data for crisp response.
+Two nested PID loops replacing the single angle PID. Outer angle loop (50 Hz) computes a desired rotation rate from fused quaternion; inner rate loop (200 Hz) tracks that rate using raw gyro angular velocity from the GIRV report. Both loops run in a single main loop with iteration-counter gating. Predictive correction (ADR-006) retained on the outer loop pending evaluation. Gain tuning in progress. See [ADR-008](decision/ADR-008-cascaded-pid.md).
 
 **Depends on:** M2 (IMU as input), M2a (telemetry to validate improvement), M3 (clean mixer).
 

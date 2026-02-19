@@ -76,21 +76,25 @@ AXIS_CENTER = const(422)
 
 # Motor limits
 THROTTLE_MIN = const(70)
-THROTTLE_MAX = const(600)
-BASE_THROTTLE = const(300)
+THROTTLE_MAX = const(400)
+BASE_THROTTLE = const(250)
 
 # Control loop timing
-PID_INTERVAL_MS = const(20)  # 50 Hz
+INNER_INTERVAL_MS = const(5)       # 200 Hz inner (rate) loop
+OUTER_INTERVAL_TICKS = const(4)    # outer runs every 4th inner tick = 50 Hz
+OUTER_INTERVAL_MS = const(20)      # = INNER_INTERVAL_MS * OUTER_INTERVAL_TICKS; fixed outer dt
 
-# IMU report rate — 2x PID rate ensures fresh data each cycle
-IMU_REPORT_HZ = const(100)
+# IMU report rate — matches inner loop rate
+IMU_REPORT_HZ = const(200)
 
 # Telemetry decimation: 1=every cycle, N=every Nth
 TELEMETRY_SAMPLE_EVERY = const(10)
 
 # Predictive correction — compensate IMU lag by extrapolating with angular rate
-# ~60ms = BNO085 fusion filter group delay. See ADR-006 for latency budget.
-LEAD_TIME_MS = const(60)
+# BNO085 fusion filter group delay.
+# See ADR-006 for latency budget.
+# Temporarily disable as we have to fix Cascaded PID first !
+LEAD_TIME_MS = const(0)
 
 def set_led(r=0, g=0, b=0):
     """Set RGB LED state. Active LOW (common anode) — 0 turns LED on."""
@@ -124,7 +128,7 @@ def wait_for_arm():
 def arm_motors(motors):
     """Green LED, enable IMU fusion, start DShot, arm ESCs."""
     set_led(g=1)
-    imu.game_quaternion.enable(hertz=IMU_REPORT_HZ)
+    imu.gyro_integrated_rotation_vector.enable(hertz=IMU_REPORT_HZ)
     motors.start()
     motors.arm()
     motors.setAllThrottles([THROTTLE_MIN, THROTTLE_MIN])
@@ -136,16 +140,22 @@ def wait_for_go():
         utime.sleep_ms(100)
 
 
-def init_session(pid, sink):
+def init_session(angle_pid, rate_pid, sink):
     """Open a recording session on a pre-mounted sink, write config, return TelemetryRecorder."""
     sink.init_session()
     telemetry = TelemetryRecorder(TELEMETRY_SAMPLE_EVERY, sink=sink)
     config = (
         "# Flight Benchy run configuration\n"
         "imu:\n"
-        "  report: game_rotation_vector\n"
+        "  report: gyro_integrated_rotation_vector\n"
         "  report_hz: {}\n"
-        "pid:\n"
+        "angle_pid:\n"
+        "  hz: {}\n"
+        "  kp: {}\n"
+        "  ki: {}\n"
+        "  kd: {}\n"
+        "  integral_limit: {}\n"
+        "rate_pid:\n"
         "  hz: {}\n"
         "  kp: {}\n"
         "  ki: {}\n"
@@ -163,8 +173,10 @@ def init_session(pid, sink):
         "  lead_time_ms: {}\n"
     ).format(
         IMU_REPORT_HZ,
-        1000 // PID_INTERVAL_MS,
-        pid.kp, pid.ki, pid.kd, pid.integral_limit,
+        1000 // (INNER_INTERVAL_MS * OUTER_INTERVAL_TICKS),
+        angle_pid.kp, angle_pid.ki, angle_pid.kd, angle_pid.integral_limit,
+        1000 // INNER_INTERVAL_MS,
+        rate_pid.kp, rate_pid.ki, rate_pid.kd, rate_pid.integral_limit,
         BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX,
         AXIS_CENTER,
         TELEMETRY_SAMPLE_EVERY,
@@ -174,24 +186,34 @@ def init_session(pid, sink):
     return telemetry
 
 
-def stabilize(pid, mixer, motors, telemetry):
-    """Run PID control loop until B+Y disarm combo."""
-    # Seed previous roll for first-cycle rate estimate
+def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
+    """Run cascaded PID control loop until B+Y disarm combo.
+
+    Inner (rate) loop runs every cycle at ~200 Hz.
+    Outer (angle) loop runs every OUTER_INTERVAL_TICKS cycles (~50 Hz).
+    """
+    # Seed previous roll for first outer-cycle rate estimate
     imu.update_sensors()
-    iqr, iqi, iqj, iqk = imu.game_quaternion
+    iqr, iqi, iqj, iqk, _ax, _ay, _az, _ts = imu.gyro_integrated_rotation_vector.full
     prev_imu_roll = degrees(2.0 * atan2(iqi, iqr))
     prev_ms = utime.ticks_ms()
 
     lead_s = LEAD_TIME_MS / 1000.0
+    outer_dt = OUTER_INTERVAL_MS / 1000.0   # fixed nominal dt — avoids I2C-jitter noise in D term
+
+    outer_counter = 0
+    rate_setpoint = 0.0
+    ang_err = prev_imu_roll  # holds last outer-loop angle error for telemetry
 
     while True:
         if buttons_by_held():
             break
 
+        # --- timing: wait for inner tick ---
         now_ms = utime.ticks_ms()
         dt_ms = utime.ticks_diff(now_ms, prev_ms)
-        if dt_ms < PID_INTERVAL_MS:
-            utime.sleep_ms(PID_INTERVAL_MS - dt_ms)
+        if dt_ms < INNER_INTERVAL_MS:
+            utime.sleep_ms(INNER_INTERVAL_MS - dt_ms)
             now_ms = utime.ticks_ms()
             dt_ms = utime.ticks_diff(now_ms, prev_ms)
         prev_ms = now_ms
@@ -199,29 +221,45 @@ def stabilize(pid, mixer, motors, telemetry):
         dt = dt_ms / 1000.0
 
         imu.update_sensors()
-        iqr, iqi, iqj, iqk = imu.game_quaternion
+        iqr, iqi, iqj, iqk, ax, _ay, _az, _ts = imu.gyro_integrated_rotation_vector.full
+        gyro_x = degrees(ax)
 
-        imu_roll = degrees(2.0 * atan2(iqi, iqr))
+        # --- outer loop (every OUTER_INTERVAL_TICKS cycles) ---
+        outer_counter += 1
+        if outer_counter >= OUTER_INTERVAL_TICKS:
+            outer_counter = 0
 
-        # Predictive correction — estimate where lever is NOW
-        angular_rate = (imu_roll - prev_imu_roll) / dt if dt > 0 else 0.0
-        predicted_roll = imu_roll + angular_rate * lead_s
-        prev_imu_roll = imu_roll
+            imu_roll = degrees(2.0 * atan2(iqi, iqr))
 
-        enc_angle = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
-        eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
+            # Predictive correction (ADR-006) — compensate fusion filter lag
+            angular_rate = (imu_roll - prev_imu_roll) / outer_dt if outer_dt > 0 else 0.0
+            predicted_roll = imu_roll + angular_rate * lead_s
+            prev_imu_roll = imu_roll
 
-        output = pid.compute(predicted_roll, dt)
+            ang_err = -predicted_roll
+            rate_setpoint = angle_pid.compute(-predicted_roll, outer_dt)
+
+        # --- inner loop (every cycle) ---
+        rate_error = rate_setpoint - gyro_x
+        output = rate_pid.compute(rate_error, dt)
         m1, m2 = mixer.compute(output)
 
         motors.setThrottle(0, m1)
         motors.setThrottle(1, m2)
 
+        # --- encoder (read at inner rate for telemetry) ---
+        enc_angle = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
+        eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
+
         telemetry.record(
             now_ms,
             eqr, eqi, eqj, eqk,
             iqr, iqi, iqj, iqk,
-            predicted_roll, pid.last_p, pid.last_i, pid.last_d,
+            gyro_x,
+            ang_err,
+            angle_pid.last_p, angle_pid.last_i, angle_pid.last_d,
+            rate_setpoint,
+            rate_error, rate_pid.last_p, rate_pid.last_i, rate_pid.last_d,
             output, m1, m2
         )
 
@@ -238,7 +276,8 @@ def disarm(motors, telemetry):
 # Main
 # =====================================================
 def main():
-    pid = PID(kp=3.5, ki=0.4, kd=0.3, integral_limit=50.0)
+    angle_pid = PID(kp=1.5, ki=0.0, kd=0.2, integral_limit=100.0)   # outputs deg/s
+    rate_pid  = PID(kp=2.5, ki=0.0, kd=0.0, integral_limit=50.0)    # outputs mixer scalar
     mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX)
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
 
@@ -251,8 +290,8 @@ def main():
         wait_for_arm()
         arm_motors(motors)
         wait_for_go()
-        telemetry = init_session(pid, sd_sink)
-        stabilize(pid, mixer, motors, telemetry)
+        telemetry = init_session(angle_pid, rate_pid, sd_sink)
+        stabilize(angle_pid, rate_pid, mixer, motors, telemetry)
         disarm(motors, telemetry)
 
     except Exception as e:

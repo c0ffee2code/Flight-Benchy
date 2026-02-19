@@ -131,7 +131,7 @@ class SdSink:
 class TelemetryRecorder:
     """Facade that decimates and formats telemetry rows, delegating I/O to a sink."""
 
-    _HEADER = "T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,ERR,P,I,D,PID_OUT,M1,M2"
+    _HEADER = "T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2"
 
     def __init__(self, sample_every, sink=None):
         """Set decimation rate and output backend (defaults to PrintSink)."""
@@ -150,16 +150,18 @@ class TelemetryRecorder:
         self._sink.write(self._HEADER)
 
     def record(self, t_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
-               err, p, i, d, pid_out, m1, m2):
+               gyro_x, ang_err, ang_p, ang_i, ang_d, rate_sp,
+               rate_err, rate_p, rate_i, rate_d, pid_out, m1, m2):
         """Format and emit a CSV row every sample_every-th call. Others are silently dropped."""
         self._counter += 1
         if self._counter < self._sample_every:
             return
         self._counter = 0
 
-        line = "{},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{},{}".format(
+        line = "{},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{},{}".format(
             t_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
-            err, p, i, d, pid_out, m1, m2
+            gyro_x, ang_err, ang_p, ang_i, ang_d, rate_sp,
+            rate_err, rate_p, rate_i, rate_d, pid_out, m1, m2
         )
         self._sink.write(line)
 
