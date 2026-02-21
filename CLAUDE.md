@@ -18,7 +18,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/ADR-001-pid-lever-stabilization.md`.
 - M2 — BNO085 IMU as primary PID input (game rotation vector). AS5600 encoder is telemetry-only ground truth. Quaternion telemetry format. BNO085 calibrated (accel/gyro/mag) and tared — DCD and tare persisted to flash. MAE dropped from 22 deg to 2.87 deg. See `decision/ADR-005-bno085-pid-input.md`.
 - M2a — Black box telemetry logging to SD card via Adalogger PiCowbell. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
-- M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package.
+- M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package. Authored source consolidated under `src/`.
 - ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
 - M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline validated 2026-02-20: 1.12° MAE, no drift over 6.5 min, zero oscillation. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
 
@@ -40,12 +40,14 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 ## Project Structure
 
 ```
-├── main.py              # Entry point - upload to Pico, runs on boot
-├── pid.py               # PID controller with anti-windup and term introspection
-├── mixer.py             # LeverMixer — differential thrust for 2-motor lever
-├── telemetry/
-│   ├── recorder.py      # TelemetryRecorder, PrintSink, SdSink, read_rtc
-│   └── sdcard.py        # SD card SPI driver (micropython-lib, with stop bit fix)
+├── src/                 # Authored flight control source (deployed to Pico)
+│   ├── main.py          # Entry point - upload to Pico, runs on boot
+│   ├── pid.py           # PID controller with anti-windup and term introspection
+│   ├── mixer.py         # LeverMixer — differential thrust for 2-motor lever
+│   ├── ui.py            # Operator interface — Pimoroni Display Pack buttons + RGB LED
+│   └── telemetry/
+│       ├── recorder.py  # TelemetryRecorder, PrintSink, SdSink, read_rtc
+│       └── sdcard.py    # SD card SPI driver (micropython-lib, with stop bit fix)
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 │   └── driver/as5600.py
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
@@ -56,7 +58,6 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   └── driver/
 │       ├── dshot_pio.py
 │       └── motor_throttle_group.py
-├── ui.py                # Operator interface — Pimoroni Display Pack buttons + RGB LED
 ├── tools/
 │   └── analyse_telemetry.py  # Desktop telemetry analyser (not deployed to Pico)
 ├── test_runs/           # Copied run folders from SD card for analysis
@@ -68,19 +69,19 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 ```
 
 **Deployment:** Upload the following files to Pico root (flat structure):
-- `main.py`
-- `pid.py`
-- `mixer.py`
-- `telemetry/recorder.py` (deployed as `recorder.py`)
-- `telemetry/sdcard.py` (deployed as `sdcard.py`)
+- `src/main.py`
+- `src/pid.py`
+- `src/mixer.py`
+- `src/ui.py`
+- `src/telemetry/recorder.py` (deployed as `recorder.py`)
+- `src/telemetry/sdcard.py` (deployed as `sdcard.py`)
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
 - `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
-- `ui.py`
 
 ## Architecture
 
-### Telemetry (`telemetry/`)
+### Telemetry (`src/telemetry/`)
 
 - `recorder.py` — Contains the full telemetry pipeline:
   - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink. `begin_session(config=None)` accepts an optional YAML config string. CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
@@ -98,7 +99,7 @@ Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center
 - `bno08x.py` - BNO08x driver with SHTP protocol, interrupt-driven sensor updates, quaternion/euler output, and precise timestamp tracking.
 - `i2c.py` - I2C transport layer for BNO08x. Handles non-standard clock stretching and fragment reassembly.
 
-### Operator Interface (`ui.py`)
+### Operator Interface (`src/ui.py`)
 
 Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-display-pack). Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8. LCD is disconnected (SPI0 conflict with Adalogger SD card, see ADR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `ui.py` owns all LED/button pin constants, hardware init, and UI helpers (`set_led`, `buttons_by_held`, `wait_for_arm`, `wait_for_go`).
 
@@ -124,11 +125,11 @@ Each stabilisation session creates a timestamped directory on the SD card:
 
 ## Key Constants
 
-- `AXIS_CENTER` in `main.py` - Encoder offset for horizontal lever position (recalibrate when mechanical setup changes)
-- `INNER_INTERVAL_MS` in `main.py` - Inner (rate) loop period (5ms = 200 Hz)
-- `OUTER_INTERVAL_TICKS` in `main.py` - Outer (angle) loop runs every Nth inner cycle (4 = 50 Hz)
-- `IMU_REPORT_HZ` in `main.py` - Calibrated gyroscope report rate (200 Hz, matches inner loop)
-- `GRV_REPORT_HZ` in `main.py` - Game rotation vector report rate (50 Hz, matches outer loop)
+- `AXIS_CENTER` in `src/main.py` - Encoder offset for horizontal lever position (recalibrate when mechanical setup changes)
+- `INNER_INTERVAL_MS` in `src/main.py` - Inner (rate) loop period (5ms = 200 Hz)
+- `OUTER_INTERVAL_TICKS` in `src/main.py` - Outer (angle) loop runs every Nth inner cycle (4 = 50 Hz)
+- `IMU_REPORT_HZ` in `src/main.py` - Calibrated gyroscope report rate (200 Hz, matches inner loop)
+- `GRV_REPORT_HZ` in `src/main.py` - Game rotation vector report rate (50 Hz, matches outer loop)
 
 ## I2C Addresses
 
@@ -138,7 +139,7 @@ Each stabilisation session creates a timestamped directory on the SD card:
 
 ## Pin Assignments
 
-All pin constants are defined in `main.py` with descriptive names:
+All pin constants are defined in `src/main.py` with descriptive names:
 
 | GPIO | Constant | Function |
 |------|----------|----------|
