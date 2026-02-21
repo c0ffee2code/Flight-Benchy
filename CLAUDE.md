@@ -10,7 +10,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 **Sensor Strategy:**
 - **AS5600 magnetic encoder** at the rotation center serves as ground truth reference due to its high precision (~0.09°) and near-instant position output
-- **BNO085 IMU** provides the sensor input that a real flight controller would use (gyroscope, accelerometer, magnetometer with onboard sensor fusion)
+- **BNO085 IMU** provides the sensor input that a real flight controller would use. Two concurrent reports are enabled: **GRV** (game rotation vector, 0x08, 50 Hz) for the outer angle loop — drift-free via gyro+accel fusion; **calibrated gyroscope** (0x02, 200 Hz) for the inner rate loop — bias-compensated, ~1–2ms latency. See ADR-010.
 
 ## Development Approach
 
@@ -20,11 +20,11 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - M2a — Black box telemetry logging to SD card via Adalogger PiCowbell. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package.
 - ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
+- M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline validated 2026-02-20: 1.12° MAE, no drift over 6.5 min, zero oscillation. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
 
-**Current focus:** M4 — Cascaded PID (angle loop + rate loop using raw gyro).
+**Current focus:** M4 post-baseline — disturbance response characterization, re-tare for bias elimination, pre-flight check implementation (ADR-009).
 
 **Roadmap (see README.md for full details):**
-- M4: Cascaded PID — angle loop + rate loop using raw gyro (depends on M2, M2a, M3)
 - M5: Multi-axis control (depends on hardware evolution)
 
 ## Hardware Components
@@ -127,7 +127,8 @@ Each stabilisation session creates a timestamped directory on the SD card:
 - `AXIS_CENTER` in `main.py` - Encoder offset for horizontal lever position (recalibrate when mechanical setup changes)
 - `INNER_INTERVAL_MS` in `main.py` - Inner (rate) loop period (5ms = 200 Hz)
 - `OUTER_INTERVAL_TICKS` in `main.py` - Outer (angle) loop runs every Nth inner cycle (4 = 50 Hz)
-- `IMU_REPORT_HZ` in `main.py` - BNO085 GIRV report rate (200 Hz, matches inner loop)
+- `IMU_REPORT_HZ` in `main.py` - Calibrated gyroscope report rate (200 Hz, matches inner loop)
+- `GRV_REPORT_HZ` in `main.py` - Game rotation vector report rate (50 Hz, matches outer loop)
 
 ## I2C Addresses
 

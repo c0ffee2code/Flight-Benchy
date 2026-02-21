@@ -1,6 +1,6 @@
 # ADR-008: Cascaded PID — Angle Loop + Rate Loop (M4)
 
-**Status:** Implemented — baseline working, tuning in progress
+**Status:** Implemented — baseline validated (1.12° MAE, 6.5 min run, no drift; 2026-02-20)
 **Date:** 2026-02-17
 **Context:** Replace single angle PID with cascaded architecture matching real flight controllers
 
@@ -225,3 +225,15 @@ Motor authority ±150 DShot units. Inner loop stays proportional up to 60 deg/s 
 - `pid.py` — reusable as-is for both loops
 - `mixer.py` — sign corrected (Run 6): `m1 = base - output`, `m2 = base + output`
 - Completed: M2 (IMU input), M2a (telemetry), M3 (mixer extraction)
+
+---
+
+## Amendment — 2026-02-20: GIRV replaced by GRV + Calibrated Gyro (see ADR-010)
+
+The sensor report selection sub-decision above (GIRV / 0x2A for both loops) is **superseded**.
+
+Hardware testing on 2026-02-19 revealed ~1.5°/min drift in encoder-vs-IMU divergence. Root cause: GIRV integrates raw gyro without accelerometer correction, so gyro bias accumulates. Over a 9-minute run the divergence reached 10.8°, meaning the controller tracked a drifting reference.
+
+**Replacement:** GRV (game rotation vector, 0x08) for the outer (angle) loop and calibrated gyroscope (0x02) for the inner (rate) loop — see **ADR-010** for full rationale, evidence, and implementation notes.
+
+The cascaded loop architecture, timing, gains, and telemetry schema in this ADR remain valid and unchanged.

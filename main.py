@@ -76,7 +76,7 @@ AXIS_CENTER = const(422)
 
 # Motor limits
 THROTTLE_MIN = const(70)
-THROTTLE_MAX = const(400)
+THROTTLE_MAX = const(500)
 BASE_THROTTLE = const(250)
 
 # Control loop timing
@@ -84,17 +84,17 @@ INNER_INTERVAL_MS = const(5)       # 200 Hz inner (rate) loop
 OUTER_INTERVAL_TICKS = const(4)    # outer runs every 4th inner tick = 50 Hz
 OUTER_INTERVAL_MS = const(20)      # = INNER_INTERVAL_MS * OUTER_INTERVAL_TICKS; fixed outer dt
 
-# IMU report rate — matches inner loop rate
-IMU_REPORT_HZ = const(200)
+# IMU report rates
+IMU_REPORT_HZ  = const(200)   # Calibrated Gyro — matches inner loop rate
+GRV_REPORT_HZ  = const(50)    # Game Rotation Vector — matches outer loop rate
 
 # Telemetry decimation: 1=every cycle, N=every Nth
 TELEMETRY_SAMPLE_EVERY = const(10)
 
-# Predictive correction — compensate IMU lag by extrapolating with angular rate
-# BNO085 fusion filter group delay.
-# See ADR-006 for latency budget.
-# Temporarily disable as we have to fix Cascaded PID first !
-LEAD_TIME_MS = const(0)
+# Predictive correction — compensate GRV filter lag in outer angle loop.
+# Uses live calibrated gyro rate (gyro_x) for the extrapolation.
+# Matches measured GRV group delay (~10ms). See ADR-006.
+LEAD_TIME_MS = const(10)
 
 def set_led(r=0, g=0, b=0):
     """Set RGB LED state. Active LOW (common anode) — 0 turns LED on."""
@@ -128,7 +128,8 @@ def wait_for_arm():
 def arm_motors(motors):
     """Green LED, enable IMU fusion, start DShot, arm ESCs."""
     set_led(g=1)
-    imu.gyro_integrated_rotation_vector.enable(hertz=IMU_REPORT_HZ)
+    imu.game_quaternion.enable(hertz=GRV_REPORT_HZ)
+    imu.gyro.enable(hertz=IMU_REPORT_HZ)
     motors.start()
     motors.arm()
     motors.setAllThrottles([THROTTLE_MIN, THROTTLE_MIN])
@@ -147,8 +148,10 @@ def init_session(angle_pid, rate_pid, sink):
     config = (
         "# Flight Benchy run configuration\n"
         "imu:\n"
-        "  report: gyro_integrated_rotation_vector\n"
-        "  report_hz: {}\n"
+        "  angle_report: game_rotation_vector\n"
+        "  angle_report_hz: {}\n"
+        "  rate_report: calibrated_gyroscope\n"
+        "  rate_report_hz: {}\n"
         "angle_pid:\n"
         "  hz: {}\n"
         "  kp: {}\n"
@@ -172,6 +175,7 @@ def init_session(angle_pid, rate_pid, sink):
         "prediction:\n"
         "  lead_time_ms: {}\n"
     ).format(
+        GRV_REPORT_HZ,
         IMU_REPORT_HZ,
         1000 // (INNER_INTERVAL_MS * OUTER_INTERVAL_TICKS),
         angle_pid.kp, angle_pid.ki, angle_pid.kd, angle_pid.integral_limit,
@@ -192,10 +196,9 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
     Inner (rate) loop runs every cycle at ~200 Hz.
     Outer (angle) loop runs every OUTER_INTERVAL_TICKS cycles (~50 Hz).
     """
-    # Seed previous roll for first outer-cycle rate estimate
+    # Seed initial quaternion so telemetry has valid values before first outer tick
     imu.update_sensors()
-    iqr, iqi, iqj, iqk, _ax, _ay, _az, _ts = imu.gyro_integrated_rotation_vector.full
-    prev_imu_roll = degrees(2.0 * atan2(iqi, iqr))
+    iqr, iqi, iqj, iqk, _acc, _ts = imu.game_quaternion.full
     prev_ms = utime.ticks_ms()
 
     lead_s = LEAD_TIME_MS / 1000.0
@@ -203,7 +206,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
 
     outer_counter = 0
     rate_setpoint = 0.0
-    ang_err = prev_imu_roll  # holds last outer-loop angle error for telemetry
+    ang_err = 0.0  # holds last outer-loop angle error for telemetry
 
     while True:
         if buttons_by_held():
@@ -221,20 +224,19 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
         dt = dt_ms / 1000.0
 
         imu.update_sensors()
-        iqr, iqi, iqj, iqk, ax, _ay, _az, _ts = imu.gyro_integrated_rotation_vector.full
-        gyro_x = degrees(ax)
+        gx, _gy, _gz = imu.gyro
+        gyro_x = degrees(gx)
 
         # --- outer loop (every OUTER_INTERVAL_TICKS cycles) ---
         outer_counter += 1
         if outer_counter >= OUTER_INTERVAL_TICKS:
             outer_counter = 0
 
+            iqr, iqi, iqj, iqk = imu.game_quaternion
             imu_roll = degrees(2.0 * atan2(iqi, iqr))
 
-            # Predictive correction (ADR-006) — compensate fusion filter lag
-            angular_rate = (imu_roll - prev_imu_roll) / outer_dt if outer_dt > 0 else 0.0
-            predicted_roll = imu_roll + angular_rate * lead_s
-            prev_imu_roll = imu_roll
+            # Predictive correction (ADR-006) — compensate GRV filter lag with live gyro rate
+            predicted_roll = imu_roll + gyro_x * lead_s
 
             ang_err = -predicted_roll
             rate_setpoint = angle_pid.compute(-predicted_roll, outer_dt)

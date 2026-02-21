@@ -224,7 +224,11 @@ def print_config_summary(config, label):
     print(f"  Rate PID:  kp={rate.get('kp')}, ki={rate.get('ki')}, "
           f"kd={rate.get('kd')}, integral_limit={rate.get('integral_limit')}, "
           f"hz={rate.get('hz')}")
-    print(f"  IMU: report_hz={imu_cfg.get('report_hz')}")
+    if "report_hz" in imu_cfg:
+        print(f"  IMU: {imu_cfg.get('report')}, {imu_cfg.get('report_hz')} Hz (single report)")
+    else:
+        print(f"  IMU: angle={imu_cfg.get('angle_report')} @ {imu_cfg.get('angle_report_hz')} Hz, "
+              f"rate={imu_cfg.get('rate_report')} @ {imu_cfg.get('rate_report_hz')} Hz")
     print(f"  Motor: base={motor.get('base_throttle')}, "
           f"min={motor.get('throttle_min')}, max={motor.get('throttle_max')}")
 

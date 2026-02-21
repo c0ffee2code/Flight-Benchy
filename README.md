@@ -6,7 +6,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 - **Raspberry Pi Pico 2** — Main microcontroller (RP2350, dual-core)
 - **AS5600 Magnetic Encoder** — 12-bit absolute position at pivot (ground truth reference, ~0.088° resolution)
-- **BNO085 IMU** — 9-axis IMU with onboard sensor fusion (primary control input, game rotation vector)
+- **BNO085 IMU** — 9-axis IMU with onboard sensor fusion; game rotation vector (GRV, 0x08) for outer angle loop, calibrated gyroscope (0x02) for inner rate loop
 - **2x Drone Motors + ESCs** — DShot600 protocol via PIO, mounted on opposite ends of lever
 - **Pimoroni Pico Display Pack** — Buttons + RGB LED only; LCD disconnected (see [ADR-004](decision/ADR-004-operator-interface.md))
 - **Adafruit PiCowbell Adalogger** — PCF8523 RTC + MicroSD for black box telemetry logging
@@ -40,9 +40,13 @@ Extracted `base ± output` motor mapping into `LeverMixer` class (`mixer.py`). M
 
 **Depends on:** M1 (pure code refactor, no hardware dependency).
 
-### M4: Cascaded PID (angle loop + rate loop) — IN PROGRESS
+### M4: Cascaded PID (angle loop + rate loop) — DONE
 
-Two nested PID loops replacing the single angle PID. Outer angle loop (50 Hz) computes a desired rotation rate from fused quaternion; inner rate loop (200 Hz) tracks that rate using raw gyro angular velocity from the GIRV report. Both loops run in a single main loop with iteration-counter gating. Predictive correction (ADR-006) retained on the outer loop pending evaluation. Gain tuning in progress. See [ADR-008](decision/ADR-008-cascaded-pid.md).
+Two nested PID loops replacing the single angle PID. Outer angle loop (50 Hz) computes a desired rotation rate from GRV quaternion (game rotation vector, drift-free); inner rate loop (200 Hz) tracks that rate using calibrated gyroscope angular velocity. Initial sensor choice (GIRV) was replaced after hardware testing revealed ~1.5°/min gyro integration drift; see [ADR-010](decision/ADR-010-grv-calibrated-gyro-dual-report.md). Both loops run in a single main loop with iteration-counter gating.
+
+Baseline result (2026-02-20, 6.5 min run): **1.12° MAE**, 0.01 Hz oscillation frequency, zero windup events, no IMU drift over full run. Visually indistinguishable from horizontal.
+
+See [ADR-008](decision/ADR-008-cascaded-pid.md) and [ADR-010](decision/ADR-010-grv-calibrated-gyro-dual-report.md).
 
 **Depends on:** M2 (IMU as input), M2a (telemetry to validate improvement), M3 (clean mixer).
 

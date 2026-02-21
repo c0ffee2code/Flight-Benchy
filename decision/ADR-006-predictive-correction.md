@@ -66,3 +66,30 @@ M4 adds an inner rate loop using raw gyroscope data (not fused quaternion). The 
 - **Positive:** Zero architecture change — three lines in the hot loop, fully reversible.
 - **Negative:** Numerical differentiation amplifies noise. The game rotation vector's built-in smoothing mitigates this, but aggressive lead times may cause jitter.
 - **Negative:** `LEAD_TIME_MS` is a tuning parameter that depends on the specific IMU configuration and may need adjustment if `IMU_REPORT_HZ` changes.
+
+## Amendment — 2026-02-20: Re-enabled for M4 outer loop; rate estimate source changed
+
+### Status: Active — `LEAD_TIME_MS = 10`
+
+Was disabled (`LEAD_TIME_MS = 0`) during M4 commissioning to isolate gain behaviour. Re-enabled after baseline was validated (1.12° MAE, no drift). GRV has ~10ms filter group delay, so 10ms is the starting value.
+
+### Rate estimate: GRV finite difference → live calibrated gyro
+
+The original formula used consecutive GRV roll readings to estimate angular rate:
+```
+angular_rate = (imu_roll - prev_imu_roll) / outer_dt
+predicted_roll = imu_roll + angular_rate * lead_s
+```
+This is doubly lagged: GRV is already ~10ms stale, and the finite difference smears it over a 20ms window.
+
+**New formula** uses `gyro_x` (calibrated gyroscope, ~1–2ms latency) which is already computed every inner cycle and available in the outer loop scope:
+```
+predicted_roll = imu_roll + gyro_x * lead_s
+```
+This removes the `prev_imu_roll` variable entirely and gives a more accurate, timely rate estimate for the extrapolation. The prediction is now: "GRV says the lever was at `imu_roll` ~10ms ago; gyro says it is moving at `gyro_x` deg/s now; therefore it is at approximately `imu_roll + gyro_x * 0.010` right now."
+
+### What to watch in telemetry
+
+- `ANG_P` column tracks `predicted_roll × kp` — should show sharper response to disturbances vs LEAD_TIME_MS=0 baseline
+- If `ANG_P` oscillates at high frequency with prediction active, reduce `LEAD_TIME_MS` (gyro noise amplification)
+- Sensible range for GRV outer loop: 5–20ms. Beyond 20ms risks chasing a noisy extrapolation.

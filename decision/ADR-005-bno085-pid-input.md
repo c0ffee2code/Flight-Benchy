@@ -117,7 +117,7 @@ Tested PID gain progression:
 1. **PID gain tuning** — DONE. Current best: kp=3.5, ki=0.4, kd=0.3, integral_limit=50.
 2. **BNO085 calibration** — DONE (2026-02-16). All three MEMS sensors calibrated (accel accuracy 2, gyro 3, mag 3). DCD saved to flash, persists across power cycles. See `BNO085/decision/004-sensor-calibration.md`.
 3. **BNO085 tare** — DONE (2026-02-16). All-axes tare performed and saved. Eliminated ~3 deg systematic bias to 0.08 deg at rest. Requires calibrated magnetometer even for roll-only testing (all-axes tare uses Rotation Vector which fuses all three sensors). See `BNO085/decision/001-gap-analysis-bno085-driver.md`, Milestone 2.
-4. **Gyro-integrated rotation vector** — PENDING. Switch from game rotation vector (report 0x08, 344 Hz max, ~60ms lag) to gyro-integrated rotation vector (report 0x2A, 1000 Hz, 0–2ms lag). May be ideal as the inner loop input for M4 cascaded PID.
+4. **Gyro-integrated rotation vector** — SUPERSEDED. GIRV (0x2A) was used as the initial M4 inner loop input (ADR-008) because it bundles quaternion + angular velocity in one packet. Hardware testing on 2026-02-19 revealed ~1.5°/min drift (10.8° over 9 min) — GIRV integrates raw gyro without accelerometer correction. Replaced by GRV (0x08) for the outer loop + calibrated gyroscope (0x02) for the inner loop. See ADR-010.
 
 ### Calibration + tare results (2026-02-17)
 
