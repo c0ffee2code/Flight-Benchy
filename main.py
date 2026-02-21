@@ -11,6 +11,7 @@ from dshot_pio import DSHOT_SPEEDS
 from pid import PID
 from recorder import TelemetryRecorder, SdSink
 from mixer import LeverMixer
+from ui import set_led, buttons_by_held, wait_for_arm, wait_for_go
 
 # =====================================================
 # Pin assignments
@@ -27,20 +28,9 @@ PIN_IMU_INT    = const(3)
 PIN_RTC_SDA    = const(4)
 PIN_RTC_SCL    = const(5)
 
-# RGB LED from display pack (active HIGH, accent colors only — LCD disconnected)
-PIN_LED_R      = const(6)   # Red — error
-PIN_LED_G      = const(7)   # Green — armed / stabilizing
-PIN_LED_B      = const(8)   # Blue — idle / ready to arm
-
 # DShot motors (moved from GP6/7 to free RGB LED pins, see ADR-004)
 PIN_MOTOR1     = const(10)
 PIN_MOTOR2     = const(11)
-
-# Display buttons (active LOW)
-PIN_BTN_A      = const(12)
-PIN_BTN_B      = const(13)
-PIN_BTN_X      = const(14)
-PIN_BTN_Y      = const(15)
 
 # Adalogger SD card — SPI0
 PIN_SD_MISO    = const(16)
@@ -59,14 +49,6 @@ imu = BNO08X_I2C(
     reset_pin=Pin(PIN_IMU_RST, Pin.OUT),
     int_pin=Pin(PIN_IMU_INT, Pin.IN, Pin.PULL_UP),
 )
-
-led_r = Pin(PIN_LED_R, Pin.OUT)
-led_g = Pin(PIN_LED_G, Pin.OUT)
-led_b = Pin(PIN_LED_B, Pin.OUT)
-
-btn_A = Pin(PIN_BTN_A, Pin.IN, Pin.PULL_UP)
-btn_B = Pin(PIN_BTN_B, Pin.IN, Pin.PULL_UP)
-btn_Y = Pin(PIN_BTN_Y, Pin.IN, Pin.PULL_UP)
 
 # =====================================================
 # Constants
@@ -96,34 +78,15 @@ TELEMETRY_SAMPLE_EVERY = const(10)
 # Matches measured GRV group delay (~10 - 15 ms). See ADR-006.
 LEAD_TIME_MS = const(15)
 
-def set_led(r=0, g=0, b=0):
-    """Set RGB LED state. Active LOW (common anode) — 0 turns LED on."""
-    led_r.value(not r)
-    led_g.value(not g)
-    led_b.value(not b)
-
-
 def angle_to_quat(deg):
     """Convert single-axis (roll/X) angle in degrees to quaternion (qr, qi, qj, qk)."""
     half = radians(deg) / 2
     return (cos(half), sin(half), 0.0, 0.0)
 
 
-def buttons_by_held():
-    """Return True if B+Y are both pressed (active low)."""
-    return not btn_B.value() and not btn_Y.value()
-
-
 # =====================================================
 # State helpers
 # =====================================================
-
-def wait_for_arm():
-    """Blue LED, block until B+Y held."""
-    set_led(b=1)
-    while not buttons_by_held():
-        utime.sleep_ms(50)
-
 
 def arm_motors(motors):
     """Green LED, enable IMU fusion, start DShot, arm ESCs."""
@@ -133,12 +96,6 @@ def arm_motors(motors):
     motors.start()
     motors.arm()
     motors.setAllThrottles([THROTTLE_MIN, THROTTLE_MIN])
-
-
-def wait_for_go():
-    """Block until button A is pressed."""
-    while btn_A.value():
-        utime.sleep_ms(100)
 
 
 def init_session(angle_pid, rate_pid, sink):

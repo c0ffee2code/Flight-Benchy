@@ -32,7 +32,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **Raspberry Pi Pico 2** - Main microcontroller
 - **BNO085 IMU** - 9-axis IMU with onboard sensor fusion, provides quaternion output
 - **AS5600 Magnetic Encoder** - 12-bit absolute position encoder (reference sensor)
-- **Pimoroni Pico Display Pack** - Buttons (GPIO 12–15) + RGB LED (GPIO 6/7/8) only; LCD disconnected to resolve SPI0 conflict (see ADR-004)
+- **Pimoroni Pico Display Pack** - Buttons (GPIO 12–15) + RGB LED (GPIO 6/7/8) only; LCD disconnected to resolve SPI0 conflict (see ADR-004). Operator interface implemented in `ui.py`.
 - **2x Drone Motors + ESCs** - DShot protocol control via PIO
 - **Adafruit PiCowbell Adalogger** - PCF8523 RTC + MicroSD for telemetry logging (see ADR-002)
 - **Power Distribution Board** - Motor power supply
@@ -56,14 +56,13 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   └── driver/
 │       ├── dshot_pio.py
 │       └── motor_throttle_group.py
+├── ui.py                # Operator interface — Pimoroni Display Pack buttons + RGB LED
 ├── tools/
 │   └── analyse_telemetry.py  # Desktop telemetry analyser (not deployed to Pico)
 ├── test_runs/           # Copied run folders from SD card for analysis
 │   └── YYYY-MM-DD_hh-mm-ss/  # One folder per run
 │       ├── config.yaml  # System settings snapshot (PID gains, motor limits, etc.)
 │       └── log.csv      # Telemetry CSV
-├── pimoroni/
-│   └── pico_display_pack.py  # Display driver (NOT deployed — LCD disconnected, see ADR-004)
 ├── decision/            # Architecture Decision Records
 └── resources/           # Docs, datasheets
 ```
@@ -77,6 +76,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
 - `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
+- `ui.py`
 
 ## Architecture
 
@@ -98,9 +98,9 @@ Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center
 - `bno08x.py` - BNO08x driver with SHTP protocol, interrupt-driven sensor updates, quaternion/euler output, and precise timestamp tracking.
 - `i2c.py` - I2C transport layer for BNO08x. Handles non-standard clock stretching and fragment reassembly.
 
-### Operator Interface (buttons + RGB LED)
+### Operator Interface (`ui.py`)
 
-Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8 from the Pimoroni Display Pack. LCD is disconnected (SPI0 conflict with Adalogger SD card, see ADR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `pimoroni/pico_display_pack.py` remains in repo for reference but is not deployed.
+Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-display-pack). Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8. LCD is disconnected (SPI0 conflict with Adalogger SD card, see ADR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `ui.py` owns all LED/button pin constants, hardware init, and UI helpers (`set_led`, `buttons_by_held`, `wait_for_arm`, `wait_for_go`).
 
 ### Motor Control (`DShot/driver/`)
 
