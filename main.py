@@ -93,8 +93,8 @@ TELEMETRY_SAMPLE_EVERY = const(10)
 
 # Predictive correction — compensate GRV filter lag in outer angle loop.
 # Uses live calibrated gyro rate (gyro_x) for the extrapolation.
-# Matches measured GRV group delay (~10ms). See ADR-006.
-LEAD_TIME_MS = const(10)
+# Matches measured GRV group delay (~10 - 15 ms). See ADR-006.
+LEAD_TIME_MS = const(15)
 
 def set_led(r=0, g=0, b=0):
     """Set RGB LED state. Active LOW (common anode) — 0 turns LED on."""

@@ -93,3 +93,13 @@ This removes the `prev_imu_roll` variable entirely and gives a more accurate, ti
 - `ANG_P` column tracks `predicted_roll × kp` — should show sharper response to disturbances vs LEAD_TIME_MS=0 baseline
 - If `ANG_P` oscillates at high frequency with prediction active, reduce `LEAD_TIME_MS` (gyro noise amplification)
 - Sensible range for GRV outer loop: 5–20ms. Beyond 20ms risks chasing a noisy extrapolation.
+
+### Sweep results (2026-02-21, disturbance runs with manual lever pokes)
+
+| LEAD_TIME_MS | MAE overall | MAE fast motion | Osc freq | Instability |
+|---|---|---|---|---|
+| 0 | 1.12° (undisturbed) | — | 0.01 Hz | none |
+| 10 | 2.98° | 4.88° | 0.28 Hz | none |
+| 15 | **2.47°** | **3.71°** | 0.21 Hz | none |
+
+15ms outperforms 10ms on every metric (−17% MAE overall, −24% fast motion MAE). No gyro noise amplification visible in `ANG_P` at 15ms — `ANG_P` subplot stays smooth through hard pokes. Current value: `LEAD_TIME_MS = 15`. Next candidate: 20ms.
