@@ -16,7 +16,7 @@ from ui import set_led, buttons_by_held, wait_for_arm, wait_for_go
 # =====================================================
 # Pin assignments
 # =====================================================
-# I2C bus 0 — sensors (AS5600 encoder + BNO085 IMU)
+# I2C bus 0 — sensors (AS5600 encoder + BNO085 IMU + PCF8523 RTC)
 PIN_I2C0_SDA   = const(0)
 PIN_I2C0_SCL   = const(1)
 
@@ -24,15 +24,11 @@ PIN_I2C0_SCL   = const(1)
 PIN_IMU_RST    = const(2)
 PIN_IMU_INT    = const(3)
 
-# Adalogger RTC — SoftI2C (GP4/5 are I2C0 alt pins, bit-bang to avoid conflict)
-PIN_RTC_SDA    = const(4)
-PIN_RTC_SCL    = const(5)
-
 # DShot motors (moved from GP6/7 to free RGB LED pins, see ADR-004)
 PIN_MOTOR1     = const(10)
 PIN_MOTOR2     = const(11)
 
-# Adalogger SD card — SPI0
+# SD card breakout — SPI0
 PIN_SD_MISO    = const(16)
 PIN_SD_CS      = const(17)
 PIN_SD_SCK     = const(18)
@@ -244,7 +240,7 @@ def main():
         sd_sink = SdSink(
             sck=PIN_SD_SCK, mosi=PIN_SD_MOSI,
             miso=PIN_SD_MISO, cs=PIN_SD_CS,
-            rtc_sda=PIN_RTC_SDA, rtc_scl=PIN_RTC_SCL,
+            rtc_i2c=i2c,
         )
         wait_for_arm()
         arm_motors(motors)

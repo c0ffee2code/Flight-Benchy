@@ -17,7 +17,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 **Completed:**
 - M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/ADR-001-pid-lever-stabilization.md`.
 - M2 — BNO085 IMU as primary PID input (game rotation vector). AS5600 encoder is telemetry-only ground truth. Quaternion telemetry format. BNO085 calibrated (accel/gyro/mag) and tared — DCD and tare persisted to flash. MAE dropped from 22 deg to 2.87 deg. See `decision/ADR-005-bno085-pid-input.md`.
-- M2a — Black box telemetry logging to SD card via Adalogger PiCowbell. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
+- M2a — Black box telemetry logging to SD card via SD card + PCF8523 RTC breakout boards. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package. Authored source consolidated under `src/`.
 - ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
 - M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline validated 2026-02-20: 1.12° MAE, no drift over 6.5 min, zero oscillation. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
@@ -34,7 +34,8 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **AS5600 Magnetic Encoder** - 12-bit absolute position encoder (reference sensor)
 - **Pimoroni Pico Display Pack** - Buttons (GPIO 12–15) + RGB LED (GPIO 6/7/8) only; LCD disconnected to resolve SPI0 conflict (see ADR-004). Operator interface implemented in `ui.py`.
 - **2x Drone Motors + ESCs** - DShot protocol control via PIO
-- **Adafruit PiCowbell Adalogger** - PCF8523 RTC + MicroSD for telemetry logging (see ADR-002)
+- **Adafruit Micro SD SPI Breakout** ([#4682](https://www.adafruit.com/product/4682)) - MicroSD via SPI0, 3V only
+- **Adafruit PCF8523 RTC Breakout** ([#5189](https://www.adafruit.com/product/5189)) - RTC via I2C Bus 0 (shared with sensors), battery-backed; together provide black box telemetry logging (see ADR-002)
 - **Power Distribution Board** - Motor power supply
 
 ## Project Structure
@@ -101,7 +102,7 @@ Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center
 
 ### Operator Interface (`src/ui.py`)
 
-Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-display-pack). Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8. LCD is disconnected (SPI0 conflict with Adalogger SD card, see ADR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `ui.py` owns all LED/button pin constants, hardware init, and UI helpers (`set_led`, `buttons_by_held`, `wait_for_arm`, `wait_for_go`).
+Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-display-pack). Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8. LCD is disconnected (SPI0 conflict with SD card breakout, see ADR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `ui.py` owns all LED/button pin constants, hardware init, and UI helpers (`set_led`, `buttons_by_held`, `wait_for_arm`, `wait_for_go`).
 
 ### Motor Control (`DShot/driver/`)
 
@@ -143,12 +144,10 @@ All pin constants are defined in `src/main.py` with descriptive names:
 
 | GPIO | Constant | Function |
 |------|----------|----------|
-| 0 | `PIN_I2C0_SDA` | I2C bus 0 SDA — sensors (AS5600 + BNO085) |
+| 0 | `PIN_I2C0_SDA` | I2C bus 0 SDA — sensors (AS5600 + BNO085 + PCF8523 RTC) |
 | 1 | `PIN_I2C0_SCL` | I2C bus 0 SCL |
 | 2 | `PIN_IMU_RST` | BNO085 reset |
 | 3 | `PIN_IMU_INT` | BNO085 interrupt |
-| 4 | `PIN_RTC_SDA` | Adalogger RTC SoftI2C SDA |
-| 5 | `PIN_RTC_SCL` | Adalogger RTC SoftI2C SCL |
 | 6 | `PIN_LED_R` | RGB LED Red — error |
 | 7 | `PIN_LED_G` | RGB LED Green — armed/stabilizing |
 | 8 | `PIN_LED_B` | RGB LED Blue — ready to arm |
@@ -158,9 +157,9 @@ All pin constants are defined in `src/main.py` with descriptive names:
 | 13 | `PIN_BTN_B` | Button B |
 | 14 | `PIN_BTN_X` | Button X |
 | 15 | `PIN_BTN_Y` | Button Y |
-| 16 | `PIN_SD_MISO` | Adalogger SD card MISO (SPI0) |
-| 17 | `PIN_SD_CS` | Adalogger SD card CS (SPI0) |
-| 18 | `PIN_SD_SCK` | Adalogger SD card SCK (SPI0) |
-| 19 | `PIN_SD_MOSI` | Adalogger SD card MOSI (SPI0) |
+| 16 | `PIN_SD_MISO` | SD card breakout MISO (SPI0) |
+| 17 | `PIN_SD_CS` | SD card breakout CS (SPI0) |
+| 18 | `PIN_SD_SCK` | SD card breakout SCK (SPI0) |
+| 19 | `PIN_SD_MOSI` | SD card breakout MOSI (SPI0) |
 
-**Note:** GPIO 4/5 are I2C0 alternate pins on RP2350, not I2C1. The RTC uses SoftI2C (bit-banged) to avoid conflicting with the sensor I2C bus on GPIO 0/1. See ADR-002 for details.
+**Note:** PCF8523 RTC shares I2C Bus 0 (GPIO 0/1) with AS5600 and BNO085. No address conflicts (0x68 vs 0x36/0x4A). RTC is read once per session before the control loop starts, so there is no bus contention at runtime.

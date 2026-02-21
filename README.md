@@ -9,7 +9,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **BNO085 IMU** — 9-axis IMU with onboard sensor fusion; game rotation vector (GRV, 0x08) for outer angle loop, calibrated gyroscope (0x02) for inner rate loop
 - **2x Drone Motors + ESCs** — DShot600 protocol via PIO, mounted on opposite ends of lever
 - **Pimoroni Pico Display Pack** — Buttons + RGB LED only; LCD disconnected (see [ADR-004](decision/ADR-004-operator-interface.md))
-- **Adafruit PiCowbell Adalogger** — PCF8523 RTC + MicroSD for black box telemetry logging
+- **Adafruit Micro SD SPI Breakout** ([#4682](https://www.adafruit.com/product/4682)) + **Adafruit PCF8523 RTC Breakout** ([#5189](https://www.adafruit.com/product/5189)) — MicroSD + RTC for black box telemetry logging
 - **Power Distribution Board** — Motor power supply
 
 ## Mechanical Setup
@@ -30,9 +30,9 @@ BNO085 sensor calibration (accel, gyro, magnetometer) and all-axes tare complete
 
 ### M2a: Telemetry logging (black box) — DONE
 
-Timestamped CSV logging to SD card via Adalogger PiCowbell. Each run creates a folder (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml` (system settings snapshot). `ticks_ms` provides precise row timing. See [ADR-002](decision/ADR-002-telemetry-logging.md).
+Timestamped CSV logging to SD card via SD card breakout + PCF8523 RTC breakout. Each run creates a folder (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml` (system settings snapshot). `ticks_ms` provides precise row timing. See [ADR-002](decision/ADR-002-telemetry-logging.md).
 
-Motor pins reassigned from GPIO 4/5 → 6/7 → 10/11 (freeing I2C for Adalogger RTC, then RGB LED pins).
+Motor pins reassigned from GPIO 4/5 → 6/7 → 10/11 (freeing GPIO 4/5 for PCF8523 RTC, then RGB LED pins).
 
 ### M3: Mixer abstraction — DONE
 

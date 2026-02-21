@@ -2,11 +2,11 @@
 
 **Status:** Accepted
 **Date:** 2026-02-15
-**Context:** Resolve SPI0 conflict between Adalogger SD card and Pimoroni Display Pack LCD
+**Context:** Resolve SPI0 conflict between SD card breakout and Pimoroni Display Pack LCD
 
 ## Context
 
-The Pimoroni Pico Display Pack and Adafruit PiCowbell Adalogger both claim SPI0 on GPIO 16–19 with incompatible pin roles (see ADR-002, "Pin Conflicts" section). They cannot coexist — when `SdSink` initializes SPI0 for SD card access, it reconfigures the bus the display depends on, freezing the LCD.
+The Pimoroni Pico Display Pack and Adafruit SD card breakout both claim SPI0 on GPIO 16–19 with incompatible pin roles (see ADR-002, "Pin Conflicts" section). They cannot coexist — when `SdSink` initializes SPI0 for SD card access, it reconfigures the bus the display depends on, freezing the LCD.
 
 The display LCD was used for real-time status during development, but telemetry logging (M2a) and BNO085 high-speed SPI (future) need those SPI pins more. The LCD also added ~1145ms of overhead to the PID loop when `draw_stabilizing()` was called, far exceeding the 20ms target cycle time.
 
@@ -56,12 +56,10 @@ The multi-button UX is unchanged (B+Y to arm, A to start, B+Y to disarm). LCD `d
 
 | GPIO | Constant | Function |
 |------|----------|----------|
-| 0 | `PIN_I2C0_SDA` | I2C bus 0 SDA — sensors |
+| 0 | `PIN_I2C0_SDA` | I2C bus 0 SDA — sensors (AS5600 + BNO085 + PCF8523 RTC) |
 | 1 | `PIN_I2C0_SCL` | I2C bus 0 SCL |
 | 2 | `PIN_IMU_RST` | BNO085 reset |
 | 3 | `PIN_IMU_INT` | BNO085 interrupt |
-| 4 | `PIN_RTC_SDA` | Adalogger RTC SoftI2C SDA |
-| 5 | `PIN_RTC_SCL` | Adalogger RTC SoftI2C SCL |
 | 6 | `PIN_LED_R` | RGB LED Red — error |
 | 7 | `PIN_LED_G` | RGB LED Green — armed/stabilizing |
 | 8 | `PIN_LED_B` | RGB LED Blue — ready to arm |
@@ -71,10 +69,10 @@ The multi-button UX is unchanged (B+Y to arm, A to start, B+Y to disarm). LCD `d
 | 13 | `PIN_BTN_B` | Button B |
 | 14 | `PIN_BTN_X` | Button X |
 | 15 | `PIN_BTN_Y` | Button Y |
-| 16 | `PIN_SD_MISO` | Adalogger SD SPI0 MISO |
-| 17 | `PIN_SD_CS` | Adalogger SD SPI0 CS |
-| 18 | `PIN_SD_SCK` | Adalogger SD SPI0 SCK |
-| 19 | `PIN_SD_MOSI` | Adalogger SD SPI0 MOSI |
+| 16 | `PIN_SD_MISO` | SD card breakout SPI0 MISO |
+| 17 | `PIN_SD_CS` | SD card breakout SPI0 CS |
+| 18 | `PIN_SD_SCK` | SD card breakout SPI0 SCK |
+| 19 | `PIN_SD_MOSI` | SD card breakout SPI0 MOSI |
 
 ## Consequences
 

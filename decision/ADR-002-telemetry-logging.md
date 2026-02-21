@@ -1,4 +1,4 @@
-# ADR-002: Telemetry Logging with Adalogger PiCowbell
+# ADR-002: Telemetry Logging — SD Card + PCF8523 RTC Breakouts
 
 **Status:** Accepted
 **Date:** 2026-02-08
@@ -24,32 +24,21 @@ Currently there is no persistent logging — the only output is the display and 
 
 ## Hardware Choice
 
-**Adafruit PiCowbell Adalogger for Pico** ([product 5703](https://www.adafruit.com/product/5703))
+Two discrete breakout boards replace the all-in-one PiCowbell used previously:
 
-Stacks directly onto the Raspberry Pi Pico 2. Provides:
+| Board | Adafruit | Component | Details |
+|-------|----------|-----------|---------|
+| Micro SD SPI Breakout | [#4682](https://www.adafruit.com/product/4682) | MicroSD | SPI, 3V only — MOSI=GPIO 19, MISO=GPIO 16, SCK=GPIO 18, CS=GPIO 17 |
+| PCF8523 RTC Breakout | [#5189](https://www.adafruit.com/product/5189) | RTC | PCF8523, CR1220 coin cell, I2C address `0x68`, shared I2C Bus 0 (GPIO 0/1) |
 
-| Component | Details |
-|-----------|---------|
-| **RTC** | PCF8523, CR1220 coin cell backup, I2C address `0x68` |
-| **SD card** | MicroSD via SPI — MOSI=GPIO 19, MISO=GPIO 16, SCK=GPIO 18, CS=GPIO 17 |
-| **I2C** | STEMMA QT connector on GPIO 4 (SDA) / GPIO 5 (SCL) |
-| **SD detect** | Optional, GPIO 15 |
+Separate boards remove the fixed-wiring constraint of the PiCowbell and allow independent placement.
 
 ### Pin Conflicts
 
-**Conflict 1 — I2C (resolved):** The Adalogger's I2C bus (GPIO 4/5) overlaps with the original motor pins:
+**Conflict — SPI0 vs Pimoroni Display Pack (resolved — see ADR-004):** The SD card breakout and the Pimoroni Pico Display Pack both claim SPI0 on GPIO 16–19 with incompatible pin roles:
 
-| GPIO | Original use | Adalogger use |
-|------|--------------|---------------|
-| 4 | Motor 1 DShot | I2C SDA (RTC + STEMMA QT) |
-| 5 | Motor 2 DShot | I2C SCL (RTC + STEMMA QT) |
-
-Resolved by moving motors to GPIO 6/7 (see Decision below).
-
-**Conflict 2 — SPI0 vs Pimoroni Display Pack (resolved — see ADR-004):** The Adalogger's SD card and the Pimoroni Pico Display Pack both claim SPI0 on GPIO 16–19 with incompatible pin roles:
-
-| GPIO | Adalogger SD card | Pimoroni Display |
-|------|-------------------|------------------|
+| GPIO | SD card breakout | Pimoroni Display |
+|------|------------------|------------------|
 | 16 | SPI0 MISO (data from card) | DC (data/command select) |
 | 17 | SPI0 CS (chip select) | CS (chip select) |
 | 18 | SPI0 SCK | SPI0 SCK |
@@ -59,39 +48,25 @@ SPI buses *can* host multiple devices sharing SCK/MOSI/MISO with separate CS lin
 
 **SD card detect** on GPIO 15 — skipped. The SD library detects the card by attempting to mount. Button Y (GPIO 15) is more valuable for the UI.
 
-### I2C bus mapping gotcha
+### I2C bus mapping
 
-GPIO 4/5 are **I2C0 alternate pins** on RP2350, not I2C1 as the Adalogger documentation implies. Since I2C0 is already used for sensors (AS5600 + BNO085) on GPIO 0/1, we cannot assign GPIO 4/5 to a second hardware I2C peripheral. The RTC is accessed via **SoftI2C** (bit-banged) instead. This is acceptable because the RTC is only read once per session — there is no ongoing bus traffic.
+The PCF8523 RTC shares **I2C Bus 0 (GPIO 0/1)** with AS5600 (0x36) and BNO085 (0x4A). No address conflict (0x68). The RTC is read once per session before the control loop starts, so it does not add any runtime traffic to the latency-sensitive sensor bus.
 
 ## Decision
-
-### Reassign motor pins
-
-Move DShot motor outputs to unused GPIOs. The PIO state machine can use any GPIO pin — the assignment is purely software.
-
-| Signal | New GPIO | Rationale |
-|--------|----------|-----------|
-| Motor 1 DShot | GPIO 6 | Adjacent to current pins, no conflicts |
-| Motor 2 DShot | GPIO 7 | Adjacent to current pins, no conflicts |
-
-This frees GPIO 4/5 for the Adalogger's RTC (via SoftI2C) and preserves the existing I2C bus on GPIO 0/1 for sensors (AS5600 + BNO085).
-
-**Note:** Motors later moved from GPIO 6/7 to GPIO 10/11 (ADR-004) to free pins for the RGB LED.
 
 SD card detect on GPIO 15 — skip it. The SD library can detect the card by attempting to mount. Button Y (GPIO 15) is more valuable for the UI.
 
 ### Resulting bus topology
 
 ```
-I2C Bus 0 (GPIO 0/1, 400 kHz)     SoftI2C (GPIO 4/5, 100 kHz)
-├── AS5600 encoder  [0x36]          └── PCF8523 RTC  [0x68]
-└── BNO085 IMU      [0x4A]
+I2C Bus 0 (GPIO 0/1, 400 kHz)
+├── AS5600 encoder  [0x36]
+├── BNO085 IMU      [0x4A]
+└── PCF8523 RTC     [0x68]   ← read once at session start, no runtime traffic
 
 SPI Bus 0 (GPIO 16/17/18/19)       ← conflict resolved: LCD disconnected (ADR-004)
-└── MicroSD card (Adalogger)
+└── MicroSD card breakout
 ```
-
-Separating the RTC onto a bit-banged bus avoids adding traffic to the sensor bus, which is latency-sensitive for the control loop. SoftI2C is acceptable because the RTC is read once per session for filename generation only.
 
 **SPI0 conflict status:** Resolved in ADR-004. The display pack LCD is disconnected; only buttons (GPIO 12–15) and RGB LED (GPIO 6/7/8) are wired. SD card has exclusive use of SPI0. Motors moved from GPIO 6/7 to GPIO 10/11 to free RGB LED pins.
 
@@ -158,7 +133,7 @@ The upstream `sdcard.py` from micropython-lib has a bug: the CRC byte's stop bit
 
 - RTC timestamps in filenames enable correlating experiments across days/sessions
 - SD card provides practically unlimited storage for extended experiments
-- SoftI2C for RTC avoids impacting sensor I2C bus latency
+- PCF8523 shares the sensor I2C bus — no extra pins needed; read once before loop starts, so no runtime latency impact
 - CSV format works directly with pandas, matplotlib, and the existing `analyse_report_rate.py` from BNO085 repo
 - `SdSink` encapsulates all SD/RTC hardware — main loop stays clean
 - Direct writes keep the implementation simple; buffering can be added if needed
@@ -182,4 +157,4 @@ A production flight controller would isolate telemetry failures from the control
 ## Dependencies
 
 - `sdcard.py` MicroPython driver (from micropython-lib, with stop bit fix applied)
-- Motor pin reassignment in `main.py` (GPIO 4/5 → GPIO 6/7 → GPIO 10/11) — done (final move in ADR-004)
+- Motor pin reassignment in `main.py` (final assignment GPIO 10/11 — see ADR-004)

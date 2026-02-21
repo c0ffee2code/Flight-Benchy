@@ -1,6 +1,6 @@
 import os
 import time
-from machine import Pin, SPI, SoftI2C
+from machine import Pin, SPI
 
 import sdcard
 
@@ -13,12 +13,11 @@ def _bcd(b):
     return (b >> 4) * 10 + (b & 0x0F)
 
 
-def read_rtc(sda, scl, addr=0x68):
-    """Read current time from RTC via one-shot SoftI2C.
+def read_rtc(i2c, addr=0x68):
+    """Read current time from PCF8523 RTC.
 
     Returns (year, month, day, hour, minute, second).
     """
-    i2c = SoftI2C(sda=Pin(sda), scl=Pin(scl), freq=100_000)
     buf = i2c.readfrom_mem(addr, 0x03, 7)
     return (
         _bcd(buf[6]) + 2000,  # year
@@ -58,7 +57,7 @@ class SdSink:
     mount early (fail-fast) and create the run directory later.
     """
 
-    def __init__(self, sck, mosi, miso, cs, rtc_sda, rtc_scl):
+    def __init__(self, sck, mosi, miso, cs, rtc_i2c):
         """Mount SD card and validate it is accessible.
 
         Raises OSError immediately if the card is missing or unreadable,
@@ -66,7 +65,7 @@ class SdSink:
 
         Args:
             sck, mosi, miso, cs: SD card SPI0 pin numbers.
-            rtc_sda, rtc_scl: RTC SoftI2C pin numbers (stored for later use).
+            rtc_i2c: I2C object shared with sensors (PCF8523 is on the main sensor bus).
         """
         cs_pin = Pin(cs, Pin.OUT, value=1)
         spi = SPI(0, baudrate=400_000, polarity=0, phase=0,
@@ -76,8 +75,7 @@ class SdSink:
         self._vfs = os.VfsFat(self._sd)
         os.mount(self._vfs, _SD_MOUNT)
 
-        self._rtc_sda = rtc_sda
-        self._rtc_scl = rtc_scl
+        self._rtc_i2c = rtc_i2c
         self._run_dir = None
         self._f = None
 
@@ -86,7 +84,7 @@ class SdSink:
 
         Call once when the recording session actually starts (after arming).
         """
-        dt = read_rtc(sda=self._rtc_sda, scl=self._rtc_scl)
+        dt = read_rtc(self._rtc_i2c)
 
         try:
             os.mkdir(_LOG_DIR)
