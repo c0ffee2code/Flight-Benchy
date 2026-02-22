@@ -232,7 +232,7 @@ def disarm(motors, telemetry):
 # Main
 # =====================================================
 def main():
-    angle_pid = PID(kp=1.5, ki=0.0, kd=0.2, integral_limit=100.0)   # outputs deg/s
+    angle_pid = PID(kp=1.5, ki=0.05, kd=0.2, integral_limit=5.0)   # outputs deg/s
     rate_pid  = PID(kp=2.5, ki=0.0, kd=0.0, integral_limit=50.0)    # outputs mixer scalar
     mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX)
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
