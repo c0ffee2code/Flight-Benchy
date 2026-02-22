@@ -50,7 +50,8 @@ imu = BNO08X_I2C(
 # Constants
 # =====================================================
 # Encoder calibration — recapture after mechanical changes!
-AXIS_CENTER = const(422)
+# Raw=411 when lever at physical zero (corrected from 422 via BNO085 tare validation, 2026-02-22)
+AXIS_CENTER = const(411)
 
 # Motor limits
 THROTTLE_MIN = const(70)
