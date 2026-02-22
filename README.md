@@ -44,7 +44,7 @@ Extracted `base ± output` motor mapping into `LeverMixer` class (`mixer.py`). M
 
 Two nested PID loops replacing the single angle PID. Outer angle loop (50 Hz) computes a desired rotation rate from GRV quaternion (game rotation vector, drift-free); inner rate loop (200 Hz) tracks that rate using calibrated gyroscope angular velocity. Initial sensor choice (GIRV) was replaced after hardware testing revealed ~1.5°/min gyro integration drift; see [ADR-010](decision/ADR-010-grv-calibrated-gyro-dual-report.md). Both loops run in a single main loop with iteration-counter gating.
 
-Baseline result (2026-02-20, 6.5 min run): **1.12° MAE**, 0.01 Hz oscillation frequency, zero windup events, no IMU drift over full run. Visually indistinguishable from horizontal.
+Baseline result (2026-02-22, 77s run with active disturbance): **0.36° MAE**, 0.09 Hz oscillation frequency, zero windup events, Pearson r=0.999. 3× improvement over prior baseline (1.12° MAE, 2026-02-20) following BNO085 re-calibration, correct tare procedure, and AXIS_CENTER correction (422→411).
 
 See [ADR-008](decision/ADR-008-cascaded-pid.md) and [ADR-010](decision/ADR-010-grv-calibrated-gyro-dual-report.md).
 

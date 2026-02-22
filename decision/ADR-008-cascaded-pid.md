@@ -1,6 +1,6 @@
 # ADR-008: Cascaded PID — Angle Loop + Rate Loop (M4)
 
-**Status:** Implemented — baseline validated (1.12° MAE, 6.5 min run, no drift; 2026-02-20)
+**Status:** Implemented — baseline updated (0.36° MAE, 77s disturbance run, Pearson r=0.999; 2026-02-22)
 **Date:** 2026-02-17
 **Context:** Replace single angle PID with cascaded architecture matching real flight controllers
 
@@ -225,6 +225,24 @@ Motor authority ±150 DShot units. Inner loop stays proportional up to 60 deg/s 
 - `pid.py` — reusable as-is for both loops
 - `mixer.py` — sign corrected (Run 6): `m1 = base - output`, `m2 = base + output`
 - Completed: M2 (IMU input), M2a (telemetry), M3 (mixer extraction)
+
+---
+
+## Amendment — 2026-02-22: New baseline after calibration + tare fix + AXIS_CENTER correction
+
+| Metric | Old baseline (2026-02-20) | New baseline (2026-02-22) |
+|--------|--------------------------|--------------------------|
+| MAE | 1.12° | **0.36°** |
+| Run duration | 6.5 min (steady-state) | 77s (active disturbance, 57° encoder range) |
+| Pearson r | — | 0.999 |
+| Oscillation freq | 0.01 Hz | 0.09 Hz |
+| Windup events | 0 | 0 |
+
+**Changes that drove the improvement:**
+1. **BNO085 re-calibration + correct tare procedure** — previous tare was applied while GRV still carried integration drift from Phase 0 figure-8 motion. Fix: hardware-reset the sensor between Phase 0 (mag calibration, detached) and Phase 1 (tare, lever at horizontal) to clear gyroscope integration history. GRV then anchors cleanly to gravity within 1–2s.
+2. **AXIS_CENTER corrected 422 → 411** — encoder zero corrected from tare validation data (offset: `(411−422) × 360/4096 = −0.97°`).
+
+Gains (`kp`, `ki`, `kd`) and all architecture unchanged.
 
 ---
 

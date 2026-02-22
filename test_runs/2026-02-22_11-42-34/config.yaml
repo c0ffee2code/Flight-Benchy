@@ -21,8 +21,8 @@ motor:
   throttle_min: 70
   throttle_max: 500
 encoder:
-  axis_center: 422
+  axis_center: 411
 telemetry:
   sample_every: 10
 prediction:
-  lead_time_ms: 10
+  lead_time_ms: 15

@@ -20,9 +20,9 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - M2a — Black box telemetry logging to SD card via SD card + PCF8523 RTC breakout boards. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package. Authored source consolidated under `src/`.
 - ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
-- M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline validated 2026-02-20: 1.12° MAE, no drift over 6.5 min, zero oscillation. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
+- M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline updated 2026-02-22: **0.36° MAE** (3× improvement over initial 1.12° baseline) after BNO085 re-calibration, correct tare procedure, and AXIS_CENTER correction. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
 
-**Current focus:** M4 post-baseline — disturbance response characterization, re-tare for bias elimination, pre-flight check implementation (ADR-009).
+**Current focus:** M4 post-baseline — disturbance response characterization, pre-flight check implementation (ADR-009).
 
 **Roadmap (see README.md for full details):**
 - M5: Multi-axis control (depends on hardware evolution)
