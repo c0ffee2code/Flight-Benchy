@@ -197,13 +197,13 @@ Fix in `mixer.py`: `m1 = base - output, m2 = base + output`. Sign chain end-to-e
 
 | Parameter | Value |
 |-----------|-------|
-| angle_pid | kp=1.5, ki=0.0, kd=0.2, limit=100 |
+| angle_pid | kp=1.5, ki=0.05, kd=0.2, limit=5 |
 | rate_pid | kp=2.5, ki=0.0, kd=0.0, limit=50 |
-| THROTTLE_MAX | 400 |
+| THROTTLE_MAX | 500 |
 | BASE_THROTTLE | 250 |
 | Combined static gain | 1.5 × 2.5 = 3.75 |
 
-Motor authority ±150 DShot units. Inner loop stays proportional up to 60 deg/s rate error. Outer loop D term (kd=0.2 at 50 Hz) provides velocity damping without derivative noise at 200 Hz. No integrals until steady-state error is characterised.
+Motor authority ±150 DShot units (typical). Inner loop stays proportional up to 60 deg/s rate error. Outer loop D term (kd=0.2 at 50 Hz) provides velocity damping without derivative noise at 200 Hz. Angle Ki compensates for residual mechanical imbalance and slow GRV drift; see amendment 2026-02-22 (post-baseline) below.
 
 ## Consequences
 
@@ -243,6 +243,32 @@ Motor authority ±150 DShot units. Inner loop stays proportional up to 60 deg/s 
 2. **AXIS_CENTER corrected 422 → 411** — encoder zero corrected from tare validation data (offset: `(411−422) × 360/4096 = −0.97°`).
 
 Gains (`kp`, `ki`, `kd`) and all architecture unchanged.
+
+---
+
+## Amendment — 2026-02-22: Post-baseline refinement (jig calibration, lever balance, angle Ki)
+
+Three changes made after the 0.36° MAE baseline, individually validated:
+
+**1. AXIS_CENTER 411 → 406 (precision 3D-printed jig)**
+A jig was fabricated to hold the rotating shaft, magnet, and IMU sensor at true physical horizontal. Raw encoder reading at jig-confirmed horizontal: 406 (history: 422 → 411 → 406). The jig also enabled a controlled IMU bias test: lever mechanically fixed at horizontal for 68.6s — measured IMU noise floor ±0.25° at 0.19 Hz (GRV's inherent sensor fusion oscillation), bias −0.14° (confirming tare is accurate to within GRV noise).
+
+**2. Lever mechanically balanced**
+Motors repositioned along the arm until the lever is near-neutral. Removes the need for a constant motor differential to hold horizontal, reducing steady-state control effort.
+
+**3. Angle Ki = 0.05, integral_limit = 5 (deg·s)**
+Residual mechanical imbalance and slow GRV drift both create a small constant torque the P+D terms cannot fully null. A small integral term on the outer angle loop compensates for both automatically.
+
+Key tuning lesson: `integral_limit` must be sized to the *maximum steady-state correction needed*, not left at a large default. With `limit=100`, the integrator saturated during large initial transients (e.g. −10° start) and the accumulated value fought recovery — lever never converged. With `limit=5`, max I contribution is `ki × limit = 0.25 deg/s`, which is enough to null the offset but negligible compared to the P term during transients.
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Oscillation freq | 0.67 Hz | **0.00 Hz** |
+| Motor differential at steady state | ~50 DShot units | ~0 (symmetric) |
+| Bias (IMU−ENC) | −0.05° | −0.70° (GRV drift absorbed by integrator) |
+| Lever holds true horizontal | yes (marginal) | **yes (confirmed)** |
+
+The −0.70° IMU−encoder bias in the post-Ki run reflects GRV drift accumulated since the last tare (~0.56° beyond the jig-measured −0.14° baseline). The integrator compensated for this drift automatically without re-tare — demonstrating Ki's value for long-running sessions.
 
 ---
 
