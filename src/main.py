@@ -50,8 +50,8 @@ imu = BNO08X_I2C(
 # Constants
 # =====================================================
 # Encoder calibration — recapture after mechanical changes!
-# Raw=411 when lever at physical zero (corrected from 422 via BNO085 tare validation, 2026-02-22)
-AXIS_CENTER = const(411)
+# Raw=406 when lever at physical zero (precision 3D-printed jig, 2026-02-22; history: 422→411→406)
+AXIS_CENTER = const(406)
 
 # Motor limits
 THROTTLE_MIN = const(70)
@@ -72,7 +72,7 @@ TELEMETRY_SAMPLE_EVERY = const(10)
 
 # Predictive correction — compensate GRV filter lag in outer angle loop.
 # Uses live calibrated gyro rate (gyro_x) for the extrapolation.
-# Matches measured GRV group delay (~10 - 15 ms). See ADR-006.
+# Matches measured GRV group delay (~10 - 20 ms). See ADR-006.
 LEAD_TIME_MS = const(15)
 
 def angle_to_quat(deg):
