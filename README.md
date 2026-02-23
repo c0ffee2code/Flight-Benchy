@@ -58,6 +58,16 @@ Add roll and/or yaw axes. Requires either mechanical modifications to the bench 
 
 **Depends on:** M3 (mixer), M4 (cascaded PID), hardware evolution.
 
+## Known Issues / Backlog
+
+### BNO085 intermittent I2C EIO crash
+
+Rare `OSError: [Errno 5] EIO` on `imu.update_sensors()` during a run. First captured 2026-02-23 (`ticks_ms=163752`, ~2 min 44 s into run). Likely cause: BNO085 internal firmware assert or watchdog reset leaving the I2C bus in an inconsistent state. Crash log written to `/crash.log` on onboard flash. Needs dedicated uptime / stability test runs to reproduce reliably before a fix is designed.
+
+### Telemetry not flushed on crash
+
+When an unhandled exception exits the control loop, `disarm()` is never reached and `telemetry.end_session()` is not called. The SD file is left open/unflushed; the last buffered rows may be lost. Fix: call `end_session()` from the crash path in `main()`, guarded so it does not raise if telemetry was never initialised.
+
 ## Test Bench vs Real Drone
 
 See [ADR-001, "Test Bench vs Real Drone" section](decision/ADR-001-pid-lever-stabilization.md) for a detailed comparison covering: single axis vs three axes, single PID vs cascaded PIDs, encoder vs IMU, and fixed pivot vs free flight.

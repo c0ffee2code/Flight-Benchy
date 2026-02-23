@@ -1,0 +1,6 @@
+ticks_ms: 163752
+Traceback (most recent call last):
+  File "main.py", line 262, in <module>
+  File "main.py", line 251, in main
+  File "main.py", line 181, in stabilize
+OSError: [Errno 5] EIO
