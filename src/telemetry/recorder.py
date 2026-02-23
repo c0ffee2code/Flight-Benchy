@@ -20,12 +20,12 @@ def read_rtc(i2c, addr=0x68):
     """
     buf = i2c.readfrom_mem(addr, 0x03, 7)
     return (
-        _bcd(buf[6]) + 2000,  # year
-        _bcd(buf[5] & 0x1F),  # month
-        _bcd(buf[3]),          # day
-        _bcd(buf[2]),          # hour
-        _bcd(buf[1]),          # minute
-        _bcd(buf[0] & 0x7F),  # second (bit 7 = OS flag)
+        _bcd(buf[6]) + 2000,   # year
+        _bcd(buf[5] & 0x1F),   # month  (bits 7:5 reserved)
+        _bcd(buf[3] & 0x3F),   # day    (bits 7:6 reserved)
+        _bcd(buf[2] & 0x3F),   # hour   (bits 7:6 reserved)
+        _bcd(buf[1] & 0x7F),   # minute (bit 7 reserved)
+        _bcd(buf[0] & 0x7F),   # second (bit 7 = OS flag)
     )
 
 
