@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-02-08
-**Updated:** 2026-02-14
+**Updated:** 2026-02-23
 **Context:** Black box logging for PID tuning, BNO085 driver development, and post-experiment analysis
 
 ## Context
@@ -126,6 +126,42 @@ Configurable decimation via `TELEMETRY_SAMPLE_EVERY` constant in `main.py`:
 ### SD card driver fix
 
 The upstream `sdcard.py` from micropython-lib has a bug: the CRC byte's stop bit (bit 0) is not set for commands after CMD0/CMD8. The SD SPI command frame requires the end bit to always be `1` (see [SD SPI command format](https://elm-chan.org/docs/mmc/mmc_e.html)). Most cards are lenient, but some (e.g., Philips SDHC) strictly enforce it and refuse all commands after CMD8. Fix: `buf[5] = crc | 0x01` in `sdcard.py`.
+
+## Crash Logging
+
+Session telemetry (SD card) is unavailable the moment the code crashes — the SD card may itself be the cause of the failure, or SPI may not yet be initialised. To preserve the exception for diagnosis, a separate crash log is written to the **Pico's onboard flash**.
+
+### Design constraints
+
+- **Onboard flash only** — SD card is an external peripheral and may be unavailable. Onboard flash is always present and requires no initialisation beyond the standard filesystem already mounted by MicroPython.
+- **Overwrite strategy** — A fixed path `/crash.log` is opened in write mode (`"w"`) on every fault, replacing any previous log. This bounds storage consumption to a single file regardless of how many crashes occur.
+- **No external dependencies** — The crash handler uses only `sys` (for `sys.print_exception`) and `utime` (for `ticks_ms` timestamp). No I2C, SPI, GPIO, or sensor access.
+- **Silent failure** — The handler wraps its own I/O in a bare `try/except`. If flash is corrupt or full, the crash handler does nothing rather than raising a secondary exception that would obscure the original.
+
+### Content
+
+```
+ticks_ms: <ms since boot>
+Traceback (most recent call last):
+  File "main.py", line N, in <function>
+<ExceptionType>: <message>
+```
+
+`ticks_ms` gives an approximate indication of how far into the boot sequence or run the crash occurred.
+
+### Integration
+
+`crash_log.py` is a standalone module (deployed to Pico root alongside `main.py`). The top-level entry point in `main.py` wraps the `main()` call:
+
+```python
+try:
+    main()
+except Exception as e:
+    write_crash_log(e)
+    raise
+```
+
+This catches all exceptions regardless of where they originate — including failures during hardware initialisation before the inner `try` block inside `main()`. The exception is still re-raised so the REPL/serial console shows the normal traceback.
 
 ## Consequences
 

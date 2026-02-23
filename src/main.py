@@ -12,6 +12,7 @@ from pid import PID
 from recorder import TelemetryRecorder, SdSink
 from mixer import LeverMixer
 from ui import set_led, buttons_by_held, wait_for_arm, wait_for_go
+from crash_log import write_crash_log
 
 # =====================================================
 # Pin assignments
@@ -257,4 +258,8 @@ def main():
     finally:
         motors.stop()
 
-main()
+try:
+    main()
+except Exception as e:
+    write_crash_log(e)
+    raise
