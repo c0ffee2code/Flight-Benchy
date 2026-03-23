@@ -71,10 +71,10 @@ GRV_REPORT_HZ  = const(50)    # Game Rotation Vector — matches outer loop rate
 # Telemetry decimation: 1=every cycle, N=every Nth
 TELEMETRY_SAMPLE_EVERY = const(10)
 
-# Predictive correction — compensate GRV filter lag in outer angle loop.
-# Uses live calibrated gyro rate (gyro_x) for the extrapolation.
+# Feedforward — compensate GRV filter lag in outer angle loop.
+# Uses live calibrated gyro rate to extrapolate current angle.
 # Matches measured GRV group delay (~10 - 20 ms). See ADR-006.
-LEAD_TIME_MS = const(15)
+FEEDFORWARD_LEAD_MS = const(15)
 
 def angle_to_quat(deg):
     """Convert single-axis (roll/X) angle in degrees to quaternion (qr, qi, qj, qk)."""
@@ -112,13 +112,13 @@ def init_session(angle_pid, rate_pid, sink):
         "  kp: {}\n"
         "  ki: {}\n"
         "  kd: {}\n"
-        "  integral_limit: {}\n"
+        "  iterm_limit: {}\n"
         "rate_pid:\n"
         "  hz: {}\n"
         "  kp: {}\n"
         "  ki: {}\n"
         "  kd: {}\n"
-        "  integral_limit: {}\n"
+        "  iterm_limit: {}\n"
         "motor:\n"
         "  base_throttle: {}\n"
         "  throttle_min: {}\n"
@@ -127,19 +127,19 @@ def init_session(angle_pid, rate_pid, sink):
         "  axis_center: {}\n"
         "telemetry:\n"
         "  sample_every: {}\n"
-        "prediction:\n"
-        "  lead_time_ms: {}\n"
+        "feedforward:\n"
+        "  lead_ms: {}\n"
     ).format(
         GRV_REPORT_HZ,
         IMU_REPORT_HZ,
         1000 // (INNER_INTERVAL_MS * OUTER_INTERVAL_TICKS),
-        angle_pid.kp, angle_pid.ki, angle_pid.kd, angle_pid.integral_limit,
+        angle_pid.kp, angle_pid.ki, angle_pid.kd, angle_pid.iterm_limit,
         1000 // INNER_INTERVAL_MS,
-        rate_pid.kp, rate_pid.ki, rate_pid.kd, rate_pid.integral_limit,
+        rate_pid.kp, rate_pid.ki, rate_pid.kd, rate_pid.iterm_limit,
         BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX,
         AXIS_CENTER,
         TELEMETRY_SAMPLE_EVERY,
-        LEAD_TIME_MS,
+        FEEDFORWARD_LEAD_MS,
     )
     telemetry.begin_session(config=config)
     return telemetry
@@ -156,7 +156,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
     iqr, iqi, iqj, iqk, _acc, _ts = imu.game_quaternion.full
     prev_ms = utime.ticks_ms()
 
-    lead_s = LEAD_TIME_MS / 1000.0
+    feedforward_lead_s = FEEDFORWARD_LEAD_MS / 1000.0
     outer_dt = OUTER_INTERVAL_MS / 1000.0   # fixed nominal dt — avoids I2C-jitter noise in D term
 
     outer_counter = 0
@@ -190,15 +190,15 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
             iqr, iqi, iqj, iqk = imu.game_quaternion
             imu_roll = degrees(2.0 * atan2(iqi, iqr))
 
-            # Predictive correction (ADR-006) — compensate GRV filter lag with live gyro rate
-            predicted_roll = imu_roll + gyro_x * lead_s
+            # Feedforward (ADR-006) — compensate GRV filter lag with live gyro rate
+            feedforward_roll = imu_roll + gyro_x * feedforward_lead_s
 
-            ang_err = -predicted_roll
-            rate_setpoint = angle_pid.compute(-predicted_roll, outer_dt)
+            ang_err = -feedforward_roll
+            rate_setpoint = angle_pid.compute(-feedforward_roll, outer_dt)
 
         # --- inner loop (every cycle) ---
         rate_error = rate_setpoint - gyro_x
-        output = rate_pid.compute(rate_error, dt)
+        output = rate_pid.compute(rate_error, dt, measurement=gyro_x)
         m1, m2 = mixer.compute(output)
 
         motors.setThrottle(0, m1)
@@ -233,8 +233,8 @@ def disarm(motors, telemetry):
 # Main
 # =====================================================
 def main():
-    angle_pid = PID(kp=1.5, ki=0.05, kd=0.2, integral_limit=5.0)   # outputs deg/s
-    rate_pid  = PID(kp=2.5, ki=0.0, kd=0.0, integral_limit=50.0)    # outputs mixer scalar
+    angle_pid = PID(kp=1.5, ki=0.05, kd=0.2, iterm_limit=5.0)   # outputs deg/s
+    rate_pid  = PID(kp=2.5, ki=0.0, kd=0.0, iterm_limit=50.0)    # outputs mixer scalar
     mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX)
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
 

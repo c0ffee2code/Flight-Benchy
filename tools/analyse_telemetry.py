@@ -166,18 +166,18 @@ def compute_stats(cols, config):
     osc_freq = zero_crossings / (2.0 * duration_s) if duration_s > 0 else 0
 
     # --- Angle integral windup events ---
-    ang_integral_limit = 100.0  # default
+    ang_iterm_limit = 100.0  # default
     if config and "angle_pid" in config:
-        ang_integral_limit = config["angle_pid"].get("integral_limit", 100.0)
-    ang_windup_threshold = ang_integral_limit * 0.5
+        ang_iterm_limit = config["angle_pid"].get("iterm_limit", 100.0)
+    ang_windup_threshold = ang_iterm_limit * 0.5
     ang_i_term = cols["ANG_I"]
     ang_windup_events = np.sum(np.abs(ang_i_term) >= ang_windup_threshold)
 
     # --- Rate integral windup events ---
-    rate_integral_limit = 50.0  # default
+    rate_iterm_limit = 50.0  # default
     if config and "rate_pid" in config:
-        rate_integral_limit = config["rate_pid"].get("integral_limit", 50.0)
-    rate_windup_threshold = rate_integral_limit * 0.5
+        rate_iterm_limit = config["rate_pid"].get("iterm_limit", 50.0)
+    rate_windup_threshold = rate_iterm_limit * 0.5
     rate_i_term = cols["RATE_I"]
     rate_windup_events = np.sum(np.abs(rate_i_term) >= rate_windup_threshold)
 
@@ -219,10 +219,10 @@ def print_config_summary(config, label):
     motor = config.get("motor", {})
     imu_cfg = config.get("imu", {})
     print(f"  Angle PID: kp={angle.get('kp')}, ki={angle.get('ki')}, "
-          f"kd={angle.get('kd')}, integral_limit={angle.get('integral_limit')}, "
+          f"kd={angle.get('kd')}, iterm_limit={angle.get('iterm_limit')}, "
           f"hz={angle.get('hz')}")
     print(f"  Rate PID:  kp={rate.get('kp')}, ki={rate.get('ki')}, "
-          f"kd={rate.get('kd')}, integral_limit={rate.get('integral_limit')}, "
+          f"kd={rate.get('kd')}, iterm_limit={rate.get('iterm_limit')}, "
           f"hz={rate.get('hz')}")
     if "report_hz" in imu_cfg:
         print(f"  IMU: {imu_cfg.get('report')}, {imu_cfg.get('report_hz')} Hz (single report)")

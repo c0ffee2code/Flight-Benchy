@@ -8,7 +8,7 @@ Proposed
 
 Predictive correction (ADR-006) compensates for IMU sensor fusion lag, but the motor/ESC response time is another significant delay in the control chain. We estimate ~20ms but have no measured value. Accurate thrust characterization — both the static thrust curve and the dynamic response time — is critical for:
 
-1. **Tuning `LEAD_TIME_MS`** — knowing the actual motor lag lets us include it in the prediction budget.
+1. **Tuning `FEEDFORWARD_LEAD_MS`** — knowing the actual motor lag lets us include it in the prediction budget.
 2. **Feed-forward control** — mapping DShot command to expected thrust enables model-based compensation.
 3. **Mixer linearization** — the thrust-to-throttle relationship is nonlinear (see reference data below). A linearized mixer could improve PID behavior across the operating range.
 

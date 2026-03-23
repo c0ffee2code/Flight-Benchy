@@ -8,7 +8,7 @@
 
 Commissioning the M4 cascaded PID loop required finding and fixing three bugs in sequence:
 
-1. **Outer loop sign** — `compute(predicted_roll)` instead of `compute(-predicted_roll)` → pure positive feedback
+1. **Outer loop sign** — `compute(feedforward_roll)` instead of `compute(-feedforward_roll)` → pure positive feedback
 2. **Combined gain** — `1.5 × 1.0 = 1.5` too low to resist lever gravity → free-fall from horizontal
 3. **Mixer sign** — `m1 = base + output` drove the wrong motor high → lever pinned to ramp
 

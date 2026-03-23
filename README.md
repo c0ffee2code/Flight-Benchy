@@ -46,23 +46,54 @@ Two nested PID loops replacing the single angle PID. Outer angle loop (50 Hz) co
 
 Baseline result (2026-02-22, 77s run with active disturbance): **0.36° MAE**, 0.09 Hz oscillation frequency, zero windup events, Pearson r=0.999. 3× improvement over prior baseline (1.12° MAE, 2026-02-20) following BNO085 re-calibration, correct tare procedure, and AXIS_CENTER correction (422→411→406).
 
-Post-baseline improvements (2026-02-22): precision 3D-printed jig established true AXIS_CENTER=406, lever mechanically balanced, `ki=0.05` with `integral_limit=5` added to angle PID to compensate for residual imbalance and slow GRV drift. Result: **0.00 Hz oscillation**, symmetric motor output, lever holds true horizontal.
+Post-baseline improvements (2026-02-22): precision 3D-printed jig established true AXIS_CENTER=406, lever mechanically balanced, `ki=0.05` with `iterm_limit=5` added to angle PID to compensate for residual imbalance and slow GRV drift. Result: **0.00 Hz oscillation**, symmetric motor output, lever holds true horizontal.
 
 See [ADR-008](decision/ADR-008-cascaded-pid.md) and [ADR-010](decision/ADR-010-grv-calibrated-gyro-dual-report.md).
 
 **Depends on:** M2 (IMU as input), M2a (telemetry to validate improvement), M3 (clean mixer).
 
+### Mechanical rebuild: aluminum lever → 3D-printed frame
+
+Replacing 150 g aluminum lever with 12 g 3D-printed drone frame (~12× inertia reduction). Requires:
+- Full PID retuning — current gains will be too aggressive; start kp at ~25–30% of current values
+- AXIS_CENTER recalibration with precision jig
+- Fresh baseline test run to re-establish MAE reference
+
+**Depends on:** hardware fabrication.
+
 ### M5: Multi-axis control
 
 Add roll and/or yaw axes. Requires either mechanical modifications to the bench or moving to an actual drone frame.
 
-**Depends on:** M3 (mixer), M4 (cascaded PID), hardware evolution.
+**Depends on:** M3 (mixer), M4 (cascaded PID), mechanical rebuild.
 
 ## Known Issues / Backlog
 
 ### BNO085 intermittent I2C EIO crash
 
 Rare `OSError: [Errno 5] EIO` on `imu.update_sensors()` during a run. First captured 2026-02-23 (`ticks_ms=163752`, ~2 min 44 s into run). Likely cause: BNO085 internal firmware assert or watchdog reset leaving the I2C bus in an inconsistent state. Crash log written to `/crash.log` on onboard flash. Needs dedicated uptime / stability test runs to reproduce reliably before a fix is designed.
+
+### ~~Rate PID D-term: switch to measurement derivative before enabling~~ — FIXED
+
+`PID.compute` now accepts an optional `measurement` parameter. When provided, D is computed
+from `−d(measurement)/dt` instead of `d(error)/dt`, avoiding derivative kick when the setpoint
+steps. The inner rate loop passes `measurement=gyro_x`. The outer angle loop is unaffected
+(setpoint is a constant 0°, so error derivative already equals measurement derivative).
+
+### Thrust linearization
+
+Motor thrust ∝ RPM², and RPM ≈ DShot throttle value, so effective thrust ∝ throttle². `LeverMixer`
+outputs throttle values directly, meaning plant gain varies with operating point. Applying `sqrt()`
+to `output` before the mixer maps PID output to a thrust-linear space, making gains consistent
+across throttle levels. Low priority until throttle-dependent oscillation is observed.
+
+### I-term relax for large disturbances
+
+During large transients the angle PID I-term continues accumulating during nonlinear large-signal
+operation. BetaFlight's "I-term relax" freezes integration when angular rate exceeds a threshold,
+preventing windup during disturbances without needing a high `iterm_limit`. Low priority given
+current `iterm_limit=5` already bounds windup, but revisit if disturbance response
+characterization reveals systematic post-disturbance overshoot.
 
 ### Telemetry not flushed on crash
 

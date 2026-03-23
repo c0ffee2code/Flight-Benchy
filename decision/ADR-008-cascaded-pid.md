@@ -121,7 +121,7 @@ At 200 Hz inner loop, even ki=0.1 accumulates fast:
 - Sustained 50 deg/s rate error for 1 second: integral = 50 × 1.0 = 50 → ki × 50 = 5.0 per second
 - At 200 Hz that's 200 accumulation steps per second vs 50 for the outer loop
 
-Scale inner ki to ~¼ of what you'd use at 50 Hz, or keep integral_limit tight.
+Scale inner ki to ~¼ of what you'd use at 50 Hz, or keep iterm_limit tight.
 
 ### Telemetry changes
 
@@ -173,11 +173,11 @@ Three bugs had to be fixed before the cascade produced correct behaviour. Test r
 
 ### Bug 1: outer loop sign inverted (positive feedback)
 
-The outer loop called `pid.compute(predicted_roll, dt)`. `pid.compute(error, dt)` takes an **error directly** — it has no internal setpoint subtraction. With setpoint = 0°, the correct call is `pid.compute(-predicted_roll, dt)`.
+The outer loop called `pid.compute(feedforward_roll, dt)`. `pid.compute(error, dt)` takes an **error directly** — it has no internal setpoint subtraction. With setpoint = 0°, the correct call is `pid.compute(-feedforward_roll, dt)`.
 
 With the bug: lever at +10° → `rate_setpoint = kp × +10 = positive` → inner loop drives lever **further positive** → pure positive feedback. All early runs oscillated only because friction and end-stops bounded the instability, not the controller.
 
-Fix: `ang_err = -predicted_roll` and `angle_pid.compute(-predicted_roll, outer_dt)`.
+Fix: `ang_err = -feedforward_roll` and `angle_pid.compute(-feedforward_roll, outer_dt)`.
 
 ### Bug 2: combined gain too low
 
@@ -256,10 +256,10 @@ A jig was fabricated to hold the rotating shaft, magnet, and IMU sensor at true 
 **2. Lever mechanically balanced**
 Motors repositioned along the arm until the lever is near-neutral. Removes the need for a constant motor differential to hold horizontal, reducing steady-state control effort.
 
-**3. Angle Ki = 0.05, integral_limit = 5 (deg·s)**
+**3. Angle Ki = 0.05, iterm_limit = 5 (deg·s)**
 Residual mechanical imbalance and slow GRV drift both create a small constant torque the P+D terms cannot fully null. A small integral term on the outer angle loop compensates for both automatically.
 
-Key tuning lesson: `integral_limit` must be sized to the *maximum steady-state correction needed*, not left at a large default. With `limit=100`, the integrator saturated during large initial transients (e.g. −10° start) and the accumulated value fought recovery — lever never converged. With `limit=5`, max I contribution is `ki × limit = 0.25 deg/s`, which is enough to null the offset but negligible compared to the P term during transients.
+Key tuning lesson: `iterm_limit` must be sized to the *maximum steady-state correction needed*, not left at a large default. With `limit=100`, the integrator saturated during large initial transients (e.g. −10° start) and the accumulated value fought recovery — lever never converged. With `limit=5`, max I contribution is `ki × limit = 0.25 deg/s`, which is enough to null the offset but negligible compared to the P term during transients.
 
 | Metric | Before | After |
 |--------|--------|-------|

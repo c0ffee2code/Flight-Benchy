@@ -20,7 +20,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - M2a — Black box telemetry logging to SD card via SD card + PCF8523 RTC breakout boards. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package. Authored source consolidated under `src/`.
 - ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
-- M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline 2026-02-22: **0.36° MAE** (3× improvement over 1.12°) after BNO085 re-calibration, correct tare, AXIS_CENTER correction (422→411→406 via precision 3D-printed jig). Post-baseline: lever mechanically balanced, `angle_pid ki=0.05 integral_limit=5` added — lever now holds true horizontal with 0.00 Hz oscillation and symmetric motor output. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
+- M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline 2026-02-22: **0.36° MAE** (3× improvement over 1.12°) after BNO085 re-calibration, correct tare, AXIS_CENTER correction (422→411→406 via precision 3D-printed jig). Post-baseline: lever mechanically balanced, `angle_pid ki=0.05 iterm_limit=5` added — lever now holds true horizontal with 0.00 Hz oscillation and symmetric motor output. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
 
 **Current focus:** M4 post-baseline — disturbance response characterization, pre-flight check implementation (ADR-009).
 
@@ -122,7 +122,7 @@ Each stabilisation session creates a timestamped directory on the SD card:
     log.csv        # Telemetry CSV
 ```
 
-`config.yaml` is written as plain string formatting on MicroPython (no YAML library) and parsed with `pyyaml` on desktop. Contains: `imu`, `angle_pid`, `rate_pid`, `motor`, `encoder`, `telemetry`, `prediction` sections.
+`config.yaml` is written as plain string formatting on MicroPython (no YAML library) and parsed with `pyyaml` on desktop. Contains: `imu`, `angle_pid`, `rate_pid`, `motor`, `encoder`, `telemetry`, `feedforward` sections.
 
 ## Key Constants
 
@@ -131,6 +131,7 @@ Each stabilisation session creates a timestamped directory on the SD card:
 - `OUTER_INTERVAL_TICKS` in `src/main.py` - Outer (angle) loop runs every Nth inner cycle (4 = 50 Hz)
 - `IMU_REPORT_HZ` in `src/main.py` - Calibrated gyroscope report rate (200 Hz, matches inner loop)
 - `GRV_REPORT_HZ` in `src/main.py` - Game rotation vector report rate (50 Hz, matches outer loop)
+- `FEEDFORWARD_LEAD_MS` in `src/main.py` - Feedforward lead time compensating GRV filter lag (see ADR-006)
 
 ## I2C Addresses
 

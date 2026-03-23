@@ -9,13 +9,13 @@ angle_pid:
   kp: 1.5
   ki: 0.0
   kd: 0.2
-  integral_limit: 100.0
+  iterm_limit: 100.0
 rate_pid:
   hz: 200
   kp: 2.5
   ki: 0.0
   kd: 0.0
-  integral_limit: 50.0
+  iterm_limit: 50.0
 motor:
   base_throttle: 250
   throttle_min: 70
@@ -24,5 +24,5 @@ encoder:
   axis_center: 406
 telemetry:
   sample_every: 10
-prediction:
-  lead_time_ms: 15
+feedforward:
+  lead_ms: 15
