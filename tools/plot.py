@@ -15,6 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 
 
 # ---------------------------------------------------------------------------
@@ -46,15 +47,26 @@ def quat_to_roll(qr, qi):
 # Plotting
 # ---------------------------------------------------------------------------
 
+def _time_formatter(duration_s):
+    """Return a tick formatter and x-label appropriate for the run duration."""
+    if duration_s >= 60:
+        def fmt(x, _):
+            m, s = divmod(int(x), 60)
+            return f"{m}:{s:02d}"
+        return mticker.FuncFormatter(fmt), "Time (m:ss)"
+    return None, "Time (s)"
+
+
 def plot_run(cols, label, axes=None):
     t_s = (cols["T_MS"] - cols["T_MS"][0]) / 1000.0
+    duration_s = t_s[-1]
     enc_roll = quat_to_roll(cols["ENC_QR"], cols["ENC_QI"])
     imu_roll = quat_to_roll(cols["IMU_QR"], cols["IMU_QI"])
 
     own_figure = axes is None
     if own_figure:
         fig, axes = plt.subplots(5, 1, figsize=(12, 11), sharex=True)
-        fig.suptitle(f"Flight Benchy — {label}", fontsize=13)
+        fig.suptitle(f"Flight Benchy — {label}  ({duration_s:.1f}s)", fontsize=13)
 
     ax1, ax2, ax3, ax4, ax5 = axes
 
@@ -93,10 +105,14 @@ def plot_run(cols, label, axes=None):
     ax5.plot(t_s, cols["M1"], label="M1", linewidth=0.8)
     ax5.plot(t_s, cols["M2"], label="M2", linewidth=0.8)
     ax5.set_ylabel("Throttle")
-    ax5.set_xlabel("Time (s)")
     ax5.set_title("Motor Output")
     ax5.legend(loc="upper right", fontsize=8)
     ax5.grid(True, alpha=0.3)
+
+    fmt, xlabel = _time_formatter(duration_s)
+    ax5.set_xlabel(xlabel)
+    if fmt:
+        ax5.xaxis.set_major_formatter(fmt)
 
     if own_figure:
         fig.tight_layout()
@@ -108,7 +124,9 @@ def plot_comparison(runs):
     for col_idx, (cols, label) in enumerate(runs):
         col_axes = [axes[row][col_idx] for row in range(5)]
         plot_run(cols, label, axes=col_axes)
-        axes[0][col_idx].set_title(f"{label}\nAngle Tracking", fontsize=10)
+        t_s = (cols["T_MS"] - cols["T_MS"][0]) / 1000.0
+        duration_s = t_s[-1]
+        axes[0][col_idx].set_title(f"{label}  ({duration_s:.1f}s)\nAngle Tracking", fontsize=10)
     fig.suptitle("Flight Benchy — Run Comparison", fontsize=13)
     fig.tight_layout()
 

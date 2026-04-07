@@ -14,7 +14,9 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 ## Mechanical Setup
 
-Metal frame with 3D-printed elements forming a swinging lever pivoting around a central axis. Two drone motors on opposite ends produce **downward** thrust (inverted for safety — bench can't fly off the desk). Differential thrust creates torque to control lever angle. Mechanical range is approximately ±50°.
+Carbon fiber drone frame (10 g) on a 3D-printed PETG subframe (8 g) forming a swinging lever pivoting around a central axis. Motor shaft separation: **6.5 cm**. Frame has 4 motor mounts; currently 2 motors installed (one each end), 2 more planned. Two drone motors produce **downward** thrust (inverted for safety — bench can't fly off the desk). Differential thrust creates torque to control lever angle. Mechanical range is approximately ±50°.
+
+**Previous frame (retired 2026-04):** 125 g aluminum profile + PLA parts, 18.5 cm motor separation. ~7× heavier, ~3× longer arm.
 
 ## Roadmap
 
@@ -52,14 +54,44 @@ See [ADR-008](decision/ADR-008-cascaded-pid.md) and [ADR-010](decision/ADR-010-g
 
 **Depends on:** M2 (IMU as input), M2a (telemetry to validate improvement), M3 (clean mixer).
 
-### Mechanical rebuild: aluminum lever → 3D-printed frame
+### Mechanical rebuild: aluminum lever → carbon fiber drone frame — DONE (2026-04-03)
 
-Replacing 150 g aluminum lever with 12 g 3D-printed drone frame (~12× inertia reduction). Requires:
-- Full PID retuning — current gains will be too aggressive; start kp at ~25–30% of current values
-- AXIS_CENTER recalibration with precision jig
-- Fresh baseline test run to re-establish MAE reference
+Replaced 125 g aluminum profile + PLA parts (18.5 cm arm) with a 10 g carbon fiber drone frame + 8 g PETG subframe (6.5 cm motor separation). ~7× mass reduction, ~3× shorter arm. Frame has 4 motor mounts; 2 installed, 2 more planned.
+
+First post-rebuild test run (2026-04-03): MAE=30.09°, Pearson r=−0.87 (inverted tracking). Root cause: IMU axis reorientation with new frame. AXIS_CENTER recalibrated to 275.
 
 **Depends on:** hardware fabrication.
+
+### Post-rebuild PID retuning — DONE (2026-04-07)
+
+Full retuning required after mechanical rebuild invalidated all previous gains. Key finding: the controller must satisfy a **force budget** — `angle_kp × start_angle_error ≥ ANGLE_RATE_LIMIT` — or the outer loop never saturates the rate limit and produces insufficient differential thrust to lift from the restrictor. The frame is precisely balanced; the ~18 g of resistance at −59° is wire tension (cables routed outside the rotation axis, no slip ring) plus bearing friction — a roughly constant force, not gravity-dependent. Thrust slope: ~0.147 g/DShot unit at BASE=600.
+
+Empirical thrust data (BetaFPV Lava 1104 7200KV, single motor):
+
+| DShot value | Throttle % | Thrust |
+|---|---|---|
+| 200 | ~24% | 11 g |
+| 500 | ~30% | 31 g |
+| 600 | ~35% | 45 g |
+| 800 | ~47% | 75 g |
+
+Systematic tuning steps: angle_kp 1.0→3.5, angle_kd 0.1→0.3 (reduced oscillation 0.27→0.05 Hz), iterm_limit 30→100 (max I contribution 1.5→5 deg/s). BASE=500 tested and rejected — thrust curve asymmetry below BASE=600 reduces available differential from 19.5 g to 13.5 g.
+
+**New baseline (run `2026-04-07_16-19-21`, 141.8s):**
+
+| Metric | Value |
+|---|---|
+| Time to reach horizontal | 1.3 s |
+| HoldMAE | 6.90° |
+| Time at horizontal | 124.8 s |
+| Oscillation freq | 0.05 Hz |
+| Gains | angle kp=3.5 ki=0.05 kd=0.3 iterm_limit=100; rate kp=0.5 kd=0.003 |
+
+Additional findings: IMU tare quality with precision jig + bubble level is ~0.10° residual — not the limiting factor. GRV dynamic lag (~0.8°) is the sensor floor independent of tare quality. Power supply limit (30W) requires LiHV batteries at BASE≥600; ~25s per charge.
+
+See `decision/ADR-008-cascaded-pid.md` Amendment 2026-04-07.
+
+**Depends on:** mechanical rebuild, M4.
 
 ### M5: Multi-axis control
 
@@ -80,20 +112,17 @@ from `−d(measurement)/dt` instead of `d(error)/dt`, avoiding derivative kick w
 steps. The inner rate loop passes `measurement=gyro_x`. The outer angle loop is unaffected
 (setpoint is a constant 0°, so error derivative already equals measurement derivative).
 
-### Thrust linearization
+### Thrust linearization / expo (planned)
 
-Motor thrust ∝ RPM², and RPM ≈ DShot throttle value, so effective thrust ∝ throttle². `LeverMixer`
-outputs throttle values directly, meaning plant gain varies with operating point. Applying `sqrt()`
-to `output` before the mixer maps PID output to a thrust-linear space, making gains consistent
-across throttle levels. Low priority until throttle-dependent oscillation is observed.
+Motor thrust ∝ RPM², so effective thrust is nonlinear with DShot throttle value. `LeverMixer` outputs throttle values directly, meaning plant gain varies with operating point. A Betaflight-style expo mapping (`f(x) = (1−e)x + e·x³`, normalised) applied to the PID output before the mixer would reduce near-setpoint sensitivity without reducing authority at large errors — directly addressing the slow hold oscillation (0.05 Hz) observed in the current baseline. Planned as next tuning step after baseline is confirmed stable.
 
 ### I-term relax for large disturbances
 
 During large transients the angle PID I-term continues accumulating during nonlinear large-signal
-operation. BetaFlight's "I-term relax" freezes integration when angular rate exceeds a threshold,
-preventing windup during disturbances without needing a high `iterm_limit`. Low priority given
-current `iterm_limit=5` already bounds windup, but revisit if disturbance response
-characterization reveals systematic post-disturbance overshoot.
+operation. Betaflight's "I-term relax" freezes integration when angular rate exceeds a threshold,
+preventing windup during disturbances. Current `iterm_limit=100` (max I contribution 5 deg/s) is
+large enough that post-disturbance overshoot is possible; revisit if characterization reveals
+systematic hunting after large perturbations.
 
 ### Telemetry not flushed on crash
 
@@ -106,19 +135,22 @@ See [ADR-001, "Test Bench vs Real Drone" section](decision/ADR-001-pid-lever-sta
 ## Project Structure
 
 ```
-├── main.py              # Entry point — upload to Pico, runs on boot
-├── pid.py               # PID controller with anti-windup and term introspection
-├── mixer.py             # LeverMixer — differential thrust for 2-motor lever
-├── telemetry/
-│   ├── recorder.py      # TelemetryRecorder, PrintSink, SdSink, read_rtc
-│   └── sdcard.py        # SD card SPI driver (micropython-lib, with stop bit fix)
+├── src/                 # Authored flight control source (deployed to Pico)
+│   ├── main.py          # Entry point — runs on boot
+│   ├── pid.py           # PID controller with anti-windup and term introspection
+│   ├── mixer.py         # LeverMixer — differential thrust for 2-motor lever
+│   ├── ui.py            # Operator interface — buttons + RGB LED
+│   └── telemetry/
+│       ├── recorder.py  # TelemetryRecorder, PrintSink, SdSink, read_rtc
+│       └── sdcard.py    # SD card SPI driver (micropython-lib, with stop bit fix)
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
 ├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
 ├── tools/
-│   └── analyse_telemetry.py  # Desktop telemetry analyser (matplotlib + numpy)
+│   ├── plot.py          # Generate diagnostic plots (run first — always)
+│   ├── kpi.py           # Pass/fail gate: time-to-reach, HoldMAE, time-at-horizontal
+│   └── analyse_telemetry.py  # Deep-dive stats for passing runs (no plots)
 ├── test_runs/           # Copied run folders from SD card for offline analysis
-├── pimoroni/            # Display driver (not deployed — LCD disconnected)
 ├── decision/            # Architecture Decision Records
 └── resources/           # Datasheets, protocol docs
 ```
@@ -130,15 +162,16 @@ Clone with submodules:
 git clone --recurse-submodules <repo-url>
 ```
 
-Upload to Pico root (flat structure):
-- `main.py`
-- `pid.py`
-- `mixer.py`
-- `telemetry/recorder.py` (as `recorder.py`)
-- `telemetry/sdcard.py` (as `sdcard.py`)
+Upload to Pico root (flat structure — no subdirectories on Pico):
+- `src/main.py`
+- `src/pid.py`
+- `src/mixer.py`
+- `src/ui.py`
+- `src/telemetry/recorder.py` (as `recorder.py`)
+- `src/telemetry/sdcard.py` (as `sdcard.py`)
 - `AS5600/driver/as5600.py`
-- `BNO085/driver/bno08x.py` + `i2c.py`
-- `DShot/driver/dshot_pio.py` + `motor_throttle_group.py`
+- `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
+- `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
 
 ## License
 

@@ -272,6 +272,73 @@ The −0.70° IMU−encoder bias in the post-Ki run reflects GRV drift accumulat
 
 ---
 
+## Amendment — 2026-04-07: Post-rebuild retuning (new CF frame)
+
+The mechanical rebuild (2026-04-03) replaced the 125g Al+PLA frame (18.5cm arm) with a 10g CF + 8g PETG frame (6.5cm arm). This invalidated all previous gains. First post-rebuild run: Pearson r=−0.87 (inverted tracking). Root cause: IMU axis reorientation with new frame orientation. AXIS_CENTER recalibrated: 406 → 275.
+
+### Mechanical context
+
+The CF frame is **precisely balanced** — lever sits at true horizontal under gravity alone, bearing friction holds it in place. The resistance the controller must overcome is **not gravity** but wire tension: motor power cables are routed outside the rotation axis (no slip ring), creating a roughly constant torque that pulls the lever away from horizontal. This is angle-independent (unlike gravity) and explains why the empirical break-even force (~18g at −59°) doesn't follow sin(θ).
+
+### Force budget analysis
+
+Empirical thrust data (BetaFPV Lava 1104 7200KV, single motor, flat):
+
+| DShot | Thrust |
+|---|---|
+| 200 | 11 g |
+| 500 | 31 g |
+| 600 | 45 g |
+| 800 | 75 g |
+
+Slope at BASE=600: ~0.147 g/DShot unit. Empirical resistance at −59° (M1 end down): ~18g of differential thrust needed to move (wire tension + bearing friction combined).
+
+**Key constraint:** `angle_kp × start_angle_error ≥ ANGLE_RATE_LIMIT` must hold for the outer loop to saturate the rate limit at the start position, producing maximum differential thrust. With kp=1.0 and 58° start error, rate_sp≈58 deg/s never hit ANGLE_RATE_LIMIT=60, delivering only ~8.7g — half the ~18g needed. Raising ANGLE_RATE_LIMIT alone has no effect unless the P-term can saturate it.
+
+Force differential as a function of gains (quasi-static, gyro≈0):
+```
+throttle_diff = rate_sp = angle_kp × angle_error + I
+force_diff    = throttle_diff × 0.147 g/unit
+```
+
+### Tuning progression
+
+| Step | Change | Result |
+|---|---|---|
+| 1 | ANGLE_RATE_LIMIT: 60→130 | No effect — P-term never saturated it |
+| 2 | angle_kp: 1.0→2.2 | Lever moved; stalled mid-range |
+| 3 | angle_kp: 2.2→2.5 | Stalled at ~−20°; margins still insufficient |
+| 4 | angle_kp: 2.5→3.0 | First horizontal reach (2.9s, 4.6s hold) |
+| 5 | angle_kp: 3.0→3.5 | Faster reach (1.4s), longer hold (13.7s); 0.27Hz oscillation |
+| 6 | angle_kd: 0.1→0.3 | Oscillation: 0.27→0.05 Hz; hold: 13.7→96.4s |
+| 7 | iterm_limit: 30→100 | Max I contribution 1.5→5 deg/s; hold mean −8.2→−6.9° |
+| — | BASE=500 tested | Rejected: thrust curve asymmetry below 500 reduces differential 19.5→13.5g |
+
+### New baseline (run `2026-04-07_16-19-21`, 141.8s)
+
+| Parameter | Value |
+|---|---|
+| angle_pid | kp=3.5, ki=0.05, kd=0.3, iterm_limit=100 |
+| rate_pid | kp=0.5, ki=0.0, kd=0.003, iterm_limit=50 |
+| ANGLE_RATE_LIMIT | 130 deg/s |
+| RATE_OUTPUT_LIMIT | 300 |
+| BASE_THROTTLE | 600 |
+
+| Metric | Value |
+|---|---|
+| Time to reach horizontal | 1.3 s |
+| HoldMAE (encoder) | 6.90° |
+| Time at horizontal (±10°) | 124.8 s |
+| Oscillation freq | 0.05 Hz |
+| IMU-ENC bias (dynamic) | ~0.8° (GRV filter lag, not tare quality) |
+| Windup events | 0 |
+
+IMU tare quality confirmed with precision jig + bubble level: ~0.10° residual. The ~0.8° bias seen during running telemetry is GRV dynamic lag during oscillation, independent of tare quality. DC power supply (30W) insufficient at BASE≥600; LiHV batteries required (~25s per charge).
+
+**Next:** thrust expo in `LeverMixer` to reduce near-setpoint P-term sensitivity and improve hold accuracy.
+
+---
+
 ## Amendment — 2026-02-20: GIRV replaced by GRV + Calibrated Gyro (see ADR-010)
 
 The sensor report selection sub-decision above (GIRV / 0x2A for both loops) is **superseded**.

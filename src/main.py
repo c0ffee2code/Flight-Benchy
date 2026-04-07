@@ -51,13 +51,12 @@ imu = BNO08X_I2C(
 # Constants
 # =====================================================
 # Encoder calibration — recapture after mechanical changes!
-# Raw=406 when lever at physical zero (precision 3D-printed jig, 2026-02-22; history: 422→411→406)
-AXIS_CENTER = const(406)
+AXIS_CENTER = const(275)
 
 # Motor limits
-THROTTLE_MIN = const(70)
-THROTTLE_MAX = const(500)
-BASE_THROTTLE = const(250)
+THROTTLE_MIN = const(100)
+THROTTLE_MAX = const(800)
+BASE_THROTTLE = const(600)
 
 # Control loop timing
 INNER_INTERVAL_MS = const(5)       # 200 Hz inner (rate) loop
@@ -70,6 +69,19 @@ GRV_REPORT_HZ  = const(50)    # Game Rotation Vector — matches outer loop rate
 
 # Telemetry decimation: 1=every cycle, N=every Nth
 TELEMETRY_SAMPLE_EVERY = const(10)
+
+# Angle rate limit — max deg/s the angle loop can demand from the rate loop.
+# Caps recovery speed for large disturbances; no effect near horizontal.
+# Must satisfy: ANGLE_RATE_LIMIT * rate_kp >= gravity_imbalance_g / (2 * thrust_per_unit_g)
+# At BASE=600: slope ~0.147 g/unit → need ANGLE_RATE_LIMIT * 0.5 >= 61 → ANGLE_RATE_LIMIT >= 122.
+# Set to 130 for 10% margin. Max mixer output: BASE ± (rate_kp * 130) = 600 ± 65 = [535, 665].
+ANGLE_RATE_LIMIT = const(130)
+
+# Rate output limit — max throttle differential the rate loop can apply to the mixer.
+# Prevents outlet protection triggering when large rate errors occur during fast transients
+# (e.g. lever swings opposite to correction: rate_error = rate_sp ± fast_gyro can be 200+ deg/s).
+# Natural ceiling without hitting throttle limits: min(THROTTLE_MAX−BASE, BASE−THROTTLE_MIN) = 300.
+RATE_OUTPUT_LIMIT = const(300)
 
 # Feedforward — compensate GRV filter lag in outer angle loop.
 # Uses live calibrated gyro rate to extrapolate current angle.
@@ -113,12 +125,14 @@ def init_session(angle_pid, rate_pid, sink):
         "  ki: {}\n"
         "  kd: {}\n"
         "  iterm_limit: {}\n"
+        "  output_limit: {}\n"
         "rate_pid:\n"
         "  hz: {}\n"
         "  kp: {}\n"
         "  ki: {}\n"
         "  kd: {}\n"
         "  iterm_limit: {}\n"
+        "  output_limit: {}\n"
         "motor:\n"
         "  base_throttle: {}\n"
         "  throttle_min: {}\n"
@@ -133,9 +147,9 @@ def init_session(angle_pid, rate_pid, sink):
         GRV_REPORT_HZ,
         IMU_REPORT_HZ,
         1000 // (INNER_INTERVAL_MS * OUTER_INTERVAL_TICKS),
-        angle_pid.kp, angle_pid.ki, angle_pid.kd, angle_pid.iterm_limit,
+        angle_pid.kp, angle_pid.ki, angle_pid.kd, angle_pid.iterm_limit, angle_pid.output_limit,
         1000 // INNER_INTERVAL_MS,
-        rate_pid.kp, rate_pid.ki, rate_pid.kd, rate_pid.iterm_limit,
+        rate_pid.kp, rate_pid.ki, rate_pid.kd, rate_pid.iterm_limit, rate_pid.output_limit,
         BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX,
         AXIS_CENTER,
         TELEMETRY_SAMPLE_EVERY,
@@ -191,10 +205,10 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
             imu_roll = degrees(2.0 * atan2(iqi, iqr))
 
             # Feedforward (ADR-006) — compensate GRV filter lag with live gyro rate
-            feedforward_roll = imu_roll + gyro_x * feedforward_lead_s
+            feedforward_roll = -(imu_roll + gyro_x * feedforward_lead_s)
+            ang_err = feedforward_roll
 
-            ang_err = -feedforward_roll
-            rate_setpoint = angle_pid.compute(-feedforward_roll, outer_dt)
+            rate_setpoint = angle_pid.compute(feedforward_roll, outer_dt)
 
         # --- inner loop (every cycle) ---
         rate_error = rate_setpoint - gyro_x
@@ -233,10 +247,18 @@ def disarm(motors, telemetry):
 # Main
 # =====================================================
 def main():
-    angle_pid = PID(kp=1.5, ki=0.05, kd=0.2, iterm_limit=5.0)   # outputs deg/s
-    rate_pid  = PID(kp=2.5, ki=0.0, kd=0.0, iterm_limit=50.0)    # outputs mixer scalar
+    # --- Force budget (2026-04-07) ---
+    # Empirical thrust: BASE=600 -> 45g/motor, slope ~0.147 g/throttle_unit near BASE.
+    # Gravity imbalance at -59 deg: ~18g (single motor at BASE~300 just overcomes it).
+    # Need: angle_kp * 58deg >= ANGLE_RATE_LIMIT (130) to saturate at start position.
+    # angle_kp=1.0: rate_sp=58 -> never hits limit -> diff=8.7g (INSUFFICIENT).
+    # angle_kp=2.2: rate_sp=129 -> saturates at 130 -> PID_OUT=65 -> diff=130 -> ~19g (OK).
+    # rate_kp=0.5 confirmed stable at BASE=600 with kd=0.003. kp=0.7 caused 5.88Hz oscillation.
+    angle_pid = PID(kp=3.5,  ki=0.05, kd=0.3,  iterm_limit=100.0, output_limit=ANGLE_RATE_LIMIT)  # outputs deg/s
+    rate_pid  = PID(kp=0.5,  ki=0.0,  kd=0.003, iterm_limit=50.0, output_limit=RATE_OUTPUT_LIMIT) # outputs mixer scalar
     mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX)
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
+    telemetry = None
 
     try:
         sd_sink = SdSink(
@@ -253,6 +275,8 @@ def main():
 
     except Exception as e:
         set_led(r=1)
+        if telemetry is not None:
+            telemetry.end_session()
         raise
 
     finally:

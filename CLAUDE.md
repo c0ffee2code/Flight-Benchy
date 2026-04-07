@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Test bench for learning flight control systems, built around a Raspberry Pi Pico 2. The goal is to experiment with sensor fusion, control loops, and motor control in a controlled single-axis environment before applying concepts to real drones.
 
-**Mechanical Setup:** Metal frame with 3D-printed elements forming a swinging lever. Two drone motors with ESCs mounted on the lever provide thrust for attitude control. A power distribution board supplies the motors.
+**Mechanical Setup:** Carbon fiber drone frame (10 g) + PETG subframe (8 g) forming a swinging lever. Motor shaft separation 6.5 cm. 4 motor mounts, 2 installed (one each end), 2 more planned. Previous frame: 125 g aluminum + PLA, 18.5 cm arm (retired 2026-04-03). Two drone motors with ESCs provide differential thrust for attitude control. A power distribution board supplies the motors.
 
 **Sensor Strategy:**
 - **AS5600 magnetic encoder** at the rotation center serves as ground truth reference due to its high precision (~0.09°) and near-instant position output
@@ -21,8 +21,9 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package. Authored source consolidated under `src/`.
 - ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
 - M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline 2026-02-22: **0.36° MAE** (3× improvement over 1.12°) after BNO085 re-calibration, correct tare, AXIS_CENTER correction (422→411→406 via precision 3D-printed jig). Post-baseline: lever mechanically balanced, `angle_pid ki=0.05 iterm_limit=5` added — lever now holds true horizontal with 0.00 Hz oscillation and symmetric motor output. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
+- **Post-rebuild retuning (2026-04-07)** — Full PID retuning on new CF frame after mechanical rebuild invalidated all previous gains. Inverted tracking diagnosed (AXIS_CENTER 406→275). Force budget analysis: frame is precisely balanced; ~18g of resistance at −59° is wire tension + bearing friction (cables routed outside rotation axis, no slip ring). Found `angle_kp × start_error ≥ ANGLE_RATE_LIMIT` must hold for authority at start position. Systematic tuning: angle_kp 1.0→3.5, angle_kd 0.1→0.3, iterm_limit 30→100. New baseline (run `2026-04-07_16-19-21`): **6.90° HoldMAE, 1.3s reach, 124.8s hold, 0.05 Hz oscillation**. See `decision/ADR-008-cascaded-pid.md` Amendment 2026-04-07.
 
-**Current focus:** M4 post-baseline — disturbance response characterization, pre-flight check implementation (ADR-009).
+**Current focus:** Post-rebuild PID retuning complete (2026-04-07). New baseline established: **6.90° HoldMAE, 1.3s time-to-reach, 124.8s hold time** (run `2026-04-07_16-19-21`). Next: thrust expo in `LeverMixer` to reduce near-setpoint oscillation and improve hold accuracy.
 
 **Roadmap (see README.md for full details):**
 - M5: Multi-axis control (depends on hardware evolution)
@@ -60,7 +61,9 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │       ├── dshot_pio.py
 │       └── motor_throttle_group.py
 ├── tools/
-│   └── analyse_telemetry.py  # Desktop telemetry analyser (not deployed to Pico)
+│   ├── plot.py              # Generate diagnostic plots (run first for each new run)
+│   ├── kpi.py               # Pass/fail gate: time-to-reach, HoldMAE, time-at-horizontal
+│   └── analyse_telemetry.py # Deep-dive stats for passing runs (not deployed to Pico)
 ├── test_runs/           # Copied run folders from SD card for analysis
 │   └── YYYY-MM-DD_hh-mm-ss/  # One folder per run
 │       ├── config.yaml  # System settings snapshot (PID gains, motor limits, etc.)
@@ -88,7 +91,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
   - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink. `begin_session(config=None)` accepts an optional YAML config string. CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
   - `PrintSink` — prints CSV rows to REPL serial console. No-op `write_config()`.
   - `SdSink` — owns the full SD card lifecycle (SPI init, mount, RTC read, directory create, write, unmount). Creates a folder-per-run directory (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml`.
-  - `read_rtc(sda, scl)` — one-shot SoftI2C read of PCF8523 RTC. Used by `SdSink` for directory naming.
+  - `read_rtc(i2c, addr=0x68)` — one-shot read of PCF8523 RTC given an already-constructed I2C object. Used by `SdSink` for directory naming.
 - `sdcard.py` — SD card SPI driver from micropython-lib with a stop bit fix (`crc | 0x01`). The upstream driver omits the mandatory end bit in the SPI command frame, which causes some cards to reject all commands after CMD8.
 
 ### AS5600 Encoder (`AS5600/driver/as5600.py`)
@@ -109,9 +112,24 @@ Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-d
 - `dshot_pio.py` - Low-level DShot protocol via RP2040/RP2350 PIO. Supports DSHOT150/300/600/1200.
 - `motor_throttle_group.py` - Dual-core facade for managing multiple motors. Core 1 runs a dedicated 1kHz command loop for reliable ESC communication. Provides arming, throttle control, emergency stop, and health monitoring.
 
-### Telemetry Analyser (`tools/analyse_telemetry.py`)
+### Desktop Analysis Tools (`tools/`)
 
-Desktop Python script (not deployed to Pico). Reads run folders from `test_runs/`, converts quaternions to roll angles offline, produces 4-subplot diagnostic figures (angle tracking, rate tracking, dual-axis PID terms, motor output) and console statistics including angle and rate windup events. Supports single-run analysis and two-run side-by-side comparison. Dependencies: `numpy`, `matplotlib`, `pyyaml`.
+Three scripts with distinct roles. Run in order: plot → kpi → analyse.
+
+- `plot.py` — Generates a 5-subplot diagnostic figure (`plot.png`) next to each `log.csv`. Pass one folder for a single plot, two folders for side-by-side comparison. Run first — a quick visual check before committing to deeper analysis. Dependencies: `matplotlib`, `numpy`.
+- `kpi.py` — Lightweight pass/fail gate. Scans run folders, applies the standard test convention (start at −58°, threshold ±10°), and prints a table of: start angle, reached-horizontal flag, time-to-reach, HoldMAE, time-at-horizontal, duration. Lists passing runs with suggested `analyse_telemetry.py` commands. No matplotlib dependency.
+- `analyse_telemetry.py` — Deep-dive stats for passing runs. Prints sample rate, IMU-ENC tracking error, setpoint MAE, Pearson correlation, oscillation frequency, and windup event counts. No plotting (use `plot.py` for visuals). Dependencies: `numpy`, `pyyaml`.
+
+### Standard Test Convention
+
+Each standardised run starts with **M1 end down at encoder ≈ −58°** (lever resting on the restrictor). The algorithm must lift the lever to within ±10° of horizontal (0°) and hold it there. KPIs measured from this starting condition:
+
+- **Reached**: did the encoder enter ±10° at any point?
+- **T→0**: seconds from run start to first entry into ±10°
+- **HoldMAE**: encoder MAE from first reach to end of run
+- **T@0**: total seconds spent within ±10°
+
+Re-tare the IMU at the start of each session using the precision jig + bubble level (jig-measured residual: ~0.10°).
 
 ### Folder-per-run Convention
 
@@ -123,6 +141,20 @@ Each stabilisation session creates a timestamped directory on the SD card:
 ```
 
 `config.yaml` is written as plain string formatting on MicroPython (no YAML library) and parsed with `pyyaml` on desktop. Contains: `imu`, `angle_pid`, `rate_pid`, `motor`, `encoder`, `telemetry`, `feedforward` sections.
+
+## Motor and Encoder Sign Convention
+
+Motors are mounted such that **thrust pushes the motor end DOWN** (confirmed by single-motor test 2026-04-06: M1 alone → M1 end descended to restrictor).
+
+| Motor | GPIO | Encoder at lowest position |
+|-------|------|---------------------------|
+| M1    | 10   | −58°                      |
+| M2    | 11   | +59°                      |
+
+- **Negative encoder angle** → M1 side is lower, M2 side is higher
+- **Positive encoder angle** → M2 side is lower, M1 side is higher
+- To correct M1 being low (negative angle): increase M2 throttle → M2 pushes down → lever pivots → M1 rises
+- The feedforward negation in `main.py` (`feedforward_roll = -(imu_roll + ...)`) implements this correctly
 
 ## Key Constants
 

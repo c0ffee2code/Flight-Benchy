@@ -11,10 +11,10 @@ PCF8523_ADDR  = const(0x68)
 
 # ── Edit before running ───────────────────────────────────────────
 YEAR   = 2026
-MONTH  = 2
-DAY    = 23
-HOUR   = 21
-MINUTE = 0
+MONTH  = 4
+DAY    = 7
+HOUR   = 16
+MINUTE = 11
 SECOND = 0
 # ─────────────────────────────────────────────────────────────────
 

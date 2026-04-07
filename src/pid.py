@@ -1,12 +1,13 @@
 class PID:
     """Discrete PID controller with anti-windup and term introspection."""
 
-    def __init__(self, kp, ki, kd=0.0, iterm_limit=200.0):
+    def __init__(self, kp, ki, kd=0.0, iterm_limit=200.0, output_limit=None):
         """Configure gains and integral windup limit."""
         self.kp = kp
         self.ki = ki
         self.kd = kd
         self.iterm_limit = iterm_limit
+        self.output_limit = output_limit
         self._integral = 0.0
         self._prev_error = 0.0
         self._prev_measurement = None
@@ -41,7 +42,10 @@ class PID:
         self.last_p = self.kp * error
         self.last_i = self.ki * self._integral
         self.last_d = self.kd * derivative
-        return self.last_p + self.last_i + self.last_d
+        output = self.last_p + self.last_i + self.last_d
+        if self.output_limit is not None:
+            output = max(-self.output_limit, min(output, self.output_limit))
+        return output
 
     def reset(self):
         """Zero integrator and derivative state for a fresh control session."""
