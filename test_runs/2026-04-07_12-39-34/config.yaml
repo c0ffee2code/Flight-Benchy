@@ -6,22 +6,24 @@ imu:
   rate_report_hz: 200
 angle_pid:
   hz: 50
-  kp: 1.5
+  kp: 3.0
   ki: 0.05
-  kd: 0.2
-  iterm_limit: 5.0
+  kd: 0.1
+  iterm_limit: 30.0
+  output_limit: 130
 rate_pid:
   hz: 200
-  kp: 2.5
+  kp: 0.5
   ki: 0.0
-  kd: 0.0
+  kd: 0.003
   iterm_limit: 50.0
+  output_limit: 300
 motor:
-  base_throttle: 250
-  throttle_min: 70
-  throttle_max: 500
+  base_throttle: 600
+  throttle_min: 100
+  throttle_max: 800
 encoder:
-  axis_center: 406
+  axis_center: 275
 telemetry:
   sample_every: 10
 feedforward:
