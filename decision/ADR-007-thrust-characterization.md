@@ -45,7 +45,7 @@ From manufacturer specifications ([motor](https://betafpv.com/products/lava-seri
 Key observations from the reference data:
 - **Nonlinear thrust curve** — thrust roughly doubles from 30% to 60%, but only increases ~2.2x from 60% to 100%. The low-throttle region is more sensitive per percent.
 - **Efficiency peaks at low throttle** — 4.71 g/W at 30% vs 1.91 g/W at 100%. Operating near midrange is most efficient.
-- **Our operating range** — with `BASE_THROTTLE = 300` and DShot range 48–2047, our baseline sits around 15% of full DShot range, likely in the 30–50% effective throttle region. The load cell bench will map DShot commands to actual thrust precisely.
+- **Our operating range** — ⚠️ **Stale:** written when `BASE_THROTTLE = 300`. Current value after post-rebuild retuning (ADR-008 Amendment 2026-04-07) is `BASE_THROTTLE = 600`, operating range approximately DShot 300–900 (motors ±RATE_OUTPUT_LIMIT from base). Empirical slope at BASE=600: ~0.147 g/DShot unit (see ADR-008). The load cell bench will map the full curve precisely.
 
 ### What the reference data does NOT tell us
 

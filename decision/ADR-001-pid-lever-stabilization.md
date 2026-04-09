@@ -8,7 +8,7 @@
 
 The test bench has a swinging lever pivoting around a central axis. Two drone motors are mounted on opposite ends of the lever, both producing downward thrust (inverted for safety — prevents the bench from lifting off the desk). An AS5600 magnetic encoder at the pivot provides ground-truth angle measurement with ~0.088° resolution and ~486 μs latency.
 
-The lever's mechanical range is approximately ±50° from horizontal. At rest (motors off), the lever settles at one of its extreme positions depending on weight distribution.
+The lever's mechanical range is approximately ±50° from horizontal (later measured as −58° / +59° with the restrictor in place). At rest (motors off), the lever settles at one of its extreme positions depending on weight distribution.
 
 ### Goal
 
@@ -47,6 +47,8 @@ M1_throttle = BASE_THROTTLE + output
 M2_throttle = BASE_THROTTLE - output
 
 Both clamped to [THROTTLE_MIN(70) .. THROTTLE_MAX(600)]
+
+⚠️ **Sign corrected in ADR-008 (Bug 3):** The signs above drove the wrong motor high under positive error. The correct assignment is `m1 = base − output, m2 = base + output`. See ADR-008 "Pre-baseline postmortem — Bug 3" for the full diagnosis.
 ```
 
 If the lever diverges instead of converging, the sign convention is wrong — flip the sign of Kp.

@@ -57,6 +57,7 @@ AXIS_CENTER = const(275)
 THROTTLE_MIN = const(100)
 THROTTLE_MAX = const(800)
 BASE_THROTTLE = const(600)
+MIXER_EXPO = 0.0       # 0.0 = linear (no-op). Enable at 0.3 to test expo shaping (ADR-012).
 
 # Control loop timing
 INNER_INTERVAL_MS = const(5)       # 200 Hz inner (rate) loop
@@ -137,6 +138,7 @@ def init_session(angle_pid, rate_pid, sink):
         "  base_throttle: {}\n"
         "  throttle_min: {}\n"
         "  throttle_max: {}\n"
+        "  expo: {}\n"
         "encoder:\n"
         "  axis_center: {}\n"
         "telemetry:\n"
@@ -150,7 +152,7 @@ def init_session(angle_pid, rate_pid, sink):
         angle_pid.kp, angle_pid.ki, angle_pid.kd, angle_pid.iterm_limit, angle_pid.output_limit,
         1000 // INNER_INTERVAL_MS,
         rate_pid.kp, rate_pid.ki, rate_pid.kd, rate_pid.iterm_limit, rate_pid.output_limit,
-        BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX,
+        BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX, MIXER_EXPO,
         AXIS_CENTER,
         TELEMETRY_SAMPLE_EVERY,
         FEEDFORWARD_LEAD_MS,
@@ -256,7 +258,7 @@ def main():
     # rate_kp=0.5 confirmed stable at BASE=600 with kd=0.003. kp=0.7 caused 5.88Hz oscillation.
     angle_pid = PID(kp=3.5,  ki=0.05, kd=0.3,  iterm_limit=100.0, output_limit=ANGLE_RATE_LIMIT)  # outputs deg/s
     rate_pid  = PID(kp=0.5,  ki=0.0,  kd=0.003, iterm_limit=50.0, output_limit=RATE_OUTPUT_LIMIT) # outputs mixer scalar
-    mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX)
+    mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX, expo=MIXER_EXPO)
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
     telemetry = None
 

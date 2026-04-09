@@ -335,7 +335,7 @@ force_diff    = throttle_diff × 0.147 g/unit
 
 IMU tare quality confirmed with precision jig + bubble level: ~0.10° residual. The ~0.8° bias seen during running telemetry is GRV dynamic lag during oscillation, independent of tare quality. DC power supply (30W) insufficient at BASE≥600; LiHV batteries required (~25s per charge).
 
-**Next:** thrust expo in `LeverMixer` to reduce near-setpoint P-term sensitivity and improve hold accuracy.
+**Next:** thrust expo in `LeverMixer` to reduce near-setpoint P-term sensitivity and improve hold accuracy. See **ADR-012**.
 
 ---
 

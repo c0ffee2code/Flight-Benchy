@@ -114,6 +114,10 @@ Result: FAIL — simulated invariants violated, A disabled
 - LED stays blue during pre-flight; turns green only after `arm_motors()`
 - `SdSink.open_session()` (new method, split from `init_session()`) creates the folder and opens `preflight.txt`; `init_session()` then opens `config.yaml` and `log.csv` as before
 
+## Interaction with ADR-012 (differential expo)
+
+When expo is enabled in `LeverMixer`, the simulated M1/M2 values in the sign chain will reflect the shaped output, not the raw `pid_out`. The sign chain invariants remain valid (expo is monotonic and preserves sign), but the displayed M1/M2 values at ±10° will be lower than `base ± kp × kd × 10` would suggest. The preflight log should record the expo parameter so the operator can interpret any smaller-than-expected motor differential correctly.
+
 ## What it does NOT check
 
 - Motor direction under actual thrust (gyro feedback loop direction) — tested separately if needed

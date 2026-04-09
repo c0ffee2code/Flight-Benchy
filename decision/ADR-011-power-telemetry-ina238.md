@@ -82,11 +82,11 @@ The STEMMA QT connector on the INA238 breakout is compatible with the Adalogger 
 I2C Bus 0 (GPIO 0/1, 400 kHz)
 ├── AS5600 encoder     [0x36]
 ├── BNO085 IMU         [0x4A]
+├── PCF8523 RTC        [0x68]   (read once at session start — no runtime traffic)
 └── INA238 power mon.  [0x40]   ← new
-
-SoftI2C (GPIO 4/5, 100 kHz)
-└── PCF8523 RTC        [0x68]
 ```
+
+Note: GPIO 4/5 (SoftI2C to Adalogger PiCowbell) are free since the PiCowbell was replaced by discrete SD + RTC breakout boards (ADR-002). PCF8523 moved to I2C Bus 0 alongside the other sensors.
 
 ## Implementation Plan (pending hardware)
 
