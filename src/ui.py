@@ -1,7 +1,7 @@
 # Operator interface — hardware: Pimoroni Pico Display Pack
 # https://shop.pimoroni.com/products/pico-display-pack
 # Buttons (GPIO 12–15) and RGB LED (GPIO 6/7/8) from the Display Pack are used.
-# LCD is physically disconnected (SPI0 conflict with Adalogger SD card, see ADR-004).
+# LCD is physically disconnected (SPI0 conflict with Adalogger SD card, see DR-004).
 
 from machine import Pin
 from micropython import const

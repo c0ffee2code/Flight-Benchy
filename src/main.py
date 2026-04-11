@@ -25,7 +25,7 @@ PIN_I2C0_SCL   = const(1)
 PIN_IMU_RST    = const(2)
 PIN_IMU_INT    = const(3)
 
-# DShot motors (moved from GP6/7 to free RGB LED pins, see ADR-004)
+# DShot motors (moved from GP6/7 to free RGB LED pins, see DR-004)
 PIN_MOTOR1     = const(10)
 PIN_MOTOR2     = const(11)
 
@@ -40,12 +40,6 @@ PIN_SD_MOSI    = const(19)
 # =====================================================
 i2c = I2C(0, scl=Pin(PIN_I2C0_SCL), sda=Pin(PIN_I2C0_SDA), freq=400_000)
 encoder = AS5600(i2c=i2c)
-imu = BNO08X_I2C(
-    i2c,
-    address=0x4A,
-    reset_pin=Pin(PIN_IMU_RST, Pin.OUT),
-    int_pin=Pin(PIN_IMU_INT, Pin.IN, Pin.PULL_UP),
-)
 
 # =====================================================
 # Constants
@@ -57,7 +51,7 @@ AXIS_CENTER = const(275)
 THROTTLE_MIN = const(100)
 THROTTLE_MAX = const(800)
 BASE_THROTTLE = const(600)
-MIXER_EXPO = 0.0       # 0.0 = linear (no-op). Enable at 0.3 to test expo shaping (ADR-012).
+MIXER_EXPO = 0.0       # expo shaping (DR-012). Set to 0.0 to disable.
 
 # Control loop timing
 INNER_INTERVAL_MS = const(5)       # 200 Hz inner (rate) loop
@@ -86,7 +80,7 @@ RATE_OUTPUT_LIMIT = const(300)
 
 # Feedforward — compensate GRV filter lag in outer angle loop.
 # Uses live calibrated gyro rate to extrapolate current angle.
-# Matches measured GRV group delay (~10 - 20 ms). See ADR-006.
+# Matches measured GRV group delay (~10 - 20 ms). See DR-006.
 FEEDFORWARD_LEAD_MS = const(15)
 
 def angle_to_quat(deg):
@@ -99,15 +93,17 @@ def angle_to_quat(deg):
 # State helpers
 # =====================================================
 
-def arm_motors(motors):
-    """Green LED, enable IMU fusion, start DShot, arm ESCs."""
-    set_led(g=1)
+def enable_imu_reports(imu):
+    """Enable GRV and calibrated gyro reports at their respective loop rates."""
     imu.game_quaternion.enable(hertz=GRV_REPORT_HZ)
     imu.gyro.enable(hertz=IMU_REPORT_HZ)
+
+def arm_motors(motors):
+    """Green LED, start DShot, arm ESCs."""
+    set_led(g=1)
     motors.start()
     motors.arm()
     motors.setAllThrottles([THROTTLE_MIN, THROTTLE_MIN])
-
 
 def init_session(angle_pid, rate_pid, sink):
     """Open a recording session on a pre-mounted sink, write config, return TelemetryRecorder."""
@@ -149,10 +145,21 @@ def init_session(angle_pid, rate_pid, sink):
         GRV_REPORT_HZ,
         IMU_REPORT_HZ,
         1000 // (INNER_INTERVAL_MS * OUTER_INTERVAL_TICKS),
-        angle_pid.kp, angle_pid.ki, angle_pid.kd, angle_pid.iterm_limit, angle_pid.output_limit,
+        angle_pid.kp,
+        angle_pid.ki,
+        angle_pid.kd,
+        angle_pid.iterm_limit,
+        angle_pid.output_limit,
         1000 // INNER_INTERVAL_MS,
-        rate_pid.kp, rate_pid.ki, rate_pid.kd, rate_pid.iterm_limit, rate_pid.output_limit,
-        BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX, MIXER_EXPO,
+        rate_pid.kp,
+        rate_pid.ki,
+        rate_pid.kd,
+        rate_pid.iterm_limit,
+        rate_pid.output_limit,
+        BASE_THROTTLE,
+        THROTTLE_MIN,
+        THROTTLE_MAX,
+        MIXER_EXPO,
         AXIS_CENTER,
         TELEMETRY_SAMPLE_EVERY,
         FEEDFORWARD_LEAD_MS,
@@ -161,7 +168,7 @@ def init_session(angle_pid, rate_pid, sink):
     return telemetry
 
 
-def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
+def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu):
     """Run cascaded PID control loop until B+Y disarm combo.
 
     Inner (rate) loop runs every cycle at ~200 Hz.
@@ -206,7 +213,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
             iqr, iqi, iqj, iqk = imu.game_quaternion
             imu_roll = degrees(2.0 * atan2(iqi, iqr))
 
-            # Feedforward (ADR-006) — compensate GRV filter lag with live gyro rate
+            # Feedforward (DR-006) — compensate GRV filter lag with live gyro rate
             feedforward_roll = -(imu_roll + gyro_x * feedforward_lead_s)
             ang_err = feedforward_roll
 
@@ -237,14 +244,6 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry):
         )
 
 
-def disarm(motors, telemetry):
-    """End telemetry session, disarm and stop motors, blue LED."""
-    telemetry.end_session()
-    motors.disarm()
-    motors.stop()
-    set_led(b=1)
-
-
 # =====================================================
 # Main
 # =====================================================
@@ -256,9 +255,10 @@ def main():
     # angle_kp=1.0: rate_sp=58 -> never hits limit -> diff=8.7g (INSUFFICIENT).
     # angle_kp=2.2: rate_sp=129 -> saturates at 130 -> PID_OUT=65 -> diff=130 -> ~19g (OK).
     # rate_kp=0.5 confirmed stable at BASE=600 with kd=0.003. kp=0.7 caused 5.88Hz oscillation.
+    # rate_kd raised 0.003→0.006 to add damping near setpoint without affecting DC gain (DR-012).
     angle_pid = PID(kp=3.5,  ki=0.05, kd=0.3,  iterm_limit=100.0, output_limit=ANGLE_RATE_LIMIT)  # outputs deg/s
-    rate_pid  = PID(kp=0.5,  ki=0.0,  kd=0.003, iterm_limit=50.0, output_limit=RATE_OUTPUT_LIMIT) # outputs mixer scalar
-    mixer = LeverMixer(BASE_THROTTLE, THROTTLE_MIN, THROTTLE_MAX, expo=MIXER_EXPO)
+    rate_pid  = PID(kp=0.5,  ki=0.0,  kd=0.006, iterm_limit=50.0, output_limit=RATE_OUTPUT_LIMIT) # outputs mixer scalar
+    mixer = LeverMixer(throttle_base=BASE_THROTTLE, throttle_min=THROTTLE_MIN, throttle_max=THROTTLE_MAX, expo=MIXER_EXPO)
     motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
     telemetry = None
 
@@ -268,20 +268,28 @@ def main():
             miso=PIN_SD_MISO, cs=PIN_SD_CS,
             rtc_i2c=i2c,
         )
+        imu = BNO08X_I2C(
+            i2c,
+            address=0x4A,
+            reset_pin=Pin(PIN_IMU_RST, Pin.OUT),
+            int_pin=Pin(PIN_IMU_INT, Pin.IN, Pin.PULL_UP),
+        )
         wait_for_arm()
+        enable_imu_reports(imu)
         arm_motors(motors)
         wait_for_go()
         telemetry = init_session(angle_pid, rate_pid, sd_sink)
-        stabilize(angle_pid, rate_pid, mixer, motors, telemetry)
-        disarm(motors, telemetry)
+        stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu)
+        set_led(b=1)
 
     except Exception as e:
         set_led(r=1)
-        if telemetry is not None:
-            telemetry.end_session()
         raise
 
     finally:
+        if telemetry is not None:
+            telemetry.end_session()
+        motors.disarm()
         motors.stop()
 
 try:

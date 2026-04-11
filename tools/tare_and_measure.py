@@ -49,7 +49,7 @@ from i2c import BNO08X_I2C
 RATE_HZ = const(344)
 SAMPLES_PER_PHASE = const(2000)
 AXIS_CENTER = const(275)  # raw reading when lever is at physical zero (was 422, corrected from tare run)
-SETTLE_SECS = const(10)
+SETTLE_SECS = const(30)
 
 # === Ensure output directory exists ===
 try:
@@ -63,7 +63,7 @@ i2c = I2C(0, scl=Pin(1), sda=Pin(0), freq=400_000)
 encoder = AS5600(i2c=i2c)
 reset_pin = Pin(2, Pin.OUT)
 int_pin = Pin(3, Pin.IN, Pin.PULL_UP)
-imu = BNO08X_I2C(i2c, address=0x4a, reset_pin=reset_pin, int_pin=int_pin, debug=False)
+imu = BNO08X_I2C(i2c, address=0x4a, reset_pin=reset_pin, int_pin=int_pin, debug=True)
 
 
 def wait_for_enter(message):

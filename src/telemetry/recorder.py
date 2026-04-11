@@ -19,6 +19,8 @@ def read_rtc(i2c, addr=0x68):
     Returns (year, month, day, hour, minute, second).
     """
     buf = i2c.readfrom_mem(addr, 0x03, 7)
+    if buf[0] & 0x80:
+        raise OSError("PCF8523: OS flag set — clock integrity not guaranteed, re-run set_rtc.py")
     return (
         _bcd(buf[6]) + 2000,   # year
         _bcd(buf[5] & 0x1F),   # month  (bits 7:5 reserved)
