@@ -1,4 +1,4 @@
-# ADR-004: Operator Interface — Buttons + RGB LED
+# DR-004: Operator Interface — Buttons + RGB LED
 
 **Status:** Accepted
 **Date:** 2026-02-15
@@ -6,7 +6,7 @@
 
 ## Context
 
-The Pimoroni Pico Display Pack and Adafruit SD card breakout both claim SPI0 on GPIO 16–19 with incompatible pin roles (see ADR-002, "Pin Conflicts" section). They cannot coexist — when `SdSink` initializes SPI0 for SD card access, it reconfigures the bus the display depends on, freezing the LCD.
+The Pimoroni Pico Display Pack and Adafruit SD card breakout both claim SPI0 on GPIO 16–19 with incompatible pin roles (see DR-002, "Pin Conflicts" section). They cannot coexist — when `SdSink` initializes SPI0 for SD card access, it reconfigures the bus the display depends on, freezing the LCD.
 
 The display LCD was used for real-time status during development, but telemetry logging (M2a) and BNO085 high-speed SPI (future) need those SPI pins more. The LCD also added ~1145ms of overhead to the PID loop when `draw_stabilizing()` was called, far exceeding the 20ms target cycle time.
 
@@ -94,7 +94,7 @@ The multi-button UX is unchanged (B+Y to arm, A to start, B+Y to disarm). LCD `d
 - `main.py` — removed `display_pack` import and all `draw_*()` calls; motor pins 6/7 → 10/11; added LED pins 6/7/8 + `set_led()` helper; removed `DISPLAY_EVERY` constant and loop_count display logic
 - `CLAUDE.md` — updated pin table, hardware list, deployment list
 - `README.md` — updated hardware description, deployment list
-- `ADR-002` — marked SPI0 conflict as resolved, updated motor pin references
+- `DR-002` — marked SPI0 conflict as resolved, updated motor pin references
 
 ### Not changed
 

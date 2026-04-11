@@ -1,4 +1,4 @@
-# ADR-003: Extract PID Controller from main.py
+# DR-003: Extract PID Controller from main.py
 
 **Status:** Accepted
 **Date:** 2026-02-08
@@ -6,7 +6,7 @@
 
 ## Context
 
-After implementing M1 (ADR-001), `main.py` has grown to mix three concerns:
+After implementing M1 (DR-001), `main.py` has grown to mix three concerns:
 
 1. **PID controller** — computation, state (integral, prev_error as module globals), reset, gains, anti-windup clamping
 2. **State machine** — DISARMED → ARMING → READY → STABILIZING flow, button handling, timing

@@ -1,4 +1,4 @@
-# ADR-002: Telemetry Logging — SD Card + PCF8523 RTC Breakouts
+# DR-002: Telemetry Logging — SD Card + PCF8523 RTC Breakouts
 
 **Status:** Accepted
 **Date:** 2026-02-08
@@ -35,7 +35,7 @@ Separate boards remove the fixed-wiring constraint of the PiCowbell and allow in
 
 ### Pin Conflicts
 
-**Conflict — SPI0 vs Pimoroni Display Pack (resolved — see ADR-004):** The SD card breakout and the Pimoroni Pico Display Pack both claim SPI0 on GPIO 16–19 with incompatible pin roles:
+**Conflict — SPI0 vs Pimoroni Display Pack (resolved — see DR-004):** The SD card breakout and the Pimoroni Pico Display Pack both claim SPI0 on GPIO 16–19 with incompatible pin roles:
 
 | GPIO | SD card breakout | Pimoroni Display |
 |------|------------------|------------------|
@@ -64,11 +64,11 @@ I2C Bus 0 (GPIO 0/1, 400 kHz)
 ├── BNO085 IMU      [0x4A]
 └── PCF8523 RTC     [0x68]   ← read once at session start, no runtime traffic
 
-SPI Bus 0 (GPIO 16/17/18/19)       ← conflict resolved: LCD disconnected (ADR-004)
+SPI Bus 0 (GPIO 16/17/18/19)       ← conflict resolved: LCD disconnected (DR-004)
 └── MicroSD card breakout
 ```
 
-**SPI0 conflict status:** Resolved in ADR-004. The display pack LCD is disconnected; only buttons (GPIO 12–15) and RGB LED (GPIO 6/7/8) are wired. SD card has exclusive use of SPI0. Motors moved from GPIO 6/7 to GPIO 10/11 to free RGB LED pins.
+**SPI0 conflict status:** Resolved in DR-004. The display pack LCD is disconnected; only buttons (GPIO 12–15) and RGB LED (GPIO 6/7/8) are wired. SD card has exclusive use of SPI0. Motors moved from GPIO 6/7 to GPIO 10/11 to free RGB LED pins.
 
 ### Timestamp strategy
 
@@ -184,7 +184,7 @@ A production flight controller would isolate telemetry failures from the control
 
 ### Risks
 
-- **~~SPI0 pin conflict~~** — Resolved in ADR-004 (LCD disconnected, SD card has exclusive SPI0 access).
+- **~~SPI0 pin conflict~~** — Resolved in DR-004 (LCD disconnected, SD card has exclusive SPI0 access).
 - **SPI bandwidth** — SD writes take time. If PID jitter is observed after the SPI conflict is resolved, add RAM buffering.
 - **Power loss** — With direct writes, the last few lines may be lost. Acceptable for a test bench.
 - **SD card reliability** — Frequent small writes can wear SD cards. Log files are small (few MB per run), so this is not a practical concern.
@@ -193,4 +193,4 @@ A production flight controller would isolate telemetry failures from the control
 ## Dependencies
 
 - `sdcard.py` MicroPython driver (from micropython-lib, with stop bit fix applied)
-- Motor pin reassignment in `main.py` (final assignment GPIO 10/11 — see ADR-004)
+- Motor pin reassignment in `main.py` (final assignment GPIO 10/11 — see DR-004)

@@ -1,4 +1,4 @@
-# ADR-011: Power Telemetry — INA238 External Current/Voltage Monitor
+# DR-011: Power Telemetry — INA238 External Current/Voltage Monitor
 
 **Status:** Accepted — hardware ordered, implementation pending
 **Date:** 2026-02-21
@@ -86,7 +86,7 @@ I2C Bus 0 (GPIO 0/1, 400 kHz)
 └── INA238 power mon.  [0x40]   ← new
 ```
 
-Note: GPIO 4/5 (SoftI2C to Adalogger PiCowbell) are free since the PiCowbell was replaced by discrete SD + RTC breakout boards (ADR-002). PCF8523 moved to I2C Bus 0 alongside the other sensors.
+Note: GPIO 4/5 (SoftI2C to Adalogger PiCowbell) are free since the PiCowbell was replaced by discrete SD + RTC breakout boards (DR-002). PCF8523 moved to I2C Bus 0 alongside the other sensors.
 
 ## Implementation Plan (pending hardware)
 

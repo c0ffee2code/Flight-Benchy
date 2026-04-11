@@ -1,4 +1,4 @@
-# ADR-005: BNO085 IMU as Primary PID Input (M2)
+# DR-005: BNO085 IMU as Primary PID Input (M2)
 
 **Status:** Accepted
 **Date:** 2026-02-15
@@ -16,7 +16,7 @@ M2 switches the PID input to the BNO085 IMU's **game rotation vector** (gyro + a
 
 Use `imu.game_quaternion` (BNO report 0x08) instead of the standard rotation vector (0x05). Game rotation vector fuses gyroscope and accelerometer only — no magnetometer corrections. This avoids sudden heading jumps from magnetic interference near the motors and power distribution board.
 
-Report rate set to 100 Hz (`IMU_REPORT_HZ`) at time of writing, which is 2x the PID rate (50 Hz), ensuring fresh IMU data is available every control cycle. ⚠️ **Superseded by ADR-010:** GRV rate was later reduced to 50 Hz (outer loop rate); calibrated gyroscope added at 200 Hz for the inner loop.
+Report rate set to 100 Hz (`IMU_REPORT_HZ`) at time of writing, which is 2x the PID rate (50 Hz), ensuring fresh IMU data is available every control cycle. ⚠️ **Superseded by DR-010:** GRV rate was later reduced to 50 Hz (outer loop rate); calibrated gyroscope added at 200 Hz for the inner loop.
 
 ### Roll angle extraction via simplified quaternion math
 
@@ -116,8 +116,8 @@ Tested PID gain progression:
 
 1. **PID gain tuning** — DONE. Current best: kp=3.5, ki=0.4, kd=0.3, integral_limit=50.
 2. **BNO085 calibration** — DONE (2026-02-16). All three MEMS sensors calibrated (accel accuracy 2, gyro 3, mag 3). DCD saved to flash, persists across power cycles. See `BNO085/decision/004-sensor-calibration.md`.
-3. **BNO085 tare** — DONE (2026-02-16), then corrected (2026-02-22). Initial tare used `basis=0` (Rotation Vector, magnetometer included). In the bench environment (near motors/ESCs/metal) `mag_acc=0`, so this baked an arbitrary ~45° heading offset into the tare frame — magnetometer was usable for calibration status but not for attitude reference near ferrous interference. ⚠️ **Corrected in ADR-008 Amendment 2026-02-22:** tare must use `basis=1` (Game Rotation Vector, gyro+accel only, no magnetometer). Eliminates Phase 0 (figure-8 detach sequence). See BNO085/decision/004-sensor-calibration.md Bug 4.
-4. **Gyro-integrated rotation vector** — SUPERSEDED. GIRV (0x2A) was used as the initial M4 inner loop input (ADR-008) because it bundles quaternion + angular velocity in one packet. Hardware testing on 2026-02-19 revealed ~1.5°/min drift (10.8° over 9 min) — GIRV integrates raw gyro without accelerometer correction. Replaced by GRV (0x08) for the outer loop + calibrated gyroscope (0x02) for the inner loop. See ADR-010.
+3. **BNO085 tare** — DONE (2026-02-16), then corrected (2026-02-22). Initial tare used `basis=0` (Rotation Vector, magnetometer included). In the bench environment (near motors/ESCs/metal) `mag_acc=0`, so this baked an arbitrary ~45° heading offset into the tare frame — magnetometer was usable for calibration status but not for attitude reference near ferrous interference. ⚠️ **Corrected in DR-008 Amendment 2026-02-22:** tare must use `basis=1` (Game Rotation Vector, gyro+accel only, no magnetometer). Eliminates Phase 0 (figure-8 detach sequence). See BNO085/decision/004-sensor-calibration.md Bug 4.
+4. **Gyro-integrated rotation vector** — SUPERSEDED. GIRV (0x2A) was used as the initial M4 inner loop input (DR-008) because it bundles quaternion + angular velocity in one packet. Hardware testing on 2026-02-19 revealed ~1.5°/min drift (10.8° over 9 min) — GIRV integrates raw gyro without accelerometer correction. Replaced by GRV (0x08) for the outer loop + calibrated gyroscope (0x02) for the inner loop. See DR-010.
 
 ### Calibration + tare results (2026-02-17)
 

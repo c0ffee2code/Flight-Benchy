@@ -1,4 +1,4 @@
-# ADR-007: Motor Thrust Characterization Test Bench (Future)
+# DR-007: Motor Thrust Characterization Test Bench (Future)
 
 ## Status
 
@@ -6,7 +6,7 @@ Proposed
 
 ## Context
 
-Predictive correction (ADR-006) compensates for IMU sensor fusion lag, but the motor/ESC response time is another significant delay in the control chain. We estimate ~20ms but have no measured value. Accurate thrust characterization — both the static thrust curve and the dynamic response time — is critical for:
+Predictive correction (DR-006) compensates for IMU sensor fusion lag, but the motor/ESC response time is another significant delay in the control chain. We estimate ~20ms but have no measured value. Accurate thrust characterization — both the static thrust curve and the dynamic response time — is critical for:
 
 1. **Tuning `FEEDFORWARD_LEAD_MS`** — knowing the actual motor lag lets us include it in the prediction budget.
 2. **Feed-forward control** — mapping DShot command to expected thrust enables model-based compensation.
@@ -45,11 +45,11 @@ From manufacturer specifications ([motor](https://betafpv.com/products/lava-seri
 Key observations from the reference data:
 - **Nonlinear thrust curve** — thrust roughly doubles from 30% to 60%, but only increases ~2.2x from 60% to 100%. The low-throttle region is more sensitive per percent.
 - **Efficiency peaks at low throttle** — 4.71 g/W at 30% vs 1.91 g/W at 100%. Operating near midrange is most efficient.
-- **Our operating range** — ⚠️ **Stale:** written when `BASE_THROTTLE = 300`. Current value after post-rebuild retuning (ADR-008 Amendment 2026-04-07) is `BASE_THROTTLE = 600`, operating range approximately DShot 300–900 (motors ±RATE_OUTPUT_LIMIT from base). Empirical slope at BASE=600: ~0.147 g/DShot unit (see ADR-008). The load cell bench will map the full curve precisely.
+- **Our operating range** — ⚠️ **Stale:** written when `BASE_THROTTLE = 300`. Current value after post-rebuild retuning (DR-008 Amendment 2026-04-07) is `BASE_THROTTLE = 600`, operating range approximately DShot 300–900 (motors ±RATE_OUTPUT_LIMIT from base). Empirical slope at BASE=600: ~0.147 g/DShot unit (see DR-008). The load cell bench will map the full curve precisely.
 
 ### What the reference data does NOT tell us
 
-- **Step response time** — how fast thrust changes when the DShot command changes. This is the motor lag we need for ADR-006's prediction budget.
+- **Step response time** — how fast thrust changes when the DShot command changes. This is the motor lag we need for DR-006's prediction budget.
 - **Actual thrust at our battery voltage** — the bench uses regulated 12V; our PDB voltage sags under load.
 - **Prop-to-prop variation** — manufacturing tolerances in the Gemfan 2218.
 - **Motor-to-motor variation** — our two motors may not produce identical thrust at the same command.

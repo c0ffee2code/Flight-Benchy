@@ -8,7 +8,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **AS5600 Magnetic Encoder** — 12-bit absolute position at pivot (ground truth reference, ~0.088° resolution)
 - **BNO085 IMU** — 9-axis IMU with onboard sensor fusion; game rotation vector (GRV, 0x08) for outer angle loop, calibrated gyroscope (0x02) for inner rate loop
 - **2x Drone Motors + ESCs** — DShot600 protocol via PIO, mounted on opposite ends of lever
-- **Pimoroni Pico Display Pack** — Buttons + RGB LED only; LCD disconnected (see [ADR-004](decision/ADR-004-operator-interface.md))
+- **Pimoroni Pico Display Pack** — Buttons + RGB LED only; LCD disconnected (see [DR-004](decision/DR-004-operator-interface.md))
 - **Adafruit Micro SD SPI Breakout** ([#4682](https://www.adafruit.com/product/4682)) + **Adafruit PCF8523 RTC Breakout** ([#5189](https://www.adafruit.com/product/5189)) — MicroSD + RTC for black box telemetry logging
 - **Power Distribution Board** — Motor power supply
 
@@ -22,17 +22,17 @@ Carbon fiber drone frame (10 g) on a 3D-printed PETG subframe (8 g) forming a sw
 
 ### M1: Single-axis PID with encoder — DONE
 
-Single PI(D) loop at 50 Hz using AS5600 encoder feedback. Differential thrust mixer for 2 motors. Lever holds at 0° within ±3°. See [ADR-001](decision/ADR-001-pid-lever-stabilization.md).
+Single PI(D) loop at 50 Hz using AS5600 encoder feedback. Differential thrust mixer for 2 motors. Lever holds at 0° within ±3°. See [DR-001](decision/DR-001-pid-lever-stabilization.md).
 
 ### M2: Switch to BNO085 IMU as primary control input — DONE
 
-PID input switched from AS5600 encoder to BNO085 game rotation vector (gyro+accel, no magnetometer). Roll angle extracted from quaternion via single `atan2`. AS5600 encoder retained as telemetry-only ground truth. Telemetry now stores raw quaternions from both sensors for offline analysis. See [ADR-005](decision/ADR-005-bno085-pid-input.md).
+PID input switched from AS5600 encoder to BNO085 game rotation vector (gyro+accel, no magnetometer). Roll angle extracted from quaternion via single `atan2`. AS5600 encoder retained as telemetry-only ground truth. Telemetry now stores raw quaternions from both sensors for offline analysis. See [DR-005](decision/DR-005-bno085-pid-input.md).
 
 BNO085 sensor calibration (accel, gyro, magnetometer) and all-axes tare completed and saved to flash. Calibration + tare reduced MAE from 22 deg to 2.87 deg and eliminated limit cycle oscillation. See [BNO085 ADR-004](BNO085/decision/004-sensor-calibration.md).
 
 ### M2a: Telemetry logging (black box) — DONE
 
-Timestamped CSV logging to SD card via SD card breakout + PCF8523 RTC breakout. Each run creates a folder (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml` (system settings snapshot). `ticks_ms` provides precise row timing. See [ADR-002](decision/ADR-002-telemetry-logging.md).
+Timestamped CSV logging to SD card via SD card breakout + PCF8523 RTC breakout. Each run creates a folder (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml` (system settings snapshot). `ticks_ms` provides precise row timing. See [DR-002](decision/DR-002-telemetry-logging.md).
 
 Motor pins reassigned from GPIO 4/5 → 6/7 → 10/11 (freeing GPIO 4/5 for PCF8523 RTC, then RGB LED pins).
 
@@ -44,13 +44,13 @@ Extracted `base ± output` motor mapping into `LeverMixer` class (`mixer.py`). M
 
 ### M4: Cascaded PID (angle loop + rate loop) — DONE
 
-Two nested PID loops replacing the single angle PID. Outer angle loop (50 Hz) computes a desired rotation rate from GRV quaternion (game rotation vector, drift-free); inner rate loop (200 Hz) tracks that rate using calibrated gyroscope angular velocity. Initial sensor choice (GIRV) was replaced after hardware testing revealed ~1.5°/min gyro integration drift; see [ADR-010](decision/ADR-010-grv-calibrated-gyro-dual-report.md). Both loops run in a single main loop with iteration-counter gating.
+Two nested PID loops replacing the single angle PID. Outer angle loop (50 Hz) computes a desired rotation rate from GRV quaternion (game rotation vector, drift-free); inner rate loop (200 Hz) tracks that rate using calibrated gyroscope angular velocity. Initial sensor choice (GIRV) was replaced after hardware testing revealed ~1.5°/min gyro integration drift; see [DR-010](decision/DR-010-grv-calibrated-gyro-dual-report.md). Both loops run in a single main loop with iteration-counter gating.
 
 Baseline result (2026-02-22, 77s run with active disturbance): **0.36° MAE**, 0.09 Hz oscillation frequency, zero windup events, Pearson r=0.999. 3× improvement over prior baseline (1.12° MAE, 2026-02-20) following BNO085 re-calibration, correct tare procedure, and AXIS_CENTER correction (422→411→406).
 
 Post-baseline improvements (2026-02-22): precision 3D-printed jig established true AXIS_CENTER=406, lever mechanically balanced, `ki=0.05` with `iterm_limit=5` added to angle PID to compensate for residual imbalance and slow GRV drift. Result: **0.00 Hz oscillation**, symmetric motor output, lever holds true horizontal.
 
-See [ADR-008](decision/ADR-008-cascaded-pid.md) and [ADR-010](decision/ADR-010-grv-calibrated-gyro-dual-report.md).
+See [DR-008](decision/DR-008-cascaded-pid.md) and [DR-010](decision/DR-010-grv-calibrated-gyro-dual-report.md).
 
 **Depends on:** M2 (IMU as input), M2a (telemetry to validate improvement), M3 (clean mixer).
 
@@ -89,7 +89,7 @@ Systematic tuning steps: angle_kp 1.0→3.5, angle_kd 0.1→0.3 (reduced oscilla
 
 Additional findings: IMU tare quality with precision jig + bubble level is ~0.10° residual — not the limiting factor. GRV dynamic lag (~0.8°) is the sensor floor independent of tare quality. Power supply limit (30W) requires LiHV batteries at BASE≥600; ~25s per charge.
 
-See `decision/ADR-008-cascaded-pid.md` Amendment 2026-04-07.
+See `decision/DR-008-cascaded-pid.md` Amendment 2026-04-07.
 
 **Depends on:** mechanical rebuild, M4.
 
@@ -130,7 +130,7 @@ When an unhandled exception exits the control loop, `disarm()` is never reached 
 
 ## Test Bench vs Real Drone
 
-See [ADR-001, "Test Bench vs Real Drone" section](decision/ADR-001-pid-lever-stabilization.md) for a detailed comparison covering: single axis vs three axes, single PID vs cascaded PIDs, encoder vs IMU, and fixed pivot vs free flight.
+See [DR-001, "Test Bench vs Real Drone" section](decision/DR-001-pid-lever-stabilization.md) for a detailed comparison covering: single axis vs three axes, single PID vs cascaded PIDs, encoder vs IMU, and fixed pivot vs free flight.
 
 ## Project Structure
 

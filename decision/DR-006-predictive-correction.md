@@ -1,4 +1,4 @@
-# ADR-006: Feedforward for IMU Lag Compensation
+# DR-006: Feedforward for IMU Lag Compensation
 
 ## Status
 

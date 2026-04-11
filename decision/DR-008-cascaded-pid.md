@@ -1,4 +1,4 @@
-# ADR-008: Cascaded PID — Angle Loop + Rate Loop (M4)
+# DR-008: Cascaded PID — Angle Loop + Rate Loop (M4)
 
 **Status:** Implemented — baseline updated (0.36° MAE, 77s disturbance run, Pearson r=0.999; 2026-02-22)
 **Date:** 2026-02-17
@@ -8,7 +8,7 @@
 
 The current controller (M1/M2) uses a single PID loop at 50 Hz operating on the BNO085 game rotation vector (report 0x08). This works — MAE 2.87° after calibration and tare — but has inherent limitations:
 
-1. **Sensor fusion lag (~60ms)** — the game rotation vector passes through BNO085's on-chip Kalman-like filter. The PID always reacts to where the lever *was*, not where it *is*. ADR-006's predictive correction partially compensates, but it's a workaround, not a fix.
+1. **Sensor fusion lag (~60ms)** — the game rotation vector passes through BNO085's on-chip Kalman-like filter. The PID always reacts to where the lever *was*, not where it *is*. DR-006's predictive correction partially compensates, but it's a workaround, not a fix.
 2. **Single loop bandwidth ceiling** — the outer angle loop can't be faster than the fusion filter update rate without seeing stale data. Increasing gains to improve response leads to oscillation due to the phase lag.
 3. **Architecture gap** — real flight controllers (Betaflight, ArduPilot) universally use cascaded PID. A single-loop controller has no equivalent in production drones.
 
@@ -66,9 +66,9 @@ Constraints at 200 Hz:
 
 Higher rates (400+ Hz) are deferred to a future performance milestone, which may include switching BNO085 from I2C to SPI, reducing GC pressure, and other optimizations.
 
-### Predictive correction (ADR-006) disposition
+### Predictive correction (DR-006) disposition
 
-With a fast inner rate loop using near-zero-lag gyro data, the predictive correction from ADR-006 may become unnecessary. Plan:
+With a fast inner rate loop using near-zero-lag gyro data, the predictive correction from DR-006 may become unnecessary. Plan:
 
 1. Implement cascaded PID with prediction still enabled
 2. Test with prediction disabled — if MAE is comparable or better, remove it
@@ -165,7 +165,7 @@ Before writing the full cascaded controller, confirm GIRV data is usable:
 1. Tune inner rate loop first (disable outer loop, command fixed rate setpoints)
 2. Then tune outer angle loop with inner loop active
 3. Compare against M2 baseline (2.87° MAE) using SD card telemetry
-4. Evaluate whether predictive correction (ADR-006) is still needed
+4. Evaluate whether predictive correction (DR-006) is still needed
 
 ## Pre-baseline postmortem
 
@@ -335,16 +335,16 @@ force_diff    = throttle_diff × 0.147 g/unit
 
 IMU tare quality confirmed with precision jig + bubble level: ~0.10° residual. The ~0.8° bias seen during running telemetry is GRV dynamic lag during oscillation, independent of tare quality. DC power supply (30W) insufficient at BASE≥600; LiHV batteries required (~25s per charge).
 
-**Next:** thrust expo in `LeverMixer` to reduce near-setpoint P-term sensitivity and improve hold accuracy. See **ADR-012**.
+**Next:** thrust expo in `LeverMixer` to reduce near-setpoint P-term sensitivity and improve hold accuracy. See **DR-012**.
 
 ---
 
-## Amendment — 2026-02-20: GIRV replaced by GRV + Calibrated Gyro (see ADR-010)
+## Amendment — 2026-02-20: GIRV replaced by GRV + Calibrated Gyro (see DR-010)
 
 The sensor report selection sub-decision above (GIRV / 0x2A for both loops) is **superseded**.
 
 Hardware testing on 2026-02-19 revealed ~1.5°/min drift in encoder-vs-IMU divergence. Root cause: GIRV integrates raw gyro without accelerometer correction, so gyro bias accumulates. Over a 9-minute run the divergence reached 10.8°, meaning the controller tracked a drifting reference.
 
-**Replacement:** GRV (game rotation vector, 0x08) for the outer (angle) loop and calibrated gyroscope (0x02) for the inner (rate) loop — see **ADR-010** for full rationale, evidence, and implementation notes.
+**Replacement:** GRV (game rotation vector, 0x08) for the outer (angle) loop and calibrated gyroscope (0x02) for the inner (rate) loop — see **DR-010** for full rationale, evidence, and implementation notes.
 
-The cascaded loop architecture, timing, gains, and telemetry schema in this ADR remain valid and unchanged.
+The cascaded loop architecture, timing, gains, and telemetry schema in this DR remain valid and unchanged.

@@ -10,18 +10,18 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 **Sensor Strategy:**
 - **AS5600 magnetic encoder** at the rotation center serves as ground truth reference due to its high precision (~0.09°) and near-instant position output
-- **BNO085 IMU** provides the sensor input that a real flight controller would use. Two concurrent reports are enabled: **GRV** (game rotation vector, 0x08, 50 Hz) for the outer angle loop — drift-free via gyro+accel fusion; **calibrated gyroscope** (0x02, 200 Hz) for the inner rate loop — bias-compensated, ~1–2ms latency. See ADR-010.
+- **BNO085 IMU** provides the sensor input that a real flight controller would use. Two concurrent reports are enabled: **GRV** (game rotation vector, 0x08, 50 Hz) for the outer angle loop — drift-free via gyro+accel fusion; **calibrated gyroscope** (0x02, 200 Hz) for the inner rate loop — bias-compensated, ~1–2ms latency. See DR-010.
 
 ## Development Approach
 
 **Completed:**
-- M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/ADR-001-pid-lever-stabilization.md`.
-- M2 — BNO085 IMU as primary PID input (game rotation vector). AS5600 encoder is telemetry-only ground truth. Quaternion telemetry format. BNO085 calibrated (accel/gyro/mag) and tared — DCD and tare persisted to flash. MAE dropped from 22 deg to 2.87 deg. See `decision/ADR-005-bno085-pid-input.md`.
-- M2a — Black box telemetry logging to SD card via SD card + PCF8523 RTC breakout boards. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/ADR-002-telemetry-logging.md`.
+- M1 — Single-axis PI(D) controller with AS5600 encoder, validated on hardware. Lever holds at 0° within ±3°. See `decision/DR-001-pid-lever-stabilization.md`.
+- M2 — BNO085 IMU as primary PID input (game rotation vector). AS5600 encoder is telemetry-only ground truth. Quaternion telemetry format. BNO085 calibrated (accel/gyro/mag) and tared — DCD and tare persisted to flash. MAE dropped from 22 deg to 2.87 deg. See `decision/DR-005-bno085-pid-input.md`.
+- M2a — Black box telemetry logging to SD card via SD card + PCF8523 RTC breakout boards. RTC-timestamped filenames, `ticks_ms` row timing, CSV format. See `decision/DR-002-telemetry-logging.md`.
 - M3 — Mixer extraction (`LeverMixer` in `mixer.py`) + telemetry reorganization into `telemetry/` package. Authored source consolidated under `src/`.
-- ADR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
-- M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline 2026-02-22: **0.36° MAE** (3× improvement over 1.12°) after BNO085 re-calibration, correct tare, AXIS_CENTER correction (422→411→406 via precision 3D-printed jig). Post-baseline: lever mechanically balanced, `angle_pid ki=0.05 iterm_limit=5` added — lever now holds true horizontal with 0.00 Hz oscillation and symmetric motor output. See `decision/ADR-008-cascaded-pid.md`, `decision/ADR-010-grv-calibrated-gyro-dual-report.md`.
-- **Post-rebuild retuning (2026-04-07)** — Full PID retuning on new CF frame after mechanical rebuild invalidated all previous gains. Inverted tracking diagnosed (AXIS_CENTER 406→275). Force budget analysis: frame is precisely balanced; ~18g of resistance at −59° is wire tension + bearing friction (cables routed outside rotation axis, no slip ring). Found `angle_kp × start_error ≥ ANGLE_RATE_LIMIT` must hold for authority at start position. Systematic tuning: angle_kp 1.0→3.5, angle_kd 0.1→0.3, iterm_limit 30→100. New baseline (run `2026-04-07_16-19-21`): **6.90° HoldMAE, 1.3s reach, 124.8s hold, 0.05 Hz oscillation**. See `decision/ADR-008-cascaded-pid.md` Amendment 2026-04-07.
+- DR-004 — Operator interface: LCD disconnected (resolves SPI0 conflict), buttons + RGB LED only. Motors moved to GPIO 10/11, RGB LED on GPIO 6/7/8. Standard MicroPython firmware.
+- M4 — Cascaded PID (angle + rate loops). GRV (50 Hz) for outer loop, calibrated gyro (200 Hz) for inner loop. Baseline 2026-02-22: **0.36° MAE** (3× improvement over 1.12°) after BNO085 re-calibration, correct tare, AXIS_CENTER correction (422→411→406 via precision 3D-printed jig). Post-baseline: lever mechanically balanced, `angle_pid ki=0.05 iterm_limit=5` added — lever now holds true horizontal with 0.00 Hz oscillation and symmetric motor output. See `decision/DR-008-cascaded-pid.md`, `decision/DR-010-grv-calibrated-gyro-dual-report.md`.
+- **Post-rebuild retuning (2026-04-07)** — Full PID retuning on new CF frame after mechanical rebuild invalidated all previous gains. Inverted tracking diagnosed (AXIS_CENTER 406→275). Force budget analysis: frame is precisely balanced; ~18g of resistance at −59° is wire tension + bearing friction (cables routed outside rotation axis, no slip ring). Found `angle_kp × start_error ≥ ANGLE_RATE_LIMIT` must hold for authority at start position. Systematic tuning: angle_kp 1.0→3.5, angle_kd 0.1→0.3, iterm_limit 30→100. New baseline (run `2026-04-07_16-19-21`): **6.90° HoldMAE, 1.3s reach, 124.8s hold, 0.05 Hz oscillation**. See `decision/DR-008-cascaded-pid.md` Amendment 2026-04-07.
 
 **Current focus:** Post-rebuild PID retuning complete (2026-04-07). New baseline established: **6.90° HoldMAE, 1.3s time-to-reach, 124.8s hold time** (run `2026-04-07_16-19-21`). Next: thrust expo in `LeverMixer` to reduce near-setpoint oscillation and improve hold accuracy.
 
@@ -33,10 +33,10 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - **Raspberry Pi Pico 2** - Main microcontroller
 - **BNO085 IMU** - 9-axis IMU with onboard sensor fusion, provides quaternion output
 - **AS5600 Magnetic Encoder** - 12-bit absolute position encoder (reference sensor)
-- **Pimoroni Pico Display Pack** - Buttons (GPIO 12–15) + RGB LED (GPIO 6/7/8) only; LCD disconnected to resolve SPI0 conflict (see ADR-004). Operator interface implemented in `ui.py`.
+- **Pimoroni Pico Display Pack** - Buttons (GPIO 12–15) + RGB LED (GPIO 6/7/8) only; LCD disconnected to resolve SPI0 conflict (see DR-004). Operator interface implemented in `ui.py`.
 - **2x Drone Motors + ESCs** - DShot protocol control via PIO
 - **Adafruit Micro SD SPI Breakout** ([#4682](https://www.adafruit.com/product/4682)) - MicroSD via SPI0, 3V only
-- **Adafruit PCF8523 RTC Breakout** ([#5189](https://www.adafruit.com/product/5189)) - RTC via I2C Bus 0 (shared with sensors), battery-backed; together provide black box telemetry logging (see ADR-002)
+- **Adafruit PCF8523 RTC Breakout** ([#5189](https://www.adafruit.com/product/5189)) - RTC via I2C Bus 0 (shared with sensors), battery-backed; together provide black box telemetry logging (see DR-002)
 - **Power Distribution Board** - Motor power supply
 
 ## Project Structure
@@ -105,7 +105,7 @@ Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center
 
 ### Operator Interface (`src/ui.py`)
 
-Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-display-pack). Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8. LCD is disconnected (SPI0 conflict with SD card breakout, see ADR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `ui.py` owns all LED/button pin constants, hardware init, and UI helpers (`set_led`, `buttons_by_held`, `wait_for_arm`, `wait_for_go`).
+Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-display-pack). Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8. LCD is disconnected (SPI0 conflict with SD card breakout, see DR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `ui.py` owns all LED/button pin constants, hardware init, and UI helpers (`set_led`, `buttons_by_held`, `wait_for_arm`, `wait_for_go`).
 
 ### Motor Control (`DShot/driver/`)
 
@@ -163,7 +163,7 @@ Motors are mounted such that **thrust pushes the motor end DOWN** (confirmed by 
 - `OUTER_INTERVAL_TICKS` in `src/main.py` - Outer (angle) loop runs every Nth inner cycle (4 = 50 Hz)
 - `IMU_REPORT_HZ` in `src/main.py` - Calibrated gyroscope report rate (200 Hz, matches inner loop)
 - `GRV_REPORT_HZ` in `src/main.py` - Game rotation vector report rate (50 Hz, matches outer loop)
-- `FEEDFORWARD_LEAD_MS` in `src/main.py` - Feedforward lead time compensating GRV filter lag (see ADR-006)
+- `FEEDFORWARD_LEAD_MS` in `src/main.py` - Feedforward lead time compensating GRV filter lag (see DR-006)
 
 ## I2C Addresses
 

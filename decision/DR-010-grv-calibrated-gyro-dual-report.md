@@ -1,8 +1,8 @@
-# ADR-010: GRV + Calibrated Gyro Dual Report (replaces GIRV in M4)
+# DR-010: GRV + Calibrated Gyro Dual Report (replaces GIRV in M4)
 
 **Status:** Implemented
 **Date:** 2026-02-20
-**Supersedes:** Report selection sub-decision in ADR-008 (GIRV for both loops)
+**Supersedes:** Report selection sub-decision in DR-008 (GIRV for both loops)
 
 ## Problem
 
@@ -46,7 +46,7 @@ Both are enabled independently via `.enable(hertz=N)`.
 
 ## Latency Notes
 
-GRV has comparable filter group delay to GIRV for attitude — BNO085's on-chip Kalman filter runs at the same base rate for both. ADR-006 measured ~10ms group delay for game_quaternion, and the cascaded PID was designed with that in mind. `FEEDFORWARD_LEAD_MS` was set to 0 during initial commissioning and re-enabled at 10ms after baseline validation; see ADR-006 amendment for the revised rate-estimate formula (uses `gyro_x` directly instead of GRV finite difference).
+GRV has comparable filter group delay to GIRV for attitude — BNO085's on-chip Kalman filter runs at the same base rate for both. DR-006 measured ~10ms group delay for game_quaternion, and the cascaded PID was designed with that in mind. `FEEDFORWARD_LEAD_MS` was set to 0 during initial commissioning and re-enabled at 10ms after baseline validation; see DR-006 amendment for the revised rate-estimate formula (uses `gyro_x` directly instead of GRV finite difference).
 
 Calibrated gyro latency is ~1–2ms (sensor sampling + I2C), same as the angular velocity component of GIRV was. No change to inner loop response.
 

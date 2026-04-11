@@ -1,4 +1,4 @@
-# ADR-001: PI(D) Controller for Single-Axis Lever Stabilization
+# DR-001: PI(D) Controller for Single-Axis Lever Stabilization
 
 **Status:** Validated on hardware
 **Date:** 2026-02-08
@@ -48,7 +48,7 @@ M2_throttle = BASE_THROTTLE - output
 
 Both clamped to [THROTTLE_MIN(70) .. THROTTLE_MAX(600)]
 
-⚠️ **Sign corrected in ADR-008 (Bug 3):** The signs above drove the wrong motor high under positive error. The correct assignment is `m1 = base − output, m2 = base + output`. See ADR-008 "Pre-baseline postmortem — Bug 3" for the full diagnosis.
+⚠️ **Sign corrected in DR-008 (Bug 3):** The signs above drove the wrong motor high under positive error. The correct assignment is `m1 = base − output, m2 = base + output`. See DR-008 "Pre-baseline postmortem — Bug 3" for the full diagnosis.
 ```
 
 If the lever diverges instead of converging, the sign convention is wrong — flip the sign of Kp.
