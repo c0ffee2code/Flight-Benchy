@@ -5,7 +5,7 @@ from machine import Pin, SPI
 import sdcard
 
 _SD_MOUNT = "/sd"
-_LOG_DIR  = _SD_MOUNT + "/blackbox"
+_LOG_DIR  = _SD_MOUNT + "/flights"
 
 
 def _bcd(b):

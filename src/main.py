@@ -45,7 +45,7 @@ encoder = AS5600(i2c=i2c)
 # Constants
 # =====================================================
 # Encoder calibration — recapture after mechanical changes!
-AXIS_CENTER = const(275)
+AXIS_CENTER = const(2378)
 
 # Motor limits
 THROTTLE_MIN = const(100)
@@ -203,7 +203,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu):
 
         imu.update_sensors()
         gx, _gy, _gz = imu.gyro
-        gyro_x = degrees(gx)
+        gyro_x = -degrees(gx)
 
         # --- outer loop (every OUTER_INTERVAL_TICKS cycles) ---
         outer_counter += 1
@@ -211,7 +211,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu):
             outer_counter = 0
 
             iqr, iqi, iqj, iqk = imu.game_quaternion
-            imu_roll = degrees(2.0 * atan2(iqi, iqr))
+            imu_roll = -degrees(2.0 * atan2(iqi, iqr))
 
             # Feedforward (DR-006) — compensate GRV filter lag with live gyro rate
             feedforward_roll = -(imu_roll + gyro_x * feedforward_lead_s)
@@ -228,7 +228,8 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu):
         motors.setThrottle(1, m2)
 
         # --- encoder (read at inner rate for telemetry) ---
-        enc_angle = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
+        # Frame was rotated during rebuild, reversing magnet direction; negate to restore sign convention.
+        enc_angle = -to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
         eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
 
         telemetry.record(
