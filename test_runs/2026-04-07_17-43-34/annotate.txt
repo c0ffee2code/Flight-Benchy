@@ -1,2 +1,0 @@
-Tare jig is attached therefore frame is perfectly horizontal all the time.
-This is to verify how far Encoder and IMU are from each other.
