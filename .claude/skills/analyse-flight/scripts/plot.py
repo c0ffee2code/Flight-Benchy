@@ -1,12 +1,24 @@
 """
-Plot Flight Benchy telemetry run(s).
+Step 1 of the analyse-flight pipeline. Always run first.
 
-Generates a 5-subplot diagnostic figure and saves it as plot.png next to
-each log.csv. Pass one run folder for a single plot, two for side-by-side.
+Generates a 5-subplot diagnostic figure and saves it as plot.png next to log.csv.
+One flight folder in, one plot out.
 
-Usage:
-    python tools/plot.py test_runs/2026-04-07_10-00-00
-    python tools/plot.py test_runs/run_a test_runs/run_b
+Five subplots (top → bottom):
+  1. Angle tracking   — Encoder (ground truth) vs IMU roll. Check for phase lag
+                        and bias between the two signals.
+  2. Rate tracking    — Rate setpoint (outer-loop output) vs calibrated gyro.
+                        Confirms the inner loop is following the outer loop.
+  3. Outer PID terms  — Angle P/I/D contributions (deg/s). Sustained I-term
+                        indicates steady-state disturbance (friction, imbalance,
+                        tare error).
+  4. Inner PID terms  — Rate P/I/D contributions (throttle). Spiky D indicates
+                        high gyro noise or rate_kd too large.
+  5. Motor outputs    — M1 / M2 throttle. Symmetric hold = balanced frame;
+                        asymmetry = mechanical bias or I-term compensation.
+
+Run from project root:
+  python .claude/skills/analyse-flight/scripts/plot.py test_runs/<flight_id>
 """
 
 import csv
@@ -18,12 +30,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
 
-# ---------------------------------------------------------------------------
-# Data loading
-# ---------------------------------------------------------------------------
-
 def load_run(path_str):
-    """Resolve path string to (csv_path, cols_dict, label)."""
     p = Path(path_str)
     csv_path = (p / "log.csv") if p.is_dir() else p
     label = p.name if p.is_dir() else p.stem
@@ -43,12 +50,7 @@ def quat_to_roll(qr, qi):
     return np.degrees(2.0 * np.arctan2(qi, qr))
 
 
-# ---------------------------------------------------------------------------
-# Plotting
-# ---------------------------------------------------------------------------
-
 def _time_formatter(duration_s):
-    """Return a tick formatter and x-label appropriate for the run duration."""
     if duration_s >= 60:
         def fmt(x, _):
             m, s = divmod(int(x), 60)
@@ -57,18 +59,14 @@ def _time_formatter(duration_s):
     return None, "Time (s)"
 
 
-def plot_run(cols, label, axes=None):
+def plot_run(cols, label):
     t_s = (cols["T_MS"] - cols["T_MS"][0]) / 1000.0
     duration_s = t_s[-1]
     enc_roll = quat_to_roll(cols["ENC_QR"], cols["ENC_QI"])
     imu_roll = quat_to_roll(cols["IMU_QR"], cols["IMU_QI"])
 
-    own_figure = axes is None
-    if own_figure:
-        fig, axes = plt.subplots(5, 1, figsize=(12, 11), sharex=True)
-        fig.suptitle(f"Flight Benchy — {label}  ({duration_s:.1f}s)", fontsize=13)
-
-    ax1, ax2, ax3, ax4, ax5 = axes
+    fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=(12, 11), sharex=True)
+    fig.suptitle(f"Flight Benchy — {label}  ({duration_s:.1f}s)", fontsize=13)
 
     ax1.axhline(0, color="gray", linewidth=0.8, linestyle="--", label="Setpoint (0°)")
     ax1.plot(t_s, enc_roll, label="Encoder", linewidth=0.8)
@@ -114,56 +112,22 @@ def plot_run(cols, label, axes=None):
     if fmt:
         ax5.xaxis.set_major_formatter(fmt)
 
-    if own_figure:
-        fig.tight_layout()
-    return axes
-
-
-def plot_comparison(runs):
-    fig, axes = plt.subplots(5, 2, figsize=(16, 12), sharex="col")
-    for col_idx, (cols, label) in enumerate(runs):
-        col_axes = [axes[row][col_idx] for row in range(5)]
-        plot_run(cols, label, axes=col_axes)
-        t_s = (cols["T_MS"] - cols["T_MS"][0]) / 1000.0
-        duration_s = t_s[-1]
-        axes[0][col_idx].set_title(f"{label}  ({duration_s:.1f}s)\nAngle Tracking", fontsize=10)
-    fig.suptitle("Flight Benchy — Run Comparison", fontsize=13)
     fig.tight_layout()
+    return fig
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python tools/plot.py <run_folder> [run2]")
+    if len(sys.argv) != 2:
+        print("Usage: python .claude/skills/analyse-flight/scripts/plot.py <flight_folder>")
         sys.exit(1)
 
-    runs = []
-    for arg in sys.argv[1:]:
-        csv_path, cols, label = load_run(arg)
-        runs.append((csv_path, cols, label))
-        print(f"Loaded {label}: {len(cols['T_MS'])} samples")
+    csv_path, cols, label = load_run(sys.argv[1])
+    print(f"Loaded {label}: {len(cols['T_MS'])} samples")
 
-    if len(runs) == 1:
-        csv_path, cols, label = runs[0]
-        plot_run(cols, label)
-        out = csv_path.parent / "plot.png"
-        plt.savefig(out, dpi=150, bbox_inches="tight")
-        print(f"Saved: {out}")
-    elif len(runs) == 2:
-        plot_comparison([(c, l) for _, c, l in runs])
-        out = runs[0][0].parent / f"compare_{runs[1][2]}.png"
-        plt.savefig(out, dpi=150, bbox_inches="tight")
-        print(f"Saved: {out}")
-    else:
-        for csv_path, cols, label in runs:
-            plot_run(cols, label)
-            out = csv_path.parent / "plot.png"
-            plt.savefig(out, dpi=150, bbox_inches="tight")
-            print(f"Saved: {out}")
-            plt.close()
+    plot_run(cols, label)
+    out = csv_path.parent / "plot.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"Saved: {out}")
 
 
 if __name__ == "__main__":

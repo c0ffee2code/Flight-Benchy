@@ -60,10 +60,21 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   └── driver/
 │       ├── dshot_pio.py
 │       └── motor_throttle_group.py
-├── tools/
-│   ├── plot.py              # Generate diagnostic plots (run first for each new run)
-│   ├── kpi.py               # Pass/fail gate: time-to-reach, HoldMAE, time-at-horizontal
-│   └── analyse_telemetry.py # Deep-dive stats for passing runs (not deployed to Pico)
+├── .claude/
+│   └── skills/
+│       └── analyse-flight/  # Skill: full analysis pipeline for a single flight
+│           ├── SKILL.md
+│           ├── scripts/
+│           │   ├── plot.py            # Step 1: 5-subplot diagnostic figure
+│           │   ├── score_flight.py    # Step 2: pass/fail KPI gate
+│           │   └── profile_flight.py  # Step 3: detailed statistical profile
+│           └── templates/
+│               └── flight_analysis.md  # Structured report template
+├── tools/               # Pico utilities (upload to Pico, not used on desktop)
+│   ├── set_rtc.py           # Set PCF8523 RTC clock
+│   ├── coord_check.py       # Axis calibration after mechanical reassembly
+│   ├── tare_and_measure.py  # IMU tare calibration with before/after comparison
+│   └── bench_sweep.py       # Open-loop single-motor encoder sweep
 ├── test_runs/           # Copied run folders from SD card for analysis
 │   └── YYYY-MM-DD_hh-mm-ss/  # One folder per run
 │       ├── config.yaml  # System settings snapshot (PID gains, motor limits, etc.)
@@ -112,17 +123,9 @@ Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-d
 - `dshot_pio.py` - Low-level DShot protocol via RP2040/RP2350 PIO. Supports DSHOT150/300/600/1200.
 - `motor_throttle_group.py` - Dual-core facade for managing multiple motors. Core 1 runs a dedicated 1kHz command loop for reliable ESC communication. Provides arming, throttle control, emergency stop, and health monitoring.
 
-### Desktop Analysis Tools (`tools/`)
-
-Three scripts with distinct roles. Run in order: plot → kpi → analyse.
-
-- `plot.py` — Generates a 5-subplot diagnostic figure (`plot.png`) next to each `log.csv`. Pass one folder for a single plot, two folders for side-by-side comparison. Run first — a quick visual check before committing to deeper analysis. Dependencies: `matplotlib`, `numpy`.
-- `kpi.py` — Lightweight pass/fail gate. Scans run folders, applies the standard test convention (start at −58°, threshold ±10°), and prints a table of: start angle, reached-horizontal flag, time-to-reach, HoldMAE, time-at-horizontal, duration. Lists passing runs with suggested `analyse_telemetry.py` commands. No matplotlib dependency.
-- `analyse_telemetry.py` — Deep-dive stats for passing runs. Prints sample rate, IMU-ENC tracking error, setpoint MAE, Pearson correlation, oscillation frequency, and windup event counts. No plotting (use `plot.py` for visuals). Dependencies: `numpy`, `pyyaml`.
-
 ### Standard Test Convention
 
-Each standardised run starts with **M1 end down at encoder ≈ −58°** (lever resting on the restrictor). The algorithm must lift the lever to within ±10° of horizontal (0°) and hold it there. KPIs measured from this starting condition:
+Each standardised run starts with **M1 end down** (lever resting on the restrictor). The algorithm must lift the lever to within ±10° of horizontal (0°) and hold it there. KPIs measured from this starting condition:
 
 - **Reached**: did the encoder enter ±10° at any point?
 - **T→0**: seconds from run start to first entry into ±10°
@@ -148,12 +151,12 @@ Motors are mounted such that **thrust pushes the motor end DOWN** (confirmed by 
 
 | Motor | GPIO | Encoder at lowest position |
 |-------|------|---------------------------|
-| M1    | 10   | −58°                      |
-| M2    | 11   | +59°                      |
+| M1    | 10   | +58°                      |
+| M2    | 11   | −59°                      |
 
-- **Negative encoder angle** → M1 side is lower, M2 side is higher
-- **Positive encoder angle** → M2 side is lower, M1 side is higher
-- To correct M1 being low (negative angle): increase M2 throttle → M2 pushes down → lever pivots → M1 rises
+- **Positive encoder angle** → M1 side is lower, M2 side is higher
+- **Negative encoder angle** → M2 side is lower, M1 side is higher
+- To correct M1 being low (positive angle): increase M2 throttle → M2 pushes down → lever pivots → M1 rises
 - The feedforward negation in `main.py` (`feedforward_roll = -(imu_roll + ...)`) implements this correctly
 
 ## Key Constants
