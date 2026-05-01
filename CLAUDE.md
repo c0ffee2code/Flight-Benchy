@@ -76,14 +76,16 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   ├── tare_and_measure.py  # IMU tare calibration with before/after comparison
 │   └── bench_sweep.py       # Open-loop single-motor encoder sweep
 ├── test_runs/           # Copied run folders from SD card for analysis
-│   └── YYYY-MM-DD_hh-mm-ss/  # One folder per run
-│       ├── config.yaml  # System settings snapshot (PID gains, motor limits, etc.)
-│       └── log.csv      # Telemetry CSV
+│   └── flights/
+│       └── YYYY-MM-DD_hh-mm-ss/  # One folder per run
+│           ├── config.json  # System settings snapshot (PID gains, motor limits, etc.)
+│           └── log.csv      # Telemetry CSV
 ├── decision/            # Architecture Decision Records
 └── resources/           # Docs, datasheets
 ```
 
-**Deployment:** Upload the following files to Pico root (flat structure):
+**Deployment:** Upload the following files to Pico root (flat structure). Use the deploy skill (`--full` for source changes, no flag for config-only):
+- `src/config.json`
 - `src/main.py`
 - `src/pid.py`
 - `src/mixer.py`
@@ -99,9 +101,9 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 ### Telemetry (`src/telemetry/`)
 
 - `recorder.py` — Contains the full telemetry pipeline:
-  - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink. `begin_session(config=None)` accepts an optional YAML config string. CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
-  - `PrintSink` — prints CSV rows to REPL serial console. No-op `write_config()`.
-  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, RTC read, directory create, write, unmount). Creates a folder-per-run directory (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml`.
+  - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink. `begin_session()` resets the counter and emits the CSV header. CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
+  - `PrintSink` — prints CSV rows to REPL serial console.
+  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, RTC read, directory create, write, unmount). Creates a folder-per-run directory (`/sd/flights/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and a raw binary copy of `config.json` from the Pico root.
   - `read_rtc(i2c, addr=0x68)` — one-shot read of PCF8523 RTC given an already-constructed I2C object. Used by `SdSink` for directory naming.
 - `sdcard.py` — SD card SPI driver from micropython-lib with a stop bit fix (`crc | 0x01`). The upstream driver omits the mandatory end bit in the SPI command frame, which causes some cards to reject all commands after CMD8.
 
@@ -138,12 +140,12 @@ Re-tare the IMU at the start of each session using the precision jig + bubble le
 
 Each stabilisation session creates a timestamped directory on the SD card:
 ```
-/sd/blackbox/YYYY-MM-DD_hh-mm-ss/
-    config.yaml    # System settings (PID gains, motor limits, IMU rate, etc.)
+/sd/flights/YYYY-MM-DD_hh-mm-ss/
+    config.json    # Raw copy of config.json from Pico root (source of truth)
     log.csv        # Telemetry CSV
 ```
 
-`config.yaml` is written as plain string formatting on MicroPython (no YAML library) and parsed with `pyyaml` on desktop. Contains: `imu`, `angle_pid`, `rate_pid`, `motor`, `encoder`, `telemetry`, `feedforward` sections.
+`config.json` is uploaded to the Pico before a run (via the deploy skill) and copied as-is to the run folder by `SdSink.init_session()`. It is the single source of truth — no serialisation from Python objects. Contains: `imu`, `angle_pid`, `rate_pid`, `motor`, `encoder`, `telemetry`, `feedforward` sections. Parsed with `json` on desktop.
 
 ## Motor and Encoder Sign Convention
 

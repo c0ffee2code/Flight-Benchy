@@ -32,7 +32,7 @@ BNO085 sensor calibration (accel, gyro, magnetometer) and all-axes tare complete
 
 ### M2a: Telemetry logging (black box) — DONE
 
-Timestamped CSV logging to SD card via SD card breakout + PCF8523 RTC breakout. Each run creates a folder (`/sd/blackbox/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.yaml` (system settings snapshot). `ticks_ms` provides precise row timing. See [DR-002](decision/DR-002-telemetry-logging.md).
+Timestamped CSV logging to SD card via SD card breakout + PCF8523 RTC breakout. Each run creates a folder (`/sd/flights/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and `config.json` (raw copy of the deployed config — source of truth for analysis). `ticks_ms` provides precise row timing. See [DR-002](decision/DR-002-telemetry-logging.md).
 
 Motor pins reassigned from GPIO 4/5 → 6/7 → 10/11 (freeing GPIO 4/5 for PCF8523 RTC, then RGB LED pins).
 
