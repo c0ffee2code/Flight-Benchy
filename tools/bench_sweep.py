@@ -40,7 +40,7 @@ PIN_SD_SCK   = const(18)
 PIN_SD_MOSI  = const(19)
 
 # ── Calibration ───────────────────────────────────────────────────────
-AXIS_CENTER  = const(275)
+AXIS_CENTER  = const(2378)
 
 # ── Motor limits ──────────────────────────────────────────────────────
 THROTTLE_MIN = const(100)
@@ -54,7 +54,7 @@ SAMPLE_MS      = const(5)    # 200 Hz
 
 # ── SD card paths ─────────────────────────────────────────────────────
 SD_MOUNT  = "/sd"
-SWEEP_DIR = SD_MOUNT + "/bench_sweep"
+SWEEP_DIR = SD_MOUNT + "/sweep"
 
 
 def bcd(b):
