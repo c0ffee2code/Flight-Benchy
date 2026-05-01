@@ -1,8 +1,8 @@
 """
 Step 3 of the analyse-flight pipeline. Run only on flights that passed score_flight.py.
 
-Prints grouped diagnostic metrics to console. Reads config.yaml alongside log.csv;
-config.yaml is mandatory — the script exits with an error if it is absent or if any
+Prints grouped diagnostic metrics to console. Reads config.json alongside log.csv;
+config.json is mandatory — the script exits with an error if it is absent or if any
 required field (iterm_limit) is missing.
 
 Metric groups:
@@ -31,10 +31,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from score_flight import compute_kpis, HORIZONTAL_THRESHOLD_DEG  # noqa: E402
 
-try:
-    import yaml
-except ImportError:
-    sys.exit("pyyaml not installed — run: pip install pyyaml")
+import json
 
 
 # ---------------------------------------------------------------------------
@@ -44,16 +41,16 @@ except ImportError:
 def load_run(path_str):
     p = Path(path_str)
     csv_path = (p / "log.csv") if p.is_dir() else p
-    cfg_path = (p / "config.yaml") if p.is_dir() else (p.parent / "config.yaml")
+    cfg_path = (p / "config.json") if p.is_dir() else (p.parent / "config.json")
     label = p.name if p.is_dir() else p.stem
 
     if not csv_path.exists():
         sys.exit(f"log.csv not found: {csv_path}")
     if not cfg_path.exists():
-        sys.exit(f"config.yaml not found in {p} — mandatory for profile")
+        sys.exit(f"config.json not found in {p} — mandatory for profile")
 
     with open(cfg_path) as f:
-        config = yaml.safe_load(f)
+        config = json.load(f)
 
     rows = []
     with open(csv_path, newline="") as f:

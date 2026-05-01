@@ -12,7 +12,7 @@ Procedural skill for evaluating a single Flight Benchy stabilisation run. Every 
 A flight is one stabilisation session stored in `test_runs/flights/YYYY-MM-DD_hh-mm-ss/`. The folder contains:
 
 - `log.csv` — 22-column telemetry, typically ~50 ms / 20 Hz (inner loop runs faster; `TELEMETRY_SAMPLE_EVERY` decimates).
-- `config.yaml` — full system snapshot at run time: PID gains, motor limits, IMU rates, feedforward, encoder config.
+- `config.json` — full system snapshot at run time: PID gains, motor limits, IMU rates, feedforward, encoder config.
 
 Standard test convention: M1-end resting on the restrictor at ≈ **+58°**, algorithm lifts the lever to within ±10° of horizontal (0°) and holds. Non-standard starts can still be analysed, but their KPIs are not comparable to standard runs and the report should flag this.
 
@@ -35,7 +35,7 @@ Before invoking the pipeline, behave as follows:
 | Situation | Behaviour |
 |-----------|-----------|
 | `log.csv` missing or fewer than ~5 rows | Tell the user, stop. Don't fabricate a report. |
-| `config.yaml` missing | Tell the user, stop. `config.yaml` is mandatory — the pipeline cannot run without it. |
+| `config.json` missing | Tell the user, stop. `config.json` is mandatory — the pipeline cannot run without it. |
 | Start angle outside ±10° of +58° | Run anyway. Flag prominently in the report's Run Identity section ("Standard start: NO"); state that hold-quality KPIs aren't comparable to standard runs. |
 
 ## Step 1 — Plot
@@ -87,12 +87,12 @@ Prints grouped diagnostics: sample rate, sensor tracking (IMU vs ENC), setpoint 
 Two things to watch for in the output:
 
 - The "Whole-run MAE includes the rise" note. Whole-run ENC MAE and HoldMAE measure different things; don't conflate them in the report.
-- Windup event counts are computed against the `iterm_limit` values from `config.yaml`, which is always present. The counts are always config-derived and can be trusted.
+- Windup event counts are computed against the `iterm_limit` values from `config.json`, which is always present. The counts are always config-derived and can be trusted.
 
 ## Writing the report
 
 1. Read the template at `.claude/skills/analyse-flight/templates/flight_analysis.md`.
-2. Fill each placeholder from `score_flight.py` stdout, the `profile_flight.py` stdout, and `config.yaml`. The profile output echoes canonical KPIs at the top — use that for the KPI Scorecard section. Placeholder names are unique — if the same value appears twice, fill both.
+2. Fill each placeholder from `score_flight.py` stdout, the `profile_flight.py` stdout, and `config.json`. The profile output echoes canonical KPIs at the top — use that for the KPI Scorecard section. Placeholder names are unique — if the same value appears twice, fill both.
 3. Save the completed report to `test_runs/flights/<flight_id>/analysis.md`, overwriting any existing file.
 4. Tell the user where the file was saved.
 
