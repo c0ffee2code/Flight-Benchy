@@ -31,7 +31,7 @@ Run from the project root.
 1. Mounts SD, lists `/sd/flights/`
 2. Diffs against local `test_runs/flights/` — shows only new runs
 3. Asks "Fetch all? [Y/n]" (skipped with `--yes`)
-4. Transfers each new run: `config.yaml` + `log.csv`, base64 over serial
+4. Transfers each new run: `config.json` + `log.csv`, base64 over serial
 5. Verifies byte-exact match for every file
 6. Deletes only the runs that verified successfully — failures stay on SD
 7. Prints a summary
