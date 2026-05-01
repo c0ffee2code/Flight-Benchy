@@ -49,7 +49,7 @@ AXIS_CENTER = const(2378)
 
 # Motor limits
 THROTTLE_MIN = const(100)
-THROTTLE_MAX = const(800)
+THROTTLE_MAX = const(900)
 BASE_THROTTLE = const(600)
 MIXER_EXPO = 0.0       # expo shaping (DR-012). Set to 0.0 to disable.
 
