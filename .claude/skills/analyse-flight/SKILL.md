@@ -3,6 +3,15 @@ name: analyse-flight
 description: Analyse a single Flight Benchy stabilisation run end-to-end — generate the diagnostic plot, compute KPIs (HoldMAE, T→0, T@0), profile sensor and control-loop health, and write a structured analysis.md report. Use this whenever the user points at a single run folder under test_runs/ (typically a YYYY-MM-DD_hh-mm-ss timestamp) and wants to know how it went. Triggers on phrases like "analyse flight", "check this flight". Does NOT cover comparison across multiple runs, PID tuning recommendations, or general drone control theory — for those, answer directly without invoking this skill.
 ---
 
+## Arguments
+
+```
+<flight_id> [--ask]
+```
+
+- `<flight_id>` — required. The run folder name under `test_runs/flights/` (e.g. `2026-05-01_19-19-05`).
+- `--ask` — optional. Pause after the plot visual pass and ask the user about mechanical changes or session context before proceeding. **Omit for the default autonomous flow** — anomalies are still called out in the Observations section.
+
 # Analyse Flight
 
 Procedural skill for evaluating a single Flight Benchy stabilisation run. Every flight goes through the same three-step pipeline and produces a consistent `flight_analysis.md`, so runs stay directly comparable over time.
@@ -57,14 +66,10 @@ Produces `plot.png`. Five subplots, top to bottom: angle tracking (ENC vs IMU), 
 
 The plot is the richest signal in the whole pipeline. The numbers in steps 2 and 3 will confirm or contradict what you saw — both directions are useful information.
 
-**After the visual pass — check in with the user before proceeding.**
-Share what you see in 2–3 sentences and ask if anything unusual happened
-during the session: mechanical changes, a power supply hitting its limit,
-a loose connection, an unusual start. The user is right there at the bench
-and can resolve in one sentence what no metric can. Surface anomalies as
-questions, not conclusions — "I see M1 running ~50 units higher than M2
-throughout the hold — is the frame balanced, or is there a known asymmetry?"
-Don't interpret a hardware problem as a control problem in silence.
+**After the visual pass:**
+
+- **Default (no `--ask`)** — proceed directly to Step 2. Anomalies spotted in the plot are recorded in the Observations section of the report; the user can react there if context is needed.
+- **With `--ask`** — pause here. Share what you see in 2–3 sentences and ask if anything unusual happened during the session: mechanical changes, a power supply hitting its limit, a loose connection, an unusual start. Surface anomalies as questions, not conclusions — "I see M1 running ~50 units higher than M2 throughout the hold — is the frame balanced, or is there a known asymmetry?" Wait for the user's reply before continuing to Step 2.
 
 ## Step 2 — Score
 
