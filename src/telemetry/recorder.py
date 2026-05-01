@@ -34,10 +34,6 @@ def read_rtc(i2c, addr=0x68):
 class PrintSink:
     """Output backend that prints CSV rows to REPL serial console."""
 
-    def write_config(self, yaml_str):
-        """No-op — config only relevant for SD card runs."""
-        pass
-
     def write(self, line):
         """Emit a single CSV line to stdout."""
         print(line)
@@ -55,7 +51,7 @@ class SdSink:
     """Output backend that writes CSV rows to a file on a mounted SD card.
 
     Owns the full SD lifecycle: mount on init, open run directory on
-    ``open_run()``, unmount on ``close()``.  Two-phase design lets callers
+    ``init_session()``, unmount on ``close()``.  Two-phase design lets callers
     mount early (fail-fast) and create the run directory later.
     """
 
@@ -82,7 +78,7 @@ class SdSink:
         self._f = None
 
     def init_session(self):
-        """Read RTC, create a timestamped run directory, and open the log file.
+        """Read RTC, create a timestamped run directory, copy config and open log file.
 
         Call once when the recording session actually starts (after arming).
         """
@@ -97,19 +93,17 @@ class SdSink:
         )
         os.mkdir(self._run_dir)
 
+        with open("config.json", "rb") as src:
+            cfg_bytes = src.read()
+        with open(self._run_dir + "/config.json", "wb") as dst:
+            dst.write(cfg_bytes)
+
         self._f = open(self._run_dir + "/log.csv", "w")
 
     @property
     def path(self):
         """Return the run directory path (useful for diagnostics)."""
         return self._run_dir
-
-    def write_config(self, yaml_str):
-        """Write config.yaml into the run directory."""
-        cfg_path = self._run_dir + "/config.yaml"
-        f = open(cfg_path, "w")
-        f.write(yaml_str)
-        f.close()
 
     def write(self, line):
         """Append a CSV line to the log file."""
@@ -139,14 +133,9 @@ class TelemetryRecorder:
         self._sink = sink or PrintSink()
         self._counter = 0
 
-    def begin_session(self, config=None):
-        """Reset counter, write config (if provided), and emit CSV header.
-
-        Call when entering STABILIZING state.
-        """
+    def begin_session(self):
+        """Reset counter and emit CSV header. Call when entering STABILIZING state."""
         self._counter = 0
-        if config is not None:
-            self._sink.write_config(config)
         self._sink.write(self._HEADER)
 
     def record(self, t_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
