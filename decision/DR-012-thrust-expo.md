@@ -1,6 +1,6 @@
 # DR-012: Differential Expo in LeverMixer
 
-**Status:** Rejected — positive expo conclusively worsens hold performance; root cause of oscillation is insufficient rate-loop damping, not gain magnitude (see Outcome)
+**Status:** Rejected (second attempt, 2026-05-02) — expo=0.3 worsened HoldMAE and produced elevated bias across two runs; rate_kd raised to 0.009 as the next lever (see Amendment 2026-05-01)
 **Date:** 2026-04-09
 **Context:** Post-rebuild baseline (2026-04-07) has 6.90° HoldMAE and 0.05 Hz oscillation near setpoint; PID gains are tuned for recovery authority from −58° start, which makes them too aggressive near horizontal.
 
@@ -259,3 +259,61 @@ The DR-012 conclusions are unaffected: the expo rejection was driven by the doub
 - Cubic curve is a scheduling heuristic, not derived from motor physics.
 - Effective closed-loop gain varies with operating point; I-term behaviour near setpoint differs from during recovery.
 - Normalisation is asymmetric per direction (`authority_up ≠ authority_down`); downstream clamp is load-bearing and must remain.
+
+## Amendment 2026-05-01 — Second expo attempt
+
+### Why the previous rejection does not preclude re-testing
+
+The April 2026 expo attempt failed for a specific and well-understood reason: expo reduced near-setpoint corrective force below the friction threshold, producing a steady-state offset of ~−12° and doubled HoldMAE. That failure was a DC-gain problem, not a general indictment of expo.
+
+The system state has changed materially since then:
+
+| Metric | April 9-10 baseline | 2026-05-01 best run |
+|--------|--------------------|--------------------|
+| HoldMAE | 6.02° | **2.46°** |
+| Encoder bias | Not reported | **0.02°** (negligible) |
+| Oscillation frequency | 0.05 Hz (slow, large amplitude) | **1.38 Hz** (tight, fast) |
+| rate_kd | 0.003 | **0.006** (doubled per DR-012 recommendation) |
+
+The April failure's signature was slow large-amplitude drift with a large steady-state offset — the DC-gain-below-friction pattern. The current signature is symmetric tight wobble at 1.38 Hz with negligible bias. These are different physical regimes.
+
+**1.38 Hz tight oscillation is the near-setpoint gain-excess signature** — the pattern expo was originally designed to address. The April failure occurred because the system had too little DC gain margin; the current run has substantial margin (0.02° bias, 2.46° MAE, strong hold).
+
+### Why rate_kd is not the only option
+
+DR-012's original conclusion ("correct lever is rate_kd") was right for the April state. Rate_kd was raised from 0.003 to 0.006 and the improvement was dramatic (6.02° → 2.46°). However, a further kd increase is not guaranteed to continue reducing the oscillation:
+
+- rate_kd=0.006 with the current system produces 1.38 Hz oscillation.
+- Further kd increase risks exciting higher-frequency modes (sensor noise amplification in the derivative term).
+- Expo and rate_kd address different aspects: kd damps the rate of change; expo reduces the amplitude of corrective commands near zero. Both can reduce oscillation amplitude but via different mechanisms.
+
+Expo is the lower-risk lever to try next: it leaves rate_kd unchanged, is easily reversed (set to 0.0), and directly targets the near-setpoint gain excess.
+
+### Test plan (second attempt)
+
+Starting conditions: `angle_pid.kp=3.5, rate_pid.kd=0.006, expo=0.0` (run `2026-05-01_19-19-05` baseline).
+
+| Step | expo | Stop if |
+|------|------|---------|
+| 1 | 0.3 | HoldMAE increases OR steady-state bias > 1° |
+| 2 | 0.5 | HoldMAE increases OR steady-state bias > 1° |
+| 3 | 0.7 | HoldMAE increases OR steady-state bias > 1° |
+
+The steady-state bias watch is the critical gate: if bias rises above ~1°, the system is approaching the friction-floor condition that caused the April failure. Revert to expo=0.0 immediately.
+
+Success target: HoldMAE < 2.0°, T→0 ≤ 3.5s, bias < 0.5°.
+
+If expo stalls at ~2.0° with no bias regression: consider rate_kd 0.006 → 0.009 as the next lever.
+
+### Outcome (2026-05-02)
+
+Two runs at expo=0.3 (expo=0.0 baseline: 2.46° HoldMAE, 0.02° bias, 1.38 Hz):
+
+| Run | HoldMAE | Bias | T→0 | Stop condition |
+|-----|---------|------|------|----------------|
+| 2026-05-01_21-57-19 | 3.56° | 2.37° | 15.7s | Bias > 1° AND HoldMAE increased |
+| 2026-05-02_08-23-41 | 3.49° | 0.39° | 9.0s | HoldMAE increased |
+
+Both stop conditions from the test plan were met. expo=0.3 consistently worsened HoldMAE relative to baseline and produced large T→0 degradation. The session-to-session bias variation (2.37° vs 0.39° at identical config) indicates the system is near the friction-floor boundary — small session-to-session differences in initial conditions tip it between acceptable and unacceptable hold.
+
+Expo re-test is closed. Next lever: rate_kd 0.006 → 0.009 (expo=0.0 restored). First results at rate_kd=0.009 in runs 2026-05-02_09-17-54 (2.60° HoldMAE, 0.74 Hz) and 2026-05-02_10-57-21 (3.63° HoldMAE, 1.08° bias).
