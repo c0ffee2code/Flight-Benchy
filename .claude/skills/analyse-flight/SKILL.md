@@ -111,4 +111,4 @@ The Observations section is the part that earns its keep. Aim for a short paragr
 - Call out anything that should not be there: gaps in the timeline, a spike, an unexpected mode.
 - Apply the same lens to absences: no I-term buildup despite a persistent offset, symmetric motors when asymmetry is expected — missing signals are as diagnostic as unexpected ones.
 
-Avoid: tuning recommendations ("try lowering ki"), comparisons to other runs (out of scope for this skill), and restating numbers that are already in the tables above.
+Avoid: tuning recommendations ("try lowering ki"), comparisons to other runs (out of scope for this skill), restating numbers that are already in the tables above, and hypothesising causes that involve mechanical state, battery/power-supply condition, or IMU tare quality — the user will always explicitly flag those if they apply. Describe what the telemetry shows; do not append an unconfirmed cause.
