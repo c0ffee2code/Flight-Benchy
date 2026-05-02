@@ -20,6 +20,7 @@ ROOT     = Path(__file__).resolve().parents[4]
 
 SOURCE_FILES = [
     ("src/main.py",                          "main.py"),
+    ("src/flight.py",                        "flight.py"),
     ("src/pid.py",                           "pid.py"),
     ("src/mixer.py",                         "mixer.py"),
     ("src/ui.py",                            "ui.py"),

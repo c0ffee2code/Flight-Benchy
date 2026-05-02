@@ -40,14 +40,8 @@ def buttons_by_held():
     return not btn_B.value() and not btn_Y.value()
 
 
-def wait_for_arm():
+def wait_for_go():
     """Blue LED, block until B+Y held."""
     set_led(b=1)
     while not buttons_by_held():
-        utime.sleep_ms(50)
-
-
-def wait_for_go():
-    """Block until button A is pressed."""
-    while btn_A.value():
-        utime.sleep_ms(100)
+        utime.sleep_ms(10)

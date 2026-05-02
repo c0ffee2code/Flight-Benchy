@@ -24,9 +24,41 @@ HORIZONTAL_THRESHOLD_DEG = 10.0
 STANDARD_START_DEG       = 58.0
 START_TOLERANCE_DEG      = 10.0
 
+# Power-cut detection thresholds
+FLAT_ENCODER_STD_DEG  = 3.0   # encoder std dev below this → lever stationary
+ACTIVE_DIFF_THROTTLE  = 20.0  # mean |M2-M1| above this → loop was actively commanding
+
 
 def enc_angle(qr, qi):
     return math.degrees(2.0 * math.atan2(qi, qr))
+
+
+def detect_power_cut(csv_path):
+    """Return a description string if the power-cut pattern is detected, else None.
+
+    Signature: flat encoder (std < FLAT_ENCODER_STD_DEG) combined with an active
+    motor differential (mean |M2-M1| > ACTIVE_DIFF_THROTTLE). Indicates the Pico
+    was alive and commanding but ESC power was lost (over-current protection,
+    battery cutoff, wiring failure).
+    """
+    angles, diffs = [], []
+    with open(csv_path, newline="") as f:
+        for row in csv.DictReader(f):
+            angles.append(enc_angle(float(row["ENC_QR"]), float(row["ENC_QI"])))
+            diffs.append(abs(float(row["M2"]) - float(row["M1"])))
+
+    if len(angles) < 5:
+        return None
+
+    mean_a   = sum(angles) / len(angles)
+    enc_std  = math.sqrt(sum((a - mean_a) ** 2 for a in angles) / len(angles))
+    mean_diff = sum(diffs) / len(diffs)
+
+    if enc_std < FLAT_ENCODER_STD_DEG and mean_diff > ACTIVE_DIFF_THROTTLE:
+        return (f"POWER CUT — flat encoder (std={enc_std:.1f}° < {FLAT_ENCODER_STD_DEG}°) "
+                f"with active motor differential (mean |M2-M1|={mean_diff:.0f}). "
+                f"Pico was alive and commanding; ESC power was lost.")
+    return None
 
 
 def load_angles(csv_path):
@@ -116,6 +148,10 @@ def main():
     if k["reached"]:
         print(f"\nPassed — use profile_flight.py for deep dive:")
         print(f"  python .claude/skills/analyse-flight/scripts/profile_flight.py {run_dir}")
+    else:
+        mode = detect_power_cut(csv_path)
+        if mode:
+            print(f"\nWARNING: {mode}")
 
     if not k["start_ok"]:
         print(f"\nNon-standard start — lever was not at the restrictor "

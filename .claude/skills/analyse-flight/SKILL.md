@@ -21,9 +21,20 @@ Procedural skill for evaluating a single Flight Benchy stabilisation run. Every 
 A flight is one stabilisation session stored in `test_runs/flights/YYYY-MM-DD_hh-mm-ss/`. The folder contains:
 
 - `log.csv` — 22-column telemetry, typically ~50 ms / 20 Hz (inner loop runs faster; `TELEMETRY_SAMPLE_EVERY` decimates).
-- `config.json` — full system snapshot at run time: PID gains, motor limits, IMU rates, feedforward, encoder config.
+- `config.json` — full system snapshot at run time. Structure: `vehicle` (imu, angle_pid, rate_pid, motor, feedforward), `bench` (encoder; session with duration_s and setpoint.roll_deg/pitch_deg/yaw_deg), `telemetry` (sample_every).
 
-Standard test convention: M1-end resting on the restrictor at ≈ **+58°**, algorithm lifts the lever to within ±10° of horizontal (0°) and holds. Non-standard starts can still be analysed, but their KPIs are not comparable to standard runs and the report should flag this.
+Standard test convention: M1-end resting on the restrictor at ≈ **+58°**, algorithm lifts the lever to within ±10° of horizontal (0°) and holds. Non-standard starts are analysed for the paper trail but are **discarded** — their KPIs cannot be compared to standard runs and must not inform tuning decisions.
+
+## Hard rules — apply to report AND conversation
+
+These apply everywhere during this skill — in the analysis.md Observations and in any conversational text:
+
+- **No battery/power speculation.** Do not assume or speculate about battery state, voltage sag, or supply condition as a cause. The user will say so if it happened.
+- **No mechanical speculation.** Do not assume or speculate about loose connections, frame balance, wire tension, or mechanical changes as causes. The user will say so if it happened.
+- **No IMU speculation.** Do not assume or speculate about tare drift, calibration quality, or heading error as causes. The user will say so if it happened.
+- **No run-to-run attribution.** When variance is observed between runs at identical config, state it as variance. Do not list hypothetical causes. Describe what the telemetry shows; stop there.
+
+The user is the domain expert on physical changes. They will volunteer that information — do not fish for it.
 
 ## Pipeline contract
 
@@ -45,7 +56,7 @@ Before invoking the pipeline, behave as follows:
 |-----------|-----------|
 | `log.csv` missing or fewer than ~5 rows | Tell the user, stop. Don't fabricate a report. |
 | `config.json` missing | Tell the user, stop. `config.json` is mandatory — the pipeline cannot run without it. |
-| Start angle outside ±10° of +58° | Run anyway. Flag prominently in the report's Run Identity section ("Standard start: NO"); state that hold-quality KPIs aren't comparable to standard runs. |
+| Start angle outside ±10° of +58° | **DISCARDED run.** Run the full pipeline anyway (plot + score + profile) for the paper trail. Open the report with a prominent `> **DISCARDED — non-standard start.**` blockquote. Fill all tables from script output. Replace the Observations section with a brief factual note: state the actual start angle, explain that the reset-position step was missed, and confirm KPIs must not be used for tuning decisions. Do not write a standard Observations analysis. |
 
 ## Step 1 — Plot
 
@@ -70,6 +81,16 @@ The plot is the richest signal in the whole pipeline. The numbers in steps 2 and
 
 - **Default (no `--ask`)** — proceed directly to Step 2. Anomalies spotted in the plot are recorded in the Observations section of the report; the user can react there if context is needed.
 - **With `--ask`** — pause here. Share what you see in 2–3 sentences and ask if anything unusual happened during the session: mechanical changes, a power supply hitting its limit, a loose connection, an unusual start. Surface anomalies as questions, not conclusions — "I see M1 running ~50 units higher than M2 throughout the hold — is the frame balanced, or is there a known asymmetry?" Wait for the user's reply before continuing to Step 2.
+
+## Known failure patterns
+
+These are recognised automatically by `score_flight.py` and printed as `WARNING:` lines after the KPI table. When one is present, name it explicitly in the Observations section and skip speculation about unrelated causes.
+
+| Pattern | Signature | `score_flight.py` flag |
+|---------|-----------|------------------------|
+| **Power cut** | `Reached=NO` + flat encoder (std < 3°) + active motor differential. Pico alive, ESC power lost — over-current protection, battery cutoff, wiring failure. Brief lever movement at power-on then dead flat is the visual tell in the plot. | `WARNING: POWER CUT — ...` |
+
+If `Reached=NO` and no warning is printed, the run is a genuine stabilisation failure (insufficient thrust, wrong gains, etc.) — describe what the telemetry shows without attributing a cause.
 
 ## Step 2 — Score
 

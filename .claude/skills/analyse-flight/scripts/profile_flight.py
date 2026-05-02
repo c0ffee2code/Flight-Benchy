@@ -74,9 +74,9 @@ def cols_to_samples(cols):
 
 def get_iterm_limit(config, pid_key):
     try:
-        return float(config[pid_key]["iterm_limit"])
+        return float(config["vehicle"][pid_key]["iterm_limit"])
     except (KeyError, TypeError):
-        sys.exit(f"config.yaml missing {pid_key}.iterm_limit — required for windup computation")
+        sys.exit(f"config.json missing vehicle.{pid_key}.iterm_limit — required for windup computation")
 
 
 # ---------------------------------------------------------------------------
@@ -168,10 +168,11 @@ def _row(name, value, fmt=".2f"):
 
 
 def print_config_summary(config):
-    angle = config.get("angle_pid", {})
-    rate  = config.get("rate_pid", {})
-    motor = config.get("motor", {})
-    imu   = config.get("imu", {})
+    vehicle = config.get("vehicle", {})
+    angle = vehicle.get("angle_pid", {})
+    rate  = vehicle.get("rate_pid", {})
+    motor = vehicle.get("motor", {})
+    imu   = vehicle.get("imu", {})
     print(f"  Angle PID: kp={angle.get('kp')}, ki={angle.get('ki')}, "
           f"kd={angle.get('kd')}, iterm_limit={angle.get('iterm_limit')}")
     print(f"  Rate PID:  kp={rate.get('kp')}, ki={rate.get('ki')}, "

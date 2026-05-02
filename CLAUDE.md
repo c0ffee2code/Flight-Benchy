@@ -145,7 +145,7 @@ Each stabilisation session creates a timestamped directory on the SD card:
     log.csv        # Telemetry CSV
 ```
 
-`config.json` is uploaded to the Pico before a run (via the deploy skill) and copied as-is to the run folder by `SdSink.init_session()`. It is the single source of truth — no serialisation from Python objects. Contains: `imu`, `angle_pid`, `rate_pid`, `motor`, `encoder`, `telemetry`, `feedforward` sections. Parsed with `json` on desktop.
+`config.json` is uploaded to the Pico before a run (via the deploy skill) and copied as-is to the run folder by `SdSink.init_session()`. It is the single source of truth — no serialisation from Python objects. Top-level structure: `vehicle` (imu, angle_pid, rate_pid, motor, feedforward — algorithm parameters that stay fixed across sessions), `bench` (encoder, session — rig-specific; session contains duration_s and setpoint.{roll_deg, pitch_deg, yaw_deg}), `telemetry` (sample_every). Parsed with `json` on desktop.
 
 ## Motor and Encoder Sign Convention
 
@@ -159,7 +159,7 @@ Motors are mounted such that **thrust pushes the motor end DOWN** (confirmed by 
 - **Positive encoder angle** → M1 side is lower, M2 side is higher
 - **Negative encoder angle** → M2 side is lower, M1 side is higher
 - To correct M1 being low (positive angle): increase M2 throttle → M2 pushes down → lever pivots → M1 rises
-- The feedforward negation in `main.py` (`feedforward_roll = -(imu_roll + ...)`) implements this correctly
+- The error computation in `flight.py` (`feedforward_roll = setpoint_roll_deg - (imu_roll + gyro_x * lead_s)`) implements this correctly; at setpoint=0° this reduces to `-(imu_roll + ...)`
 
 ## Key Constants
 
