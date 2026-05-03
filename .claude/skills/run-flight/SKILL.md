@@ -17,28 +17,25 @@ Executes the full autonomous flight pipeline end-to-end:
 
 - Pico connected on COM7
 - Both motors and ESCs are powered and connected
-- `session.duration_s` is set in `src/config.json` (not null) — the flight must have a time constraint for the autonomous flow
 - Bench area is clear — the lever will swing during reset and flight
-
-If `session.duration_s` is null, stop and ask the user to set a duration before proceeding.
 
 > **Always use this skill for flight runs.** Never execute the steps manually (deploy → flight.py → fetch). Manual execution silently bypasses the reset-position step, which produces a non-standard start angle and a discarded run.
 
+## Step 0 — Check config
+
+```
+python .claude/skills/run-flight/scripts/check_config.py
+```
+
+If the script exits non-zero, stop and show its output. Do not proceed.
+
 ## Step 1 — Reset position
 
-Run `reset_position.py` via mpremote. Wait for "Done — M1 end at restrictor." before continuing.
-
-```
-python -m mpremote connect COM7 run .claude/skills/reset-position/scripts/reset_position.py
-```
+Run the `/reset-position` skill. Wait for "Done — M1 end at restrictor." before continuing.
 
 ## Step 2 — Deploy config
 
-Upload the current `src/config.json` to the Pico. Source files are already on the Pico from the last `--full` deploy — config-only is sufficient unless the user explicitly asks for a full deploy.
-
-```
-python .claude/skills/deploy/scripts/deploy.py
-```
+Run the `/deploy` skill (no `--full` flag — config-only is sufficient unless the user explicitly asks for a full deploy).
 
 ## Step 3 — Run flight
 
@@ -52,15 +49,11 @@ If mpremote exits with a non-zero code or prints a traceback, report the error v
 
 ## Step 4 — Fetch
 
-```
-python .claude/skills/fetch-flights/scripts/fetch_flights.py --yes
-```
-
-Identifies the new run (the one not yet in `test_runs/flights/`). If no new run appears, report it — the flight may have crashed before opening the SD session.
+Run the `/fetch-flights` skill. Identifies the new run (the one not yet in `test_runs/flights/`). If no new run appears, report it — the flight may have crashed before opening the SD session.
 
 ## Step 5 — Analyse
 
-Run `/analyse-flight <new_run_id>` on the fetched run. The run ID is the timestamp folder name returned by the fetch step.
+Run the `/analyse-flight <new_run_id>` skill on the fetched run. The run ID is the timestamp folder name returned by the fetch step.
 
 ## Anomaly detection
 
