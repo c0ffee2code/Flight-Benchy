@@ -1,5 +1,5 @@
 """
-Step 1 of the analyse-flight pipeline. Always run first.
+Step 2 of the analyse-flight pipeline.
 
 Generates a 5-subplot diagnostic figure and saves it as plot.png next to log.csv.
 One flight folder in, one plot out.
@@ -22,12 +22,25 @@ Run from project root:
 """
 
 import csv
+import json
 import sys
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+
+
+def load_setpoint(run_dir):
+    cfg_path = Path(run_dir) / "config.json"
+    if not cfg_path.exists():
+        sys.exit(f"config.json not found in {run_dir}")
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    try:
+        return float(cfg["bench"]["session"]["setpoint"]["roll_deg"])
+    except (KeyError, TypeError) as e:
+        sys.exit(f"config.json missing bench.session.setpoint.roll_deg: {e}")
 
 
 def load_run(path_str):
@@ -59,7 +72,7 @@ def _time_formatter(duration_s):
     return None, "Time (s)"
 
 
-def plot_run(cols, label):
+def plot_run(cols, label, setpoint):
     t_s = (cols["T_MS"] - cols["T_MS"][0]) / 1000.0
     duration_s = t_s[-1]
     enc_roll = quat_to_roll(cols["ENC_QR"], cols["ENC_QI"])
@@ -68,7 +81,7 @@ def plot_run(cols, label):
     fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=(12, 11), sharex=True)
     fig.suptitle(f"Flight Benchy — {label}  ({duration_s:.1f}s)", fontsize=13)
 
-    ax1.axhline(0, color="gray", linewidth=0.8, linestyle="--", label="Setpoint (0°)")
+    ax1.axhline(setpoint, color="gray", linewidth=0.8, linestyle="--", label=f"Setpoint ({setpoint:+.0f}°)")
     ax1.plot(t_s, enc_roll, label="Encoder", linewidth=0.8)
     ax1.plot(t_s, imu_roll, label="IMU", linewidth=0.8, alpha=0.6)
     ax1.set_ylabel("Roll (deg)")
@@ -121,10 +134,14 @@ def main():
         print("Usage: python .claude/skills/analyse-flight/scripts/plot.py <flight_folder>")
         sys.exit(1)
 
+    p = Path(sys.argv[1])
+    run_dir = p if p.is_dir() else p.parent
+    setpoint = load_setpoint(run_dir)
+
     csv_path, cols, label = load_run(sys.argv[1])
     print(f"Loaded {label}: {len(cols['T_MS'])} samples")
 
-    plot_run(cols, label)
+    plot_run(cols, label, setpoint)
     out = csv_path.parent / "plot.png"
     plt.savefig(out, dpi=150, bbox_inches="tight")
     print(f"Saved: {out}")

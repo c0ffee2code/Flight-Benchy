@@ -38,27 +38,36 @@ The user is the domain expert on physical changes. They will volunteer that info
 
 ## Pipeline contract
 
-The three scripts are designed to be run in order:
+The four scripts are designed to be run in order:
 
 ```
+smoke.py          → stdout ([PASS]/[FAIL] per check); exits 1 on any failure
 plot.py           → plot.png
 score_flight.py   → stdout (KPI pass/fail table);  compute_kpis() importable by profile_flight.py
 profile_flight.py → imports compute_kpis directly;  prints canonical KPIs then grouped diagnostics
 ```
 
-Run all three before writing the report.
+Run all four in order. If smoke exits 1, stop — do not run Steps 2–4.
 
-## Pre-flight checks
+## Step 1 — Smoke checks
 
-Before invoking the pipeline, behave as follows:
+```
+python .claude/skills/analyse-flight/scripts/smoke.py test_runs/flights/<flight_id>
+```
 
-| Situation | Behaviour |
-|-----------|-----------|
-| `log.csv` missing or fewer than ~5 rows | Tell the user, stop. Don't fabricate a report. |
-| `config.json` missing | Tell the user, stop. `config.json` is mandatory — the pipeline cannot run without it. |
-| Start angle outside ±10° of +58° | **DISCARDED run.** Run the full pipeline anyway (plot + score + profile) for the paper trail. Open the report with a prominent `> **DISCARDED — non-standard start.**` blockquote. Fill all tables from script output. Replace the Observations section with a brief factual note: state the actual start angle, explain that the reset-position step was missed, and confirm KPIs must not be used for tuning decisions. Do not write a standard Observations analysis. |
+Run first. Validates the run folder and detects failure modes that would invalidate KPI analysis. Exits 0 if all checks pass, 1 if any fail. Thresholds are in the script's module-level constants.
 
-## Step 1 — Plot
+| Check | Signature |
+|-------|-----------|
+| **missing** | `log.csv` or `config.json` not present. Exits immediately. |
+| **truncated** | `log.csv` has fewer than 5 rows — SD write interrupted. Exits immediately. |
+| **start-angle** | First encoder reading outside 58° ± 10°. Reset-position step was missed. Exits immediately. |
+| **power-cut** | Lever never reached setpoint + flat encoder (std < 3°) + active motor differential. Exits immediately. |
+| **loop-meltdown** | Encoder range > 90° AND IMU trail > 40%. Rate loop in positive feedback. Exits immediately. |
+
+If smoke exits 1, **stop**. Do not run Steps 2–4. Report the check name and detail to the user. A `postmortem` skill is planned for investigating these failures (not yet available).
+
+## Step 2 — Plot
 
 ```
 python .claude/skills/analyse-flight/scripts/plot.py test_runs/flights/<flight_id>
@@ -81,16 +90,6 @@ The plot is the richest signal in the whole pipeline. The numbers in steps 2 and
 
 - **Default (no `--ask`)** — proceed directly to Step 2. Anomalies spotted in the plot are recorded in the Observations section of the report; the user can react there if context is needed.
 - **With `--ask`** — pause here. Share what you see in 2–3 sentences and ask if anything unusual happened during the session: mechanical changes, a power supply hitting its limit, a loose connection, an unusual start. Surface anomalies as questions, not conclusions — "I see M1 running ~50 units higher than M2 throughout the hold — is the frame balanced, or is there a known asymmetry?" Wait for the user's reply before continuing to Step 2.
-
-## Known failure patterns
-
-These are recognised automatically by `score_flight.py` and printed as `WARNING:` lines after the KPI table. When one is present, name it explicitly in the Observations section and skip speculation about unrelated causes.
-
-| Pattern | Signature | `score_flight.py` flag |
-|---------|-----------|------------------------|
-| **Power cut** | `Reached=NO` + flat encoder (std < 3°) + active motor differential. Pico alive, ESC power lost — over-current protection, battery cutoff, wiring failure. Brief lever movement at power-on then dead flat is the visual tell in the plot. | `WARNING: POWER CUT — ...` |
-
-If `Reached=NO` and no warning is printed, the run is a genuine stabilisation failure (insufficient thrust, wrong gains, etc.) — describe what the telemetry shows without attributing a cause.
 
 ## Step 2 — Score
 

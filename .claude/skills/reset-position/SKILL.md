@@ -19,7 +19,7 @@ If the Pico is not connected, tell the user and stop. Do not attempt to run with
 ## Execution
 
 ```
-mpremote run .claude/skills/reset-position/scripts/reset_position.py
+python -m mpremote run .claude/skills/reset-position/scripts/reset_position.py
 ```
 
 The script takes approximately 5–6 seconds:

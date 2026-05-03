@@ -121,6 +121,9 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
     axis_center = cfg["bench"]["encoder"]["axis_center"]
     feedforward_lead_s = cfg["vehicle"]["feedforward"]["lead_ms"] / 1000.0
     setpoint_roll_deg = cfg["bench"]["session"]["setpoint"]["roll_deg"]
+    orientation = cfg["bench"]["sensor_orientation"]
+    enc_sign = -1 if orientation["encoder_invert"] else 1
+    imu_sign = -1 if orientation["imu_invert"] else 1
 
     # Seed initial quaternion so telemetry has valid values before first outer tick
     imu.update_sensors()
@@ -149,7 +152,12 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
 
         imu.update_sensors()
         gx, _gy, _gz = imu.gyro
-        gyro_x = -degrees(gx)
+        # Negate imu_sign: GRV reports position (positive = M1 lower), but the gyroscope
+        # reports velocity (dA/dt < 0 when falling toward M2-down). The outer loop issues
+        # a positive rate_setpoint when M1 needs to descend, so gyro_x must be positive
+        # when the lever IS descending — opposite to raw_gx. If the IMU is physically
+        # flipped (imu_sign = −1), raw_gx also flips, so -imu_sign stays correct.
+        gyro_x = -imu_sign * degrees(gx)
 
         # --- outer loop (every outer_ticks cycles) ---
         outer_counter += 1
@@ -157,10 +165,12 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
             outer_counter = 0
 
             iqr, iqi, iqj, iqk = imu.game_quaternion
-            imu_roll = -degrees(2.0 * atan2(iqi, iqr))
+            imu_roll = imu_sign * degrees(2.0 * atan2(iqi, iqr))
 
-            # Feedforward (DR-006) — compensate GRV filter lag with live gyro rate
-            feedforward_roll = setpoint_roll_deg - (imu_roll + gyro_x * feedforward_lead_s)
+            # Feedforward: predict where the lever will be in feedforward_lead_s seconds
+            # to compensate GRV filter lag. All signals are in encoder convention
+            # (positive = M1 lower), so the error is simply predicted_angle - setpoint.
+            feedforward_roll = (imu_roll + gyro_x * feedforward_lead_s) - setpoint_roll_deg
             ang_err = feedforward_roll
 
             rate_setpoint = angle_pid.compute(feedforward_roll, outer_dt)
@@ -174,8 +184,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
         motors.setThrottle(1, m2)
 
         # --- encoder (read at inner rate for telemetry) ---
-        # Frame was rotated during rebuild, reversing magnet direction; negate to restore sign convention.
-        enc_angle = -to_degrees(encoder.read_raw_angle(), axis_center)
+        enc_angle = enc_sign * to_degrees(encoder.read_raw_angle(), axis_center)
         eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
 
         telemetry.record(

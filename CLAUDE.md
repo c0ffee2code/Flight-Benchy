@@ -72,9 +72,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │               └── flight_analysis.md  # Structured report template
 ├── tools/               # Pico utilities (upload to Pico, not used on desktop)
 │   ├── set_rtc.py           # Set PCF8523 RTC clock
-│   ├── coord_check.py       # Axis calibration after mechanical reassembly
-│   ├── tare_and_measure.py  # IMU tare calibration with before/after comparison
-│   └── bench_sweep.py       # Open-loop single-motor encoder sweep
+│   └── tare_and_measure.py  # IMU tare calibration with before/after comparison
 ├── test_runs/           # Copied run folders from SD card for analysis
 │   └── flights/
 │       └── YYYY-MM-DD_hh-mm-ss/  # One folder per run

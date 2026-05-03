@@ -34,14 +34,10 @@
     "encoder": {
       "axis_center": 2378
     },
-    "sensor_orientation": {
-      "encoder_invert": true,
-      "imu_invert": false
-    },
     "session": {
       "duration_s": 120,
       "setpoint": {
-        "roll_deg": -15.0,
+        "roll_deg": 0.0,
         "pitch_deg": 0.0,
         "yaw_deg": 0.0
       }

@@ -34,10 +34,6 @@
     "encoder": {
       "axis_center": 2378
     },
-    "sensor_orientation": {
-      "encoder_invert": true,
-      "imu_invert": false
-    },
     "session": {
       "duration_s": 120,
       "setpoint": {

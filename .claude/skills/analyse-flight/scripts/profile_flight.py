@@ -1,37 +1,34 @@
 """
-Step 3 of the analyse-flight pipeline. Run only on flights that passed score_flight.py.
+Step 4 of the analyse-flight pipeline. Run only on flights that passed score_flight.py.
 
 Prints grouped diagnostic metrics to console. Reads config.json alongside log.csv;
 config.json is mandatory — the script exits with an error if it is absent or if any
-required field (iterm_limit) is missing.
+required field is missing.
 
 Metric groups:
-  Canonical KPIs         — echoed from score_flight.compute_kpis() when encoder present
-  Sample Rate            — Achieved Hz; should match 1000 / (INNER_INTERVAL_MS × TELEMETRY_SAMPLE_EVERY)
-  Sensor Health          — IMU-vs-encoder MAE, bias, Pearson r, trail %. Only emitted when
-  (IMU vs ENC)             ENC_* columns are present in the CSV (omitted for pitch/yaw runs).
-  Setpoint Error         — Whole-run ENC MAE against 0° when encoder present; IMU MAE otherwise.
-  (vs 0°)                  "Whole-run ENC MAE" includes the rise — not comparable to HoldMAE.
-  Correlation &          — Pearson r, IMU trailing encoder. Omitted when encoder absent.
+  Canonical KPIs    — HoldMAE, T→setpoint, T@setpoint from score_flight.compute_kpis()
+  Sample Rate       — Achieved Hz; should match 1000 / (INNER_INTERVAL_MS × TELEMETRY_SAMPLE_EVERY)
+  Sensor Health     — IMU-vs-encoder MAE, bias, Pearson r, trail %
+  (IMU vs ENC)
+  Setpoint Error    — Whole-run ENC MAE against setpoint. Includes the rise — not comparable to HoldMAE.
+  Correlation &     — Pearson r, IMU trailing encoder.
   Tracking
-  Oscillation &          — osc_freq_hz: sign-change rate of tracking error (ENC-based when encoder
-  Windup                   present, IMU-based otherwise). Windup events: ticks where |I-term| ≥ 50%
-                           of iterm_limit from config.yaml.
+  Oscillation &     — osc_freq_hz: sign-change rate of IMU-vs-encoder tracking error. Windup
+  Windup              events: ticks where |I-term| ≥ 50% of iterm_limit from config.json.
 
 Run from project root:
   python .claude/skills/analyse-flight/scripts/profile_flight.py test_runs/flights/<flight_id>
 """
 
 import csv
+import json
 import sys
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from score_flight import compute_kpis, HORIZONTAL_THRESHOLD_DEG  # noqa: E402
-
-import json
+from score_flight import compute_kpis, load_setpoint  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -83,61 +80,55 @@ def get_iterm_limit(config, pid_key):
 # Statistics
 # ---------------------------------------------------------------------------
 
-def compute_stats(cols, config):
-    has_encoder = "ENC_QR" in cols
+def compute_stats(cols, config, setpoint):
     n = len(cols["T_MS"])
     t_ms = cols["T_MS"]
+    enc_roll = quat_to_roll(cols["ENC_QR"], cols["ENC_QI"])
     imu_roll = quat_to_roll(cols["IMU_QR"], cols["IMU_QI"])
 
     duration_s = (t_ms[-1] - t_ms[0]) / 1000.0
     actual_hz = (n - 1) / duration_s if duration_s > 0 else 0.0
     dts = np.diff(t_ms)
 
-    sensor = None
-    if has_encoder:
-        enc_roll = quat_to_roll(cols["ENC_QR"], cols["ENC_QI"])
-        errors = imu_roll - enc_roll
-        abs_errors = np.abs(errors)
+    errors = imu_roll - enc_roll
+    abs_errors = np.abs(errors)
 
-        enc_vel = np.abs(np.diff(enc_roll)) / (dts / 1000.0)
-        vel_order = np.argsort(enc_vel)
-        quarter = len(vel_order) // 4
-        slow_idx = vel_order[:quarter] + 1
-        fast_idx = vel_order[-quarter:] + 1
+    enc_vel = np.abs(np.diff(enc_roll)) / (dts / 1000.0)
+    vel_order = np.argsort(enc_vel)
+    quarter = len(vel_order) // 4
+    slow_idx = vel_order[:quarter] + 1
+    fast_idx = vel_order[-quarter:] + 1
 
-        motion_dir = np.diff(enc_roll)
-        imu_offset = enc_roll[1:] - imu_roll[1:]
-        moving = np.abs(motion_dir) > 1.0
-        trail_pct = 0.0
-        if np.sum(moving) > 0:
-            trailing = (motion_dir[moving] * imu_offset[moving]) > 0
-            trail_pct = float(np.sum(trailing) / np.sum(moving) * 100)
+    motion_dir = np.diff(enc_roll)
+    imu_offset = enc_roll[1:] - imu_roll[1:]
+    moving = np.abs(motion_dir) > 1.0
+    trail_pct = 0.0
+    if np.sum(moving) > 0:
+        trailing = (motion_dir[moving] * imu_offset[moving]) > 0
+        trail_pct = float(np.sum(trailing) / np.sum(moving) * 100)
 
-        osc_ref = errors
-        sensor = {
-            "mae":                float(np.mean(abs_errors)),
-            "rms_error":          float(np.sqrt(np.mean(errors ** 2))),
-            "max_ae":             float(np.max(abs_errors)),
-            "bias":               float(np.mean(errors)),
-            "mae_fast":           float(np.mean(abs_errors[fast_idx])) if len(fast_idx) > 0 else 0.0,
-            "mae_slow":           float(np.mean(abs_errors[slow_idx])) if len(slow_idx) > 0 else 0.0,
-            "correlation":        float(np.corrcoef(enc_roll, imu_roll)[0, 1])
-                                  if np.std(enc_roll) > 0 and np.std(imu_roll) > 0 else 0.0,
-            "trail_pct":          trail_pct,
-            "enc_range":          float(np.ptp(enc_roll)),
-            "imu_range":          float(np.ptp(imu_roll)),
-            "whole_run_enc_mae":  float(np.mean(np.abs(enc_roll))),
-            "enc_bias_setpoint":  float(np.mean(enc_roll)),
-            "enc_max_ae_setpoint":float(np.max(np.abs(enc_roll))),
-        }
-    else:
-        osc_ref = imu_roll
-
-    sign_changes = np.diff(np.sign(osc_ref))
+    sign_changes = np.diff(np.sign(errors))
     osc_freq = float(np.sum(sign_changes != 0)) / (2.0 * duration_s) if duration_s > 0 else 0.0
 
     ang_iterm_limit  = get_iterm_limit(config, "angle_pid")
     rate_iterm_limit = get_iterm_limit(config, "rate_pid")
+
+    sensor = {
+        "mae":                float(np.mean(abs_errors)),
+        "rms_error":          float(np.sqrt(np.mean(errors ** 2))),
+        "max_ae":             float(np.max(abs_errors)),
+        "bias":               float(np.mean(errors)),
+        "mae_fast":           float(np.mean(abs_errors[fast_idx])) if len(fast_idx) > 0 else 0.0,
+        "mae_slow":           float(np.mean(abs_errors[slow_idx])) if len(slow_idx) > 0 else 0.0,
+        "correlation":        float(np.corrcoef(enc_roll, imu_roll)[0, 1])
+                              if np.std(enc_roll) > 0 and np.std(imu_roll) > 0 else 0.0,
+        "trail_pct":          trail_pct,
+        "enc_range":          float(np.ptp(enc_roll)),
+        "imu_range":          float(np.ptp(imu_roll)),
+        "whole_run_enc_mae":  float(np.mean(np.abs(enc_roll - setpoint))),
+        "enc_bias_setpoint":  float(np.mean(enc_roll - setpoint)),
+        "enc_max_ae_setpoint":float(np.max(np.abs(enc_roll - setpoint))),
+    }
 
     control = {
         "osc_freq_hz":           osc_freq,
@@ -145,7 +136,7 @@ def compute_stats(cols, config):
         "ang_windup_threshold":  ang_iterm_limit  * 0.5,
         "rate_windup_events":    int(np.sum(np.abs(cols["RATE_I"]) >= rate_iterm_limit * 0.5)),
         "rate_windup_threshold": rate_iterm_limit * 0.5,
-        "imu_mae_setpoint":      float(np.mean(np.abs(imu_roll))),
+        "imu_mae_setpoint":      float(np.mean(np.abs(imu_roll - setpoint))),
     }
 
     rate = {
@@ -186,17 +177,17 @@ def print_config_summary(config):
           f"min={motor.get('throttle_min')}, max={motor.get('throttle_max')}")
 
 
-def print_canonical_kpis(kpis):
+def print_canonical_kpis(kpis, setpoint):
     print("  --- Canonical KPIs (from score_flight) ---")
-    print(f"  {'Reached horizontal':<38} {'YES' if kpis['reached'] else 'NO':>10}")
+    print(f"  {'Reached setpoint':<38} {'YES' if kpis['reached'] else 'NO':>10}")
     t_to  = f"{kpis['time_to_s']:.1f}"  if kpis["reached"] else "-"
     h_mae = f"{kpis['hold_mae']:.2f}"   if kpis["reached"] else "-"
-    print(f"  {'T->0 (s)':<38} {t_to:>10}")
+    print(f"  {'T->setpoint (s)':<38} {t_to:>10}")
     print(f"  {'HoldMAE (°), post-reach':<38} {h_mae:>10}")
-    print(f"  {'T@0 (s)':<38} {kpis['time_at_s']:>10.1f}")
+    print(f"  {'T@setpoint (s)':<38} {kpis['time_at_s']:>10.1f}")
 
 
-def print_profile(label, rate, sensor, control, config, kpis):
+def print_profile(label, rate, sensor, control, config, kpis, setpoint):
     w = 58
     print("=" * w)
     print(f"  {label}")
@@ -205,7 +196,7 @@ def print_profile(label, rate, sensor, control, config, kpis):
     print()
 
     if kpis is not None:
-        print_canonical_kpis(kpis)
+        print_canonical_kpis(kpis, setpoint)
         print()
 
     print("  --- Sample Rate ---")
@@ -215,35 +206,29 @@ def print_profile(label, rate, sensor, control, config, kpis):
     _row("Mean dt (ms)",   rate["dt_mean_ms"],   ".1f")
     _row("Median dt (ms)", rate["dt_median_ms"], ".1f")
 
-    if sensor is not None:
-        print("\n  --- Sensor Health (IMU vs ENC) ---")
-        _row("MAE (overall)",     sensor["mae"])
-        _row("MAE (fast motion)", sensor["mae_fast"])
-        _row("MAE (slow motion)", sensor["mae_slow"])
-        _row("Max AE",            sensor["max_ae"])
-        _row("RMS Error",         sensor["rms_error"])
-        _row("Bias (IMU-ENC)",  sensor["bias"])
+    print("\n  --- Sensor Health (IMU vs ENC) ---")
+    _row("MAE (overall)",     sensor["mae"])
+    _row("MAE (fast motion)", sensor["mae_fast"])
+    _row("MAE (slow motion)", sensor["mae_slow"])
+    _row("Max AE",            sensor["max_ae"])
+    _row("RMS Error",         sensor["rms_error"])
+    _row("Bias (IMU-ENC)",    sensor["bias"])
 
-        print("\n  --- Setpoint Error (vs 0°) ---")
-        _row("Whole-run ENC MAE (°)", sensor["whole_run_enc_mae"])
-        print("  (includes the rise — not comparable to HoldMAE)")
-        _row("IMU MAE (°)",           control["imu_mae_setpoint"])
-        _row("ENC Bias (°)",          sensor["enc_bias_setpoint"])
-        _row("ENC Max AE (°)",        sensor["enc_max_ae_setpoint"])
+    print(f"\n  --- Setpoint Error (vs {setpoint:+.0f}°) ---")
+    _row("Whole-run ENC MAE (°)", sensor["whole_run_enc_mae"])
+    print("  (includes the rise — not comparable to HoldMAE)")
+    _row("IMU MAE (°)",           control["imu_mae_setpoint"])
+    _row("ENC Bias (°)",          sensor["enc_bias_setpoint"])
+    _row("ENC Max AE (°)",        sensor["enc_max_ae_setpoint"])
 
-        print("\n  --- Correlation & Tracking ---")
-        _row("Pearson r",             sensor["correlation"], ".4f")
-        _row("IMU trails motion (%)", sensor["trail_pct"],   ".1f")
-        _row("Encoder range (°)",    sensor["enc_range"],   ".1f")
-        _row("IMU range (°)",        sensor["imu_range"],   ".1f")
-    else:
-        print("\n  (Sensor Health skipped — no encoder columns in CSV)")
-        print("\n  --- Setpoint Error (vs 0°) ---")
-        _row("IMU MAE (°)", control["imu_mae_setpoint"])
+    print("\n  --- Correlation & Tracking ---")
+    _row("Pearson r",             sensor["correlation"], ".4f")
+    _row("IMU trails motion (%)", sensor["trail_pct"],   ".1f")
+    _row("Encoder range (°)",     sensor["enc_range"],   ".1f")
+    _row("IMU range (°)",         sensor["imu_range"],   ".1f")
 
     print("\n  --- Oscillation & Windup ---")
-    osc_src = "ENC-based" if sensor is not None else "IMU-based"
-    print(f"  {'Oscillation freq (Hz)':<38} {control['osc_freq_hz']:>10.2f}  ({osc_src})")
+    print(f"  {'Oscillation freq (Hz)':<38} {control['osc_freq_hz']:>10.2f}")
     _row("Angle windup events",    control["ang_windup_events"],    ".0f")
     print(f"  {'Angle windup threshold':<38} {control['ang_windup_threshold']:>10.1f}")
     _row("Rate windup events",     control["rate_windup_events"],   ".0f")
@@ -262,11 +247,16 @@ def main():
                  "test_runs/flights/<flight_id>")
 
     cols, config, label = load_run(sys.argv[1])
-    rate, sensor, control = compute_stats(cols, config)
-    kpis = compute_kpis(cols_to_samples(cols)) if "ENC_QR" in cols else None
+
+    p = Path(sys.argv[1])
+    run_dir = p if p.is_dir() else p.parent
+    setpoint = load_setpoint(run_dir)
+
+    rate, sensor, control = compute_stats(cols, config, setpoint)
+    kpis = compute_kpis(cols_to_samples(cols), setpoint)
 
     print(f"Loaded {label}: {rate['n_samples']} samples, {rate['duration_s']:.1f}s\n")
-    print_profile(label, rate, sensor, control, config, kpis)
+    print_profile(label, rate, sensor, control, config, kpis, setpoint)
 
 
 if __name__ == "__main__":

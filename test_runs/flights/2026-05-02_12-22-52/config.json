@@ -1,0 +1,42 @@
+{
+  "imu": {
+    "angle_report": "game_rotation_vector",
+    "angle_report_hz": 50,
+    "rate_report": "calibrated_gyroscope",
+    "rate_report_hz": 200
+  },
+  "angle_pid": {
+    "hz": 50,
+    "kp": 3.5,
+    "ki": 0.05,
+    "kd": 0.3,
+    "iterm_limit": 100.0,
+    "output_limit": 130
+  },
+  "rate_pid": {
+    "hz": 200,
+    "kp": 0.5,
+    "ki": 0.0,
+    "kd": 0.009,
+    "iterm_limit": 50.0,
+    "output_limit": 300
+  },
+  "motor": {
+    "base_throttle": 600,
+    "throttle_min": 100,
+    "throttle_max": 800,
+    "expo": 0.0
+  },
+  "encoder": {
+    "axis_center": 2378
+  },
+  "telemetry": {
+    "sample_every": 10
+  },
+  "feedforward": {
+    "lead_ms": 15
+  },
+  "session": {
+    "duration_s": 60
+  }
+}
