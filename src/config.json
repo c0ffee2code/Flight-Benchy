@@ -41,7 +41,7 @@
     "session": {
       "duration_s": 120,
       "setpoint": {
-        "roll_deg": -15.0,
+        "roll_deg": 0.0,
         "pitch_deg": 0.0,
         "yaw_deg": 0.0
       }
