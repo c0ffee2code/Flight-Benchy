@@ -48,7 +48,8 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   ├── mixer.py         # LeverMixer — differential thrust for 2-motor lever
 │   ├── ui.py            # Operator interface — Pimoroni Display Pack buttons + RGB LED
 │   └── telemetry/
-│       ├── recorder.py  # TelemetryRecorder, PrintSink, SdSink, read_rtc
+│       ├── recorder.py  # TelemetryRecorder, SdSink
+│       ├── time_source.py  # TimeSource, read_rtc — PCF8523 RTC facade
 │       └── sdcard.py    # SD card SPI driver (micropython-lib, with stop bit fix)
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 │   └── driver/as5600.py
@@ -89,6 +90,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - `src/mixer.py`
 - `src/ui.py`
 - `src/telemetry/recorder.py` (deployed as `recorder.py`)
+- `src/telemetry/time_source.py` (deployed as `time_source.py`)
 - `src/telemetry/sdcard.py` (deployed as `sdcard.py`)
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
@@ -98,11 +100,10 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 ### Telemetry (`src/telemetry/`)
 
-- `recorder.py` — Contains the full telemetry pipeline:
-  - `TelemetryRecorder` — facade called from main loop, handles decimation and CSV formatting, delegates I/O to a pluggable sink. `begin_session()` resets the counter and emits the CSV header. CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
-  - `PrintSink` — prints CSV rows to REPL serial console.
-  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, RTC read, directory create, write, unmount). Creates a folder-per-run directory (`/sd/flights/YYYY-MM-DD_hh-mm-ss/`) containing `log.csv` and a raw binary copy of `config.json` from the Pico root.
-  - `read_rtc(i2c, addr=0x68)` — one-shot read of PCF8523 RTC given an already-constructed I2C object. Used by `SdSink` for directory naming.
+- `recorder.py` — Telemetry pipeline:
+  - `TelemetryRecorder` — facade called from the main loop. Handles decimation and CSV formatting, delegates I/O to `SdSink`. `begin_session()` resets the counter and emits the CSV header. A session ends in one of two ways: `end_session()` on clean completion, or `write_crash_log(exc)` on failure (writes a traceback to `crash.log` in the session folder). CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
+  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, directory create, write, unmount). `init_session(dt)` receives a `(year, month, day, hour, minute, second)` tuple from `TimeSource.now()` — no RTC access of its own. Creates `/sd/flights/YYYY-MM-DD_hh-mm-ss/` containing `log.csv`, a raw binary copy of `config.json`, and optionally `crash.log` on failure.
+- `time_source.py` — `TimeSource` facade over the PCF8523 RTC. `now()` returns `(year, month, day, hour, minute, second)`. Also contains `read_rtc(i2c, addr)` as the low-level implementation.
 - `sdcard.py` — SD card SPI driver from micropython-lib with a stop bit fix (`crc | 0x01`). The upstream driver omits the mandatory end bit in the SPI command frame, which causes some cards to reject all commands after CMD8.
 
 ### AS5600 Encoder (`AS5600/driver/as5600.py`)

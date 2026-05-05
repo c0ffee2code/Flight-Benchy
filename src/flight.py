@@ -11,9 +11,9 @@ from motor_throttle_group import MotorThrottleGroup
 from dshot_pio import DSHOT_SPEEDS
 from pid import PID
 from recorder import TelemetryRecorder, SdSink
+from time_source import TimeSource
 from mixer import LeverMixer
 from ui import set_led
-from crash_log import write_crash_log
 
 # =====================================================
 # Pin assignments
@@ -49,22 +49,14 @@ PRESPIN_DWELL_MS  = const(500)  # wait after reaching base_throttle before start
 i2c     = I2C(0, scl=Pin(PIN_I2C0_SCL), sda=Pin(PIN_I2C0_SDA), freq=400_000)
 encoder = AS5600(i2c=i2c)
 
-
 def load_config():
-    """Load config.json from Pico root. Red LED + raise if missing."""
-    try:
-        with open("config.json") as f:
-            return ujson.load(f)
-    except OSError:
-        set_led(r=1)
-        raise RuntimeError("config.json missing — upload via deploy skill")
-
+    with open("config.json") as f:
+        return ujson.load(f)
 
 def angle_to_quat(deg):
     """Convert single-axis (roll/X) angle in degrees to quaternion (qr, qi, qj, qk)."""
     half = radians(deg) / 2
     return (cos(half), sin(half), 0.0, 0.0)
-
 
 # =====================================================
 # State helpers
@@ -100,9 +92,9 @@ def prespin_motors(motors, throttle_min, base):
         utime.sleep_ms(PRESPIN_STEP_MS)
     utime.sleep_ms(PRESPIN_DWELL_MS)
 
-def init_session(cfg, sink):
+def init_session(cfg, sink, dt):
     """Open a recording session and return TelemetryRecorder."""
-    sink.init_session()
+    sink.init_session(dt)
     telemetry = TelemetryRecorder(cfg["telemetry"]["sample_every"], sink=sink)
     telemetry.begin_session()
     return telemetry
@@ -204,45 +196,50 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
 # Entry point
 # =====================================================
 def run():
-    cfg = load_config()
-
-    # --- Force budget (2026-04-07) ---
-    # Empirical thrust: BASE=600 -> 45g/motor, slope ~0.147 g/throttle_unit near BASE.
-    # Gravity imbalance at -59 deg: ~18g (single motor at BASE~300 just overcomes it).
-    # Need: angle_kp * 58deg >= angle_pid.output_limit to saturate at start position.
-    # angle_kp=1.0: rate_sp=58 -> never hits limit -> diff=8.7g (INSUFFICIENT).
-    # angle_kp=2.2: rate_sp=129 -> saturates at 130 -> PID_OUT=65 -> diff=130 -> ~19g (OK).
-    # rate_kp=0.5 confirmed stable at BASE=600 with kd=0.003. kp=0.7 caused 5.88Hz oscillation.
-    # rate_kd raised 0.003->0.006 to add damping near setpoint without affecting DC gain (DR-012).
-    angle_pid = PID(
-        kp=cfg["vehicle"]["angle_pid"]["kp"],
-        ki=cfg["vehicle"]["angle_pid"]["ki"],
-        kd=cfg["vehicle"]["angle_pid"]["kd"],
-        iterm_limit=cfg["vehicle"]["angle_pid"]["iterm_limit"],
-        output_limit=cfg["vehicle"]["angle_pid"]["output_limit"],
-    )
-    rate_pid = PID(
-        kp=cfg["vehicle"]["rate_pid"]["kp"],
-        ki=cfg["vehicle"]["rate_pid"]["ki"],
-        kd=cfg["vehicle"]["rate_pid"]["kd"],
-        iterm_limit=cfg["vehicle"]["rate_pid"]["iterm_limit"],
-        output_limit=cfg["vehicle"]["rate_pid"]["output_limit"],
-    )
-    mixer = LeverMixer(
-        throttle_base=cfg["vehicle"]["motor"]["base_throttle"],
-        throttle_min=cfg["vehicle"]["motor"]["throttle_min"],
-        throttle_max=cfg["vehicle"]["motor"]["throttle_max"],
-        expo=cfg["vehicle"]["motor"]["expo"],
-    )
-    motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
     telemetry = None
-
+    motors = None
     try:
+        cfg = load_config()
+
+        time_source = TimeSource(i2c)
         sd_sink = SdSink(
-            sck=PIN_SD_SCK, mosi=PIN_SD_MOSI,
-            miso=PIN_SD_MISO, cs=PIN_SD_CS,
-            rtc_i2c=i2c,
+            sck=PIN_SD_SCK,
+            mosi=PIN_SD_MOSI,
+            miso=PIN_SD_MISO,
+            cs=PIN_SD_CS,
         )
+        telemetry = init_session(cfg, sd_sink, time_source.now())
+
+        # --- Force budget (2026-04-07) ---
+        # Empirical thrust: BASE=600 -> 45g/motor, slope ~0.147 g/throttle_unit near BASE.
+        # Gravity imbalance at -59 deg: ~18g (single motor at BASE~300 just overcomes it).
+        # Need: angle_kp * 58deg >= angle_pid.output_limit to saturate at start position.
+        # angle_kp=1.0: rate_sp=58 -> never hits limit -> diff=8.7g (INSUFFICIENT).
+        # angle_kp=2.2: rate_sp=129 -> saturates at 130 -> PID_OUT=65 -> diff=130 -> ~19g (OK).
+        # rate_kp=0.5 confirmed stable at BASE=600 with kd=0.003. kp=0.7 caused 5.88Hz oscillation.
+        # rate_kd raised 0.003->0.006 to add damping near setpoint without affecting DC gain (DR-012).
+        angle_pid = PID(
+            kp=cfg["vehicle"]["angle_pid"]["kp"],
+            ki=cfg["vehicle"]["angle_pid"]["ki"],
+            kd=cfg["vehicle"]["angle_pid"]["kd"],
+            iterm_limit=cfg["vehicle"]["angle_pid"]["iterm_limit"],
+            output_limit=cfg["vehicle"]["angle_pid"]["output_limit"],
+        )
+        rate_pid = PID(
+            kp=cfg["vehicle"]["rate_pid"]["kp"],
+            ki=cfg["vehicle"]["rate_pid"]["ki"],
+            kd=cfg["vehicle"]["rate_pid"]["kd"],
+            iterm_limit=cfg["vehicle"]["rate_pid"]["iterm_limit"],
+            output_limit=cfg["vehicle"]["rate_pid"]["output_limit"],
+        )
+        mixer = LeverMixer(
+            throttle_base=cfg["vehicle"]["motor"]["base_throttle"],
+            throttle_min=cfg["vehicle"]["motor"]["throttle_min"],
+            throttle_max=cfg["vehicle"]["motor"]["throttle_max"],
+            expo=cfg["vehicle"]["motor"]["expo"],
+        )
+        motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
+
         imu = BNO08X_I2C(
             i2c,
             address=0x4A,
@@ -252,26 +249,30 @@ def run():
         enable_imu_reports(imu, cfg["vehicle"]["imu"]["angle_report_hz"], cfg["vehicle"]["imu"]["rate_report_hz"])
         arm_motors(motors, cfg["vehicle"]["motor"]["throttle_min"])
         prespin_motors(motors, cfg["vehicle"]["motor"]["throttle_min"], cfg["vehicle"]["motor"]["base_throttle"])
-        telemetry = init_session(cfg, sd_sink)
+
         duration_s = cfg["bench"]["session"]["duration_s"]
         stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg,
                   duration_ms=int(duration_s * 1000) if duration_s is not None else None)
         set_led(b=1)
 
-    except Exception:
+    except Exception as e:
         set_led(r=1)
+        if telemetry is not None:
+            telemetry.write_crash_log(e)
         raise
 
     finally:
         if telemetry is not None:
             telemetry.end_session()
-        motors.disarm()
-        motors.stop()
+        if motors is not None:
+            motors.disarm()
+            motors.stop()
 
 
 if __name__ == '__main__':
+    import sys
     try:
         run()
     except Exception as e:
-        write_crash_log(e)
-        raise
+        sys.print_exception(e, sys.stderr)
+        sys.exit(1)

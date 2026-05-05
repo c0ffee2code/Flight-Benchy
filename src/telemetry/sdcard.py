@@ -24,7 +24,6 @@ Example usage on ESP8266:
 from micropython import const
 import time
 
-
 _CMD_TIMEOUT = const(100)
 
 _R1_IDLE_STATE = const(1 << 0)
@@ -37,7 +36,6 @@ _R1_ILLEGAL_COMMAND = const(1 << 2)
 _TOKEN_CMD25 = const(0xFC)
 _TOKEN_STOP_TRAN = const(0xFD)
 _TOKEN_DATA = const(0xFE)
-
 
 class SDCard:
     def __init__(self, spi, cs, baudrate=1320000):

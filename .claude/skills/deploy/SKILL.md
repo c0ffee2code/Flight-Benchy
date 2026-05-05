@@ -37,8 +37,8 @@ All files land flat at the Pico root:
 | `src/pid.py` | `pid.py` |
 | `src/mixer.py` | `mixer.py` |
 | `src/ui.py` | `ui.py` |
-| `src/crash_log.py` | `crash_log.py` |
 | `src/telemetry/recorder.py` | `recorder.py` |
+| `src/telemetry/time_source.py` | `time_source.py` |
 | `src/telemetry/sdcard.py` | `sdcard.py` |
 | `AS5600/driver/as5600.py` | `as5600.py` |
 | `BNO085/driver/bno08x.py` | `bno08x.py` |

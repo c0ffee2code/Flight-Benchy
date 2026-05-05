@@ -8,45 +8,6 @@ _SD_MOUNT = "/sd"
 _LOG_DIR  = _SD_MOUNT + "/flights"
 
 
-def _bcd(b):
-    """Decode a BCD byte to integer."""
-    return (b >> 4) * 10 + (b & 0x0F)
-
-
-def read_rtc(i2c, addr=0x68):
-    """Read current time from PCF8523 RTC.
-
-    Returns (year, month, day, hour, minute, second).
-    """
-    buf = i2c.readfrom_mem(addr, 0x03, 7)
-    if buf[0] & 0x80:
-        raise OSError("PCF8523: OS flag set — clock integrity not guaranteed, re-run set_rtc.py")
-    return (
-        _bcd(buf[6]) + 2000,   # year
-        _bcd(buf[5] & 0x1F),   # month  (bits 7:5 reserved)
-        _bcd(buf[3] & 0x3F),   # day    (bits 7:6 reserved)
-        _bcd(buf[2] & 0x3F),   # hour   (bits 7:6 reserved)
-        _bcd(buf[1] & 0x7F),   # minute (bit 7 reserved)
-        _bcd(buf[0] & 0x7F),   # second (bit 7 = OS flag)
-    )
-
-
-class PrintSink:
-    """Output backend that prints CSV rows to REPL serial console."""
-
-    def write(self, line):
-        """Emit a single CSV line to stdout."""
-        print(line)
-
-    def flush(self):
-        """No-op — stdout is unbuffered."""
-        pass
-
-    def close(self):
-        """No-op."""
-        pass
-
-
 class SdSink:
     """Output backend that writes CSV rows to a file on a mounted SD card.
 
@@ -55,15 +16,11 @@ class SdSink:
     mount early (fail-fast) and create the run directory later.
     """
 
-    def __init__(self, sck, mosi, miso, cs, rtc_i2c):
+    def __init__(self, sck, mosi, miso, cs):
         """Mount SD card and validate it is accessible.
 
         Raises OSError immediately if the card is missing or unreadable,
         giving the operator a clear signal before motors are armed.
-
-        Args:
-            sck, mosi, miso, cs: SD card SPI0 pin numbers.
-            rtc_i2c: I2C object shared with sensors (PCF8523 is on the main sensor bus).
         """
         cs_pin = Pin(cs, Pin.OUT, value=1)
         spi = SPI(0, baudrate=400_000, polarity=0, phase=0,
@@ -73,17 +30,15 @@ class SdSink:
         self._vfs = os.VfsFat(self._sd)
         os.mount(self._vfs, _SD_MOUNT)
 
-        self._rtc_i2c = rtc_i2c
         self._run_dir = None
         self._f = None
 
-    def init_session(self):
-        """Read RTC, create a timestamped run directory, copy config and open log file.
+    def init_session(self, dt):
+        """Create a timestamped run directory, copy config and open log file.
 
+        dt: (year, month, day, hour, minute, second) from TimeSource.now().
         Call once when the recording session actually starts (after arming).
         """
-        dt = read_rtc(self._rtc_i2c)
-
         try:
             os.mkdir(_LOG_DIR)
         except OSError:
@@ -114,6 +69,17 @@ class SdSink:
         """Flush buffered data to the SD card."""
         self._f.flush()
 
+    def write_crash_log(self, exc):
+        """Write exception traceback to crash.log in the session folder. No-op if no session."""
+        if self._run_dir is None:
+            return
+        import sys
+        try:
+            with open(self._run_dir + "/crash.log", "w") as f:
+                sys.print_exception(exc, f)
+        except Exception:
+            pass
+
     def close(self):
         """Flush and close the log file, then unmount the SD card."""
         if self._f:
@@ -127,10 +93,9 @@ class TelemetryRecorder:
 
     _HEADER = "T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2"
 
-    def __init__(self, sample_every, sink=None):
-        """Set decimation rate and output backend (defaults to PrintSink)."""
+    def __init__(self, sample_every, sink):
         self._sample_every = sample_every
-        self._sink = sink or PrintSink()
+        self._sink = sink
         self._counter = 0
 
     def begin_session(self):
@@ -153,6 +118,10 @@ class TelemetryRecorder:
             rate_err, rate_p, rate_i, rate_d, pid_out, m1, m2
         )
         self._sink.write(line)
+
+    def write_crash_log(self, exc):
+        """Write exception traceback to the session folder via the sink."""
+        self._sink.write_crash_log(exc)
 
     def end_session(self):
         """Flush and close the sink. Call when leaving STABILIZING state (before disarm)."""
