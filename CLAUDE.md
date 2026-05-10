@@ -66,7 +66,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │       └── analyse-flight/  # Skill: full analysis pipeline for a single flight
 │           ├── SKILL.md
 │           ├── scripts/
-│           │   ├── plot.py            # Step 1: 5-subplot diagnostic figure
+│           │   ├── plots.py           # Step 1: diagnostic figures dispatcher
 │           │   ├── score_flight.py    # Step 2: pass/fail KPI gate
 │           │   └── profile_flight.py  # Step 3: detailed statistical profile
 │           └── templates/

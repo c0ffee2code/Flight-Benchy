@@ -141,15 +141,25 @@ See [DR-001, "Test Bench vs Real Drone" section](decision/DR-001-pid-lever-stabi
 │   ├── mixer.py         # LeverMixer — differential thrust for 2-motor lever
 │   ├── ui.py            # Operator interface — buttons + RGB LED
 │   └── telemetry/
-│       ├── recorder.py  # TelemetryRecorder, PrintSink, SdSink, read_rtc
+│       ├── recorder.py  # TelemetryRecorder, SdSink
+│       ├── time_source.py  # TimeSource, read_rtc — PCF8523 RTC facade
 │       └── sdcard.py    # SD card SPI driver (micropython-lib, with stop bit fix)
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
 ├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
-├── tools/
-│   ├── plot.py          # Generate diagnostic plots (run first — always)
-│   ├── kpi.py           # Pass/fail gate: time-to-reach, HoldMAE, time-at-horizontal
-│   └── analyse_telemetry.py  # Deep-dive stats for passing runs (no plots)
+├── .claude/
+│   └── skills/
+│       └── analyse-flight/   # Analysis pipeline for a single flight run
+│           ├── scripts/
+│           │   ├── smoke.py           # Validate run folder before analysis
+│           │   ├── plots.py           # Generate all diagnostic figures
+│           │   ├── score_flight.py    # KPI pass/fail gate
+│           │   └── profile_flight.py  # Deep-dive statistical profile
+│           └── templates/
+│               └── flight_analysis.md # Structured report template
+├── tools/               # Pico utilities (upload to Pico, not used on desktop)
+│   ├── set_rtc.py           # Set PCF8523 RTC clock
+│   └── tare_and_measure.py  # IMU tare calibration with before/after comparison
 ├── test_runs/           # Copied run folders from SD card for offline analysis
 ├── decision/            # Architecture Decision Records
 └── resources/           # Datasheets, protocol docs

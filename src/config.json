@@ -21,7 +21,7 @@
       "output_limit": 300
     },
     "motor": {
-      "base_throttle": 600,
+      "base_throttle": 500,
       "throttle_min": 100,
       "throttle_max": 900,
       "expo": 0.0

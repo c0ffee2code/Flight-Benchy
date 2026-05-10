@@ -29,6 +29,10 @@ Checks (run in order):
                 hard-slam startups that overshoot but then hold cleanly.
                 Exits immediately — pipeline stops.
 
+  sample-rate   Loop timing jitter is severe enough to degrade KPI accuracy.
+                Signature: dt_p99 > 5× median dt.
+                Exits immediately — pipeline stops.
+
 Run from project root:
   python .claude/skills/analyse-flight/scripts/smoke.py test_runs/flights/<flight_id>
 """
@@ -51,6 +55,9 @@ _SETPOINT_BAND_DEG       = 10.0  # ±band used to decide "reached setpoint"
 # Loop-meltdown thresholds — both must fire
 _LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0  # lever traversed near-full mechanical range
 _LOOP_MELTDOWN_IMU_TRAIL_PCT = 40.0  # IMU persistently lags encoder direction
+
+# Sample-rate jitter threshold
+_SAMPLE_RATE_JITTER_FACTOR   = 5.0   # dt_p99 > this × median → fail
 
 
 def _quat_to_angle(qr, qi):
@@ -123,6 +130,24 @@ def check_loop_meltdown(rows):
     return None
 
 
+def check_sample_rate(rows):
+    """Return detail string if timing jitter is excessive (dt_p99 > 5× median)."""
+    if len(rows) < 10:
+        return None
+    times = [float(r["T_MS"]) for r in rows]
+    dts   = sorted(times[i + 1] - times[i] for i in range(len(times) - 1))
+    median_dt = dts[len(dts) // 2]
+    p99_idx   = max(0, int(len(dts) * 0.99) - 1)
+    dt_p99  = dts[p99_idx]
+    threshold = _SAMPLE_RATE_JITTER_FACTOR * median_dt
+    if dt_p99 > threshold:
+        return (
+            f"dt_p99={dt_p99:.0f}ms > {_SAMPLE_RATE_JITTER_FACTOR:.0f}× "
+            f"median ({median_dt:.0f}ms). Loop jitter exceeds acceptable range."
+        )
+    return None
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit("Usage: smoke.py test_runs/flights/<flight_id>")
@@ -151,6 +176,7 @@ def main():
         ("start-angle",   check_start_angle(rows)),
         ("power-cut",     check_power_cut(rows, setpoint)),
         ("loop-meltdown", check_loop_meltdown(rows)),
+        ("sample-rate",   check_sample_rate(rows)),
     ]:
         if detail:
             print(f"[FAIL] {name:<13} — {detail}")

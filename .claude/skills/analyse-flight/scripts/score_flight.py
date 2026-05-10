@@ -7,9 +7,14 @@ Standard test convention:
   Start OK flag  : start encoder within ±10° of +58°
 
 KPIs (all measured from encoder — ground truth):
-  T→0      Seconds from run start to first entry into the ±10° band around setpoint
-  HoldMAE  Encoder MAE from setpoint from first reach to end of run — primary hold accuracy metric
-  T@0      Total seconds spent inside the ±10° band around setpoint
+  T→SP          Seconds from run start to first entry into the ±10° band around setpoint.
+  Rise time     10–90% of the initial step — rate of approach (excludes pre-spin phase).
+  Overshoot     Max excursion past setpoint as % of initial step after first setpoint crossing.
+  T_s           Settling time — first moment the encoder enters the band and stays inside for
+                at least SETTLING_MIN_HOLD_S seconds continuously through end of run.
+                Returns None if the run ends before confirming SETTLING_MIN_HOLD_S of hold.
+  HoldMAE_s     Encoder MAE from settling time onward — pure hold quality, no overshoot.
+                None if the run never confirms SETTLING_MIN_HOLD_S of settled hold.
 
 Run from project root:
   python .claude/skills/analyse-flight/scripts/score_flight.py test_runs/flights/<flight_id>
@@ -24,6 +29,7 @@ from pathlib import Path
 HORIZONTAL_THRESHOLD_DEG = 10.0
 STANDARD_START_DEG       = 58.0
 START_TOLERANCE_DEG      = 10.0
+SETTLING_MIN_HOLD_S      = 5.0
 
 
 def load_setpoint(run_dir):
@@ -39,18 +45,30 @@ def load_setpoint(run_dir):
         sys.exit(f"config.json missing bench.session.setpoint.roll_deg: {e}")
 
 
+def load_motor_limits(run_dir):
+    """Return (throttle_min, throttle_max) from config.json in run_dir. Exits on any error."""
+    cfg_path = Path(run_dir) / "config.json"
+    if not cfg_path.exists():
+        sys.exit(f"config.json not found in {run_dir}")
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    try:
+        motor = cfg["vehicle"]["motor"]
+        return float(motor["throttle_min"]), float(motor["throttle_max"])
+    except (KeyError, TypeError) as e:
+        sys.exit(f"config.json missing vehicle.motor throttle_min/throttle_max: {e}")
+
+
 def enc_angle(qr, qi):
     return math.degrees(2.0 * math.atan2(qi, qr))
-
 
 
 def load_angles(csv_path):
     result = []
     with open(csv_path, newline="") as f:
         for row in csv.DictReader(f):
-            t = float(row["T_MS"])
-            angle = enc_angle(float(row["ENC_QR"]), float(row["ENC_QI"]))
-            result.append((t, angle))
+            result.append((float(row["T_MS"]),
+                           enc_angle(float(row["ENC_QR"]), float(row["ENC_QI"]))))
     return result
 
 
@@ -58,42 +76,94 @@ def compute_kpis(samples, setpoint):
     if not samples:
         return None
 
-    t0, a0 = samples[0]
-    start_angle = a0
-    start_ok = abs(start_angle - STANDARD_START_DEG) <= START_TOLERANCE_DEG
+    t0, a0       = samples[0]
+    start_angle  = a0
+    start_ok     = abs(start_angle - STANDARD_START_DEG) <= START_TOLERANCE_DEG
 
+    initial_step     = setpoint - start_angle   # e.g. 0 − 58 = −58
+    initial_step_abs = abs(initial_step)
+
+    # T→SP: first entry into ±HORIZONTAL_THRESHOLD_DEG band
     reached_idx = None
     for i, (t, a) in enumerate(samples):
         if abs(a - setpoint) <= HORIZONTAL_THRESHOLD_DEG:
             reached_idx = i
             break
-
     reached = reached_idx is not None
+
+    # Rise time 10–90%
+    rise_time_s = None
+    if initial_step_abs > 1e-6:
+        mark_10 = start_angle + 0.10 * initial_step
+        mark_90 = start_angle + 0.90 * initial_step
+        t_10 = t_90 = None
+        for t, a in samples:
+            if t_10 is None:
+                if (initial_step < 0 and a <= mark_10) or (initial_step > 0 and a >= mark_10):
+                    t_10 = t
+            if t_90 is None:
+                if (initial_step < 0 and a <= mark_90) or (initial_step > 0 and a >= mark_90):
+                    t_90 = t
+        if t_10 is not None and t_90 is not None:
+            rise_time_s = (t_90 - t_10) / 1000.0
+
+    # Overshoot % — max excursion past setpoint as % of initial step
+    overshoot_pct = None
+    if reached and initial_step_abs > 1e-6:
+        crossed_idx = None
+        for i, (t, a) in enumerate(samples):
+            if (initial_step < 0 and a <= setpoint) or (initial_step > 0 and a >= setpoint):
+                crossed_idx = i
+                break
+        if crossed_idx is not None:
+            if initial_step < 0:
+                max_exc = max(setpoint - a for _, a in samples[crossed_idx:])
+            else:
+                max_exc = max(a - setpoint for _, a in samples[crossed_idx:])
+            overshoot_pct = max(0.0, max_exc / initial_step_abs * 100.0)
+        else:
+            overshoot_pct = 0.0
+
+    time_to_s = (samples[reached_idx][0] - t0) / 1000.0 if reached else None
+
+    # Settling time + HoldMAE_settled
+    # Scan backward from end to find last sample outside the band (at or after reach)
+    settling_time_s  = None
+    hold_mae_settled = None
+    settle_idx       = None
     if reached:
-        t_reach, _ = samples[reached_idx]
-        time_to_s = (t_reach - t0) / 1000.0
-        post = [a for _, a in samples[reached_idx:]]
-        hold_mae = sum(abs(a - setpoint) for a in post) / len(post)
-        time_at_s = sum(
-            (samples[i + 1][0] - samples[i][0]) / 1000.0
-            for i in range(len(samples) - 1)
-            if abs(samples[i][1] - setpoint) <= HORIZONTAL_THRESHOLD_DEG
-            and abs(samples[i + 1][1] - setpoint) <= HORIZONTAL_THRESHOLD_DEG
-        )
-    else:
-        time_to_s = None
-        hold_mae = None
-        time_at_s = 0.0
+        last_out = None
+        for i in range(len(samples) - 1, reached_idx - 1, -1):
+            if abs(samples[i][1] - setpoint) > HORIZONTAL_THRESHOLD_DEG:
+                last_out = i
+                break
+        if last_out is None:
+            settle_idx = reached_idx          # never left the band after reach
+        elif last_out + 1 < len(samples):
+            settle_idx = last_out + 1
+        # else: run ended with encoder outside the band — settle_idx stays None
+
+        if settle_idx is not None:
+            t_settle    = samples[settle_idx][0]
+            settled_dur = (samples[-1][0] - t_settle) / 1000.0
+            if settled_dur >= SETTLING_MIN_HOLD_S:
+                settling_time_s  = (t_settle - t0) / 1000.0
+                post_s           = [a for _, a in samples[settle_idx:]]
+                hold_mae_settled = sum(abs(a - setpoint) for a in post_s) / len(post_s)
 
     return {
-        "start_angle": start_angle,
-        "start_ok": start_ok,
-        "reached": reached,
-        "time_to_s": time_to_s,
-        "hold_mae": hold_mae,
-        "time_at_s": time_at_s,
-        "duration_s": (samples[-1][0] - t0) / 1000.0,
-        "n": len(samples),
+        "start_angle":      start_angle,
+        "start_ok":         start_ok,
+        "reached":          reached,
+        "time_to_s":        time_to_s,
+        "rise_time_s":      rise_time_s,
+        "overshoot_pct":    overshoot_pct,
+        "settling_time_s":  settling_time_s,
+        "hold_mae_settled": hold_mae_settled,
+        "hold_start_idx":   reached_idx,
+        "settle_start_idx": settle_idx,
+        "duration_s":       (samples[-1][0] - t0) / 1000.0,
+        "n":                len(samples),
     }
 
 
@@ -101,7 +171,7 @@ def main():
     if len(sys.argv) != 2:
         sys.exit("Usage: score_flight.py test_runs/flights/<flight_id>")
 
-    run_dir = Path(sys.argv[1])
+    run_dir  = Path(sys.argv[1])
     csv_path = run_dir / "log.csv"
 
     if not csv_path.exists():
@@ -112,24 +182,31 @@ def main():
         sys.exit(f"Too few samples ({len(samples)}) — run may be corrupt")
 
     setpoint = load_setpoint(run_dir)
-    k = compute_kpis(samples, setpoint)
-    start_flag = "ok" if k["start_ok"] else "!!"
+    k        = compute_kpis(samples, setpoint)
+
+    def _fmt(val, fmt, suffix=""):
+        return f"{val:{fmt}}{suffix}" if val is not None else "-"
+
+    start_flag  = "ok" if k["start_ok"] else "!!"
     reached_str = "YES" if k["reached"] else "NO"
-    t_to  = f"{k['time_to_s']:.1f}s" if k["reached"] else "-"
-    h_mae = f"{k['hold_mae']:.2f}" if k["reached"] else "-"
-    t_at  = f"{k['time_at_s']:.1f}s"
+    t_to        = _fmt(k["time_to_s"],        ".1f", "s")
+    h_mae_s     = _fmt(k["hold_mae_settled"], ".2f", "°")
 
     header = (f"{'Run':<26} {'Start':>7} {'OK':>3} {'Reached':>8} "
-              f"{'T->SP (s)':>10} {'HoldMAE':>9} {'T@SP (s)':>10} {'Dur (s)':>8}")
+              f"{'T->SP (s)':>10} {'HoldMAE_s (°)':>14} {'Dur (s)':>8}")
     sep = "-" * len(header)
     print(header)
     print(sep)
-    print(f"{run_dir.name:<26} {k['start_angle']:>6.1f}  {start_flag:>3} "
-          f"{reached_str:>8} {t_to:>10} {h_mae:>9} {t_at:>10} "
+    print(f"{run_dir.name:<26} {k['start_angle']:>6.1f}° {start_flag:>3} "
+          f"{reached_str:>8} {t_to:>10} {h_mae_s:>14} "
           f"{k['duration_s']:>7.1f}s")
     print(sep)
 
     if k["reached"]:
+        rise = _fmt(k["rise_time_s"],    ".1f", "s")
+        os_  = _fmt(k["overshoot_pct"],  ".1f", "%")
+        ts   = _fmt(k["settling_time_s"], ".1f", "s")
+        print(f"\n  Rise 10-90%: {rise:<8}  Overshoot: {os_:<8}  T_s (settling): {ts}")
         print(f"\nPassed — use profile_flight.py for deep dive:")
         print(f"  python .claude/skills/analyse-flight/scripts/profile_flight.py {run_dir}")
 

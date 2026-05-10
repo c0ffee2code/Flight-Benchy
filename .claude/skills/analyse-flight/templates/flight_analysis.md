@@ -37,65 +37,115 @@
 {PROFILE_OUTPUT_VERBATIM}
 ```
 
-### Plot
+### Plots
 
-`test_runs/flights/{FLIGHT_ID}/plot.png` — open and review alongside this report.
+- `test_runs/flights/{FLIGHT_ID}/01_timeseries.png` — full time-series (angle, rate, PID terms, motors)
+- `test_runs/flights/{FLIGHT_ID}/02_step_response.png` — full run milestones + transient zoom
+- `test_runs/flights/{FLIGHT_ID}/03_spectrum.png` — PSD of hold-window error (omitted if no settled hold)
+- `test_runs/flights/{FLIGHT_ID}/04_hold_error_distribution.png` — hold-error histogram (omitted if no settled hold)
+- `test_runs/flights/{FLIGHT_ID}/05_phase_portrait.png` — phase portrait, time-coloured trajectory
 
 ---
 
 ## KPI Scorecard
 
-(From `score_flight.py` output — also echoed at top of `profile_flight.py` output.)
+| Metric | Value |
+|--------|-------|
+| Reached setpoint | {REACHED_YN} |
+| T→SP (s) | {T_TO_SP_S} |
+| Rise time 10-90% (s) | {RISE_TIME_S} |
+| Overshoot (% of step) | {OVERSHOOT_PCT} |
+| Settling time T_s (s) | {SETTLING_TIME_S} |
+| HoldMAE_s (°), post-settle | {HOLD_MAE_S_DEG} |
+
+## Sample Rate
 
 | Metric | Value |
 |--------|-------|
-| Reached horizontal | {REACHED_YN} |
-| T→0 (s) | {T_TO_REACH_S} |
-| HoldMAE (°), post-reach | {HOLD_MAE_DEG} |
-| T@0 (s) | {T_AT_ZERO_S} |
+| Achieved Hz | {ACTUAL_HZ} |
+| Mean dt (ms) | {DT_MEAN_MS} |
+| Median dt (ms) | {DT_MEDIAN_MS} |
+| dt_p99 (ms) | {DT_P99_MS} |
+| dt_max (ms) | {DT_MAX_MS} |
 
-## Sensor Health
+## Sensor Health (IMU vs ENC, whole-run)
 
 | Metric | Value |
 |--------|-------|
-| Achieved sample rate (Hz) | {ACTUAL_HZ} |
-| IMU-ENC MAE (°) | {IMU_ENC_MAE} |
-| IMU-ENC bias (°) | {IMU_ENC_BIAS} |
-| Pearson r | {PEARSON_R} |
+| MAE overall (°) | {IMU_ENC_MAE} |
+| MAE fast motion (°) | {IMU_ENC_MAE_FAST} |
+| MAE slow motion (°) | {IMU_ENC_MAE_SLOW} |
+| Bias IMU-ENC (°) | {IMU_ENC_BIAS} |
 | IMU trails motion (%) | {TRAIL_PCT} |
 
-## Control Loop Health
+## Hold-Window Tracking (post-reach)
 
-| Metric | Value | Notes |
-|--------|-------|-------|
-| Oscillation frequency (Hz) | {OSC_FREQ_HZ} | |
-| Whole-run ENC MAE (°) | {WHOLE_RUN_ENC_MAE} | Includes the rise — not directly comparable to HoldMAE |
-| Angle windup events | {ANG_WINDUP_EVENTS} | |
-| Rate windup events | {RATE_WINDUP_EVENTS} | |
+| Metric | Value |
+|--------|-------|
+| Hold bias (°, signed) | {HOLD_BIAS} |
+| Hold std (°) | {HOLD_STD} |
+| Hold P95 \|error\| (°) | {HOLD_P95} |
+| Hold max \|error\| (°) | {HOLD_MAX_AE} |
+| Pearson r (hold window) | {HOLD_PEARSON_R} |
+| FFT dominant freq (Hz) | {FFT_FREQ_HZ} |
+
+## Control Effort (hold window)
+
+| Metric | Value |
+|--------|-------|
+| Mean throttle avg M1+M2 | {MEAN_THROTTLE} |
+| Saturation upper % (>= throttle_max) | {SATURATION_UPPER_PCT} |
+| Saturation lower % (<= throttle_min) | {SATURATION_LOWER_PCT} |
+| RMS dM1/dt (throttle/s) | {RMS_DM1_DT} |
+| RMS dM2/dt (throttle/s) | {RMS_DM2_DT} |
+
+## Inner Loop (hold window)
+
+| Metric | Value |
+|--------|-------|
+| Rate tracking RMS (°/s) | {RATE_TRACKING_RMS} |
+
+## Windup (whole-run)
+
+| Metric | Value |
+|--------|-------|
+| Angle windup events | {ANG_WINDUP_EVENTS} |
+| Rate windup events | {RATE_WINDUP_EVENTS} |
+
+---
 
 ## Observations
 
-{One bullet per diagnostic area. Use only the areas that have something worth
-saying — omit a bullet if there is nothing to add beyond what the tables show.
-Suggested leads (adapt or add as needed):
+{One bullet per diagnostic area. Only include areas that have something worth saying —
+omit a bullet if there is nothing to add beyond what the tables already show.
 
-- **Hold accuracy** — tie HoldMAE to a visible plot feature; note whether the
-  error is bias-dominated (lever hovering off-zero) or oscillation-dominated
-  (symmetric wobble). Mention oscillation frequency only if it explains HoldMAE.
+- **Hold quality** — characterise the hold using bias + std rather than a single MAE.
+  A large signed bias means steady-state offset (insufficient integral or steady
+  disturbance). A large std relative to bias means oscillation-dominated error. Note
+  FFT dominant freq is shown only when SNR >= 3x noise floor — '-' means the hold is
+  too flat to resolve a dominant frequency, which is a good sign.
 
-- **Control loop** — flag unexpected I-term behaviour in either direction: buildup
-  that should not be there, or absence despite a persistent offset. Explain the
-  arithmetic when the windup count is zero but the numbers look suspicious.
+- **Transient response** — tie rise time and overshoot together. High overshoot with
+  short rise time is aggressive gain; high overshoot with long rise time suggests the
+  rate loop is saturating or the feedforward is mismatched.
 
-- **Motor balance** — note M1/M2 asymmetry during hold and what it is compensating
-  for. State what can and cannot be concluded without thrust bench data.
+- **Control effort** — flag saturation_upper_pct if non-zero (hitting throttle_max — no
+  upward headroom). saturation_lower_pct at throttle_min is normal in a differential hold;
+  flag only if significantly asymmetric versus saturation_upper_pct. Compare RMS dM1/dt
+  vs dM2/dt — asymmetric chattering is diagnostic. Note M1/M2 mean asymmetry if mean
+  throttle is far from base (angle I-term compensating a steady disturbance).
 
-- **Sensor health** — IMU-ENC bias, Pearson r, trail %. Call out anything that
-  deviates from "small, consistent, well-correlated".
+- **Inner loop** — rate tracking RMS above ~5 °/s during a stable hold suggests the rate
+  loop is not keeping up; pair with overshoot and settling time to distinguish a tuning
+  issue from sensor noise.
 
-- **Mechanical / timeline artefacts** — gaps, spikes, sudden mode changes, anything
-  that does not fit the categories above.
+- **Sensor health** — IMU-ENC bias, trail %, Pearson r (hold window). Call out anything
+  that deviates from "small, consistent, well-correlated". Note if hold-window Pearson r
+  differs significantly from expectations.
 
-Rules: tie every number to a plot feature or an arithmetic explanation. Apply the
-absence lens (missing signals are as diagnostic as unexpected ones). No tuning
-advice; no comparisons to other runs.}
+- **Timeline artefacts** — gaps, spikes, sudden mode changes, anything that does not fit
+  the categories above.
+
+Rules: tie every number to an arithmetic explanation or another stat. Apply the absence
+lens — missing signals are as diagnostic as unexpected ones. No tuning advice; no
+comparisons to other runs; no speculation about mechanical state, battery, or IMU tare.}

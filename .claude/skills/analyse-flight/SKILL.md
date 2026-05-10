@@ -1,20 +1,19 @@
 ---
 name: analyse-flight
-description: Analyse a single Flight Benchy stabilisation run end-to-end — generate the diagnostic plot, compute KPIs (HoldMAE, T→0, T@0), profile sensor and control-loop health, and write a structured analysis.md report. Use this whenever the user points at a single run folder under test_runs/ (typically a YYYY-MM-DD_hh-mm-ss timestamp) and wants to know how it went. Triggers on phrases like "analyse flight", "check this flight". Does NOT cover comparison across multiple runs, PID tuning recommendations, or general drone control theory — for those, answer directly without invoking this skill.
+description: Analyse a single Flight Benchy stabilisation run end-to-end — generate the diagnostic plot, compute KPIs (T→SP, HoldMAE_s), profile sensor and control-loop health, and write a structured analysis.md report. Use this whenever the user points at a single run folder under test_runs/ (typically a YYYY-MM-DD_hh-mm-ss timestamp) and wants to know how it went. Triggers on phrases like "analyse flight", "check this flight". Does NOT cover comparison across multiple runs, PID tuning recommendations, or general drone control theory — for those, answer directly without invoking this skill.
 ---
 
 ## Arguments
 
 ```
-<flight_id> [--ask]
+<flight_id>
 ```
 
 - `<flight_id>` — required. The run folder name under `test_runs/flights/` (e.g. `2026-05-01_19-19-05`).
-- `--ask` — optional. Pause after the plot visual pass and ask the user about mechanical changes or session context before proceeding. **Omit for the default autonomous flow** — anomalies are still called out in the Observations section.
 
 # Analyse Flight
 
-Procedural skill for evaluating a single Flight Benchy stabilisation run. Every flight goes through the same three-step pipeline and produces a consistent `flight_analysis.md`, so runs stay directly comparable over time.
+Procedural skill for evaluating a single Flight Benchy stabilisation run. Every flight goes through the same pipeline and produces a consistent `flight_analysis.md`, so runs stay directly comparable over time.
 
 ## What is a flight
 
@@ -38,16 +37,16 @@ The user is the domain expert on physical changes. They will volunteer that info
 
 ## Pipeline contract
 
-The four scripts are designed to be run in order:
+Following scripts are designed to be run in order:
 
 ```
 smoke.py          → stdout ([PASS]/[FAIL] per check); exits 1 on any failure
-plot.py           → plot.png
+plots.py          → 01_timeseries.png, 02_step_response.png, 03_spectrum.png, 04_hold_error_distribution.png, 05_phase_portrait.png
 score_flight.py   → stdout (KPI pass/fail table);  compute_kpis() importable by profile_flight.py
 profile_flight.py → imports compute_kpis directly;  prints canonical KPIs then grouped diagnostics
 ```
 
-Run all four in order. If smoke exits 1, stop — do not run Steps 2–4.
+Run all of them in order. If smoke exits 1, stop — do not run next steps.
 
 ## Step 1 — Smoke checks
 
@@ -64,60 +63,52 @@ Run first. Validates the run folder and detects failure modes that would invalid
 | **start-angle** | First encoder reading outside 58° ± 10°. Reset-position step was missed. Exits immediately. |
 | **power-cut** | Lever never reached setpoint + flat encoder (std < 3°) + active motor differential. Exits immediately. |
 | **loop-meltdown** | Encoder range > 90° AND IMU trail > 40%. Rate loop in positive feedback. Exits immediately. |
+| **sample-rate** | dt_p99 > 5× median dt. Loop jitter severe enough to degrade KPI accuracy. Exits immediately. |
 
 If smoke exits 1, **stop**. Do not run Steps 2–4. Report the check name and detail to the user. A `postmortem` skill is planned for investigating these failures (not yet available).
 
 ## Step 2 — Plot
 
 ```
-python .claude/skills/analyse-flight/scripts/plot.py test_runs/flights/<flight_id>
+python .claude/skills/analyse-flight/scripts/plots.py test_runs/flights/<flight_id>
 ```
 
-Produces `plot.png`. Five subplots, top to bottom: angle tracking (ENC vs IMU), rate tracking (setpoint vs gyro), outer PID terms, inner PID terms, motor outputs. The plot's docstring has the full per-subplot guide.
+Produces the following numbered PNGs, ordered by diagnostic importance:
+- `01_timeseries.png` — five subplots: angle tracking (ENC vs IMU), rate tracking (setpoint vs gyro), outer PID terms, inner PID terms, motor outputs. Primary reference.
+- `02_step_response.png` — full run with milestones (T→SP, T_s, OS) + transient zoom with rise time.
+- `03_spectrum.png` — PSD of hold-window error. Skipped if no confirmed settled hold.
+- `04_hold_error_distribution.png` — hold-error histogram. Skipped if no confirmed settled hold.
+- `05_phase_portrait.png` — phase portrait (angle vs angular rate), time-coloured trajectory.
 
-**After running, view the PNG.** Use the `view` tool on `test_runs/flights/<flight_id>/plot.png` and form a short visual impression — this feeds into the Observations section later. Things actually worth noting:
+The plot docstrings have the full per-subplot guide.
 
-- Does the encoder line settle near 0° or hover off-zero? (off-zero → tare or steady disturbance)
-- Does the IMU line track the encoder cleanly, or is there visible bias / lag?
-- Is the rate setpoint being chased, or does the gyro lag noticeably?
-- Are outer-loop I-terms drifting up over the hold? (sustained → steady-state disturbance)
-- Do M1 and M2 sit symmetrically during hold? (asymmetry → mechanical bias or I-term compensation)
-- Anything weird that doesn't fit a category — gaps, spikes, sudden mode changes.
-
-The plot is the richest signal in the whole pipeline. The numbers in steps 2 and 3 will confirm or contradict what you saw — both directions are useful information.
-
-**After the visual pass:**
-
-- **Default (no `--ask`)** — proceed directly to Step 2. Anomalies spotted in the plot are recorded in the Observations section of the report; the user can react there if context is needed.
-- **With `--ask`** — pause here. Share what you see in 2–3 sentences and ask if anything unusual happened during the session: mechanical changes, a power supply hitting its limit, a loose connection, an unusual start. Surface anomalies as questions, not conclusions — "I see M1 running ~50 units higher than M2 throughout the hold — is the frame balanced, or is there a known asymmetry?" Wait for the user's reply before continuing to Step 2.
-
-## Step 2 — Score
+## Step 3 — Score
 
 ```
 python .claude/skills/analyse-flight/scripts/score_flight.py test_runs/flights/<flight_id>
 ```
 
-Computes the KPIs and prints them to stdout. KPI definitions live in the script's docstring. The big one is **HoldMAE** — mean absolute encoder deviation from 0° over all post-reach samples. That's the headline hold-accuracy number; everything else contextualises it.
+Computes the transient KPIs and prints them to stdout. KPI definitions live in the script's docstring. The headline number is **HoldMAE_s** — encoder MAE from settling time onward, excluding the overshoot phase. The transient quartet (T→SP, rise time 10-90%, overshoot %, settling time T_s) characterises the approach; HoldMAE_s characterises the hold.
 
-If `Reached = NO`, skip step 3. In the report, state the fact plainly: "Did not reach horizontal." The plot and KPI table show what happened — no further interpretation needed in Observations.
+If `Reached = NO`, skip steps 4 and the hold sections of the report. State the fact plainly: "Did not reach setpoint." The plot and KPI table show what happened — no further interpretation needed in Observations.
 
-## Step 3 — Deep-dive stats
+## Step 4 — Deep-dive stats
 
 ```
 python .claude/skills/analyse-flight/scripts/profile_flight.py test_runs/flights/<flight_id>
 ```
 
-Prints grouped diagnostics: sample rate, sensor tracking (IMU vs ENC), setpoint error over the whole run, correlation, oscillation frequency, windup events. Group meanings are in the script's docstring.
+Prints grouped diagnostics across six sections: sample rate, sensor health (IMU vs ENC, whole-run), hold-window tracking (bias/std/P95/Pearson r/FFT frequency), control effort (throttle mean/RMS/saturation/dM·dt), inner-loop tracking RMS, and windup events. Group meanings are in the script's docstring.
 
 Two things to watch for in the output:
 
-- The "Whole-run MAE includes the rise" note. Whole-run ENC MAE and HoldMAE measure different things; don't conflate them in the report.
-- Windup event counts are computed against the `iterm_limit` values from `config.json`, which is always present. The counts are always config-derived and can be trusted.
+- The "Whole-run ENC MAE includes the rise" note in the hold-window section. It is shown for reference only — use HoldMAE_s (post-settle) as the headline hold-accuracy number.
+- Windup event counts are computed against the `iterm_limit` values from `config.json`. They cover the whole run, not just the hold window.
 
 ## Writing the report
 
 1. Read the template at `.claude/skills/analyse-flight/templates/flight_analysis.md`.
-2. Fill each placeholder from `score_flight.py` stdout, the `profile_flight.py` stdout, and `config.json`. The profile output echoes canonical KPIs at the top — use that for the KPI Scorecard section. Placeholder names are unique — if the same value appears twice, fill both.
+2. Fill each placeholder from `score_flight.py` stdout, the `profile_flight.py` stdout, and `config.json`. The profile output echoes canonical KPIs at the top — use that for the KPI Scorecard section. Placeholder names are unique — if the same value appears twice, fill both. The template covers decision-quality headline numbers; the Raw Output section is the complete archive. Not every profile metric appears in a template table — that is intentional.
 3. Save the completed report to `test_runs/flights/<flight_id>/analysis.md`, overwriting any existing file.
 4. Tell the user where the file was saved.
 
@@ -125,10 +116,10 @@ The Raw Output section must contain script stdout verbatim — that's the ground
 
 The Observations section is the part that earns its keep. Aim for a short paragraph (3–6 sentences) that says what *this specific run* is doing. Useful patterns:
 
-- Tie a KPI to a visual feature ("HoldMAE of 1.2° matches the visible 1° low-frequency wobble in subplot 1").
-- Note when something looks fine but a number disagrees, or vice versa ("plot looks clean but oscillation frequency is 2.3 Hz — likely the small high-frequency ripple in subplot 4").
-- Flag mechanical or sensor signals ("M1/M2 asymmetric by ~50 throttle units during hold — frame is unbalanced or angle I-term is compensating for it").
-- Call out anything that should not be there: gaps in the timeline, a spike, an unexpected mode.
+- Tie a KPI to a profile stat ("HoldMAE_s of 1.2° with oscillation frequency 0.8 Hz suggests a low-frequency wobble rather than noise").
+- Note when numbers disagree with each other ("whole-run MAE is high but HoldMAE_s is low — long rise or significant overshoot").
+- Flag sensor or control signals ("M1/M2 asymmetric by ~50 throttle units during hold — angle I-term is compensating for a steady disturbance").
+- Call out anything unexpected: gaps in the timeline, a spike, an unexpected mode change.
 - Apply the same lens to absences: no I-term buildup despite a persistent offset, symmetric motors when asymmetry is expected — missing signals are as diagnostic as unexpected ones.
 
 Avoid: tuning recommendations ("try lowering ki"), comparisons to other runs (out of scope for this skill), restating numbers that are already in the tables above, and hypothesising causes that involve mechanical state, battery/power-supply condition, or IMU tare quality — the user will always explicitly flag those if they apply. Describe what the telemetry shows; do not append an unconfirmed cause.
