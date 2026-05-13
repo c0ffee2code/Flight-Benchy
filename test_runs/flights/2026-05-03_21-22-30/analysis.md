@@ -28,10 +28,12 @@
 ### score_flight.py
 
 ```
-Run                          Start  OK  Reached  T->SP (s)   HoldMAE   T@SP (s)  Dur (s)
-----------------------------------------------------------------------------------------
-2026-05-03_21-22-30          51.9   ok      YES       2.3s      4.15     111.7s   119.9s
-----------------------------------------------------------------------------------------
+Run                          Start  OK  Reached  T->SP (s)  HoldMAE_s (°)  Dur (s)
+----------------------------------------------------------------------------------
+2026-05-03_21-22-30          51.9°  ok      YES       2.3s          3.93°   119.9s
+----------------------------------------------------------------------------------
+
+  Rise 10-90%: 2.9s      Overshoot: 28.0%     T_s (settling): 103.7s
 
 Passed — use profile_flight.py for deep dive:
   python .claude/skills/analyse-flight/scripts/profile_flight.py test_runs\flights\2026-05-03_21-22-30
@@ -49,12 +51,15 @@ Loaded 2026-05-03_21-22-30: 2249 samples, 119.9s
   Rate PID:  kp=0.5, ki=0.0, kd=0.009, iterm_limit=50.0
   IMU: angle=game_rotation_vector @ 50 Hz, rate=calibrated_gyroscope @ 200 Hz
   Motor: base=600, min=100, max=800
+  Feedforward: lead_ms=15
 
   --- Canonical KPIs (from score_flight) ---
   Reached setpoint                              YES
-  T->setpoint (s)                               2.3
-  HoldMAE (°), post-reach                      4.15
-  T@setpoint (s)                              111.7
+  T->SP (s)                                    2.3s
+  Rise time 10-90% (s)                         2.9s
+  Overshoot (% of step)                       28.0%
+  Settling time T_s (s)                      103.7s
+  HoldMAE_s (°), post-settle                  3.93°
 
   --- Sample Rate ---
   Samples                                      2249
@@ -62,30 +67,43 @@ Loaded 2026-05-03_21-22-30: 2249 samples, 119.9s
   Achieved Hz                                  18.7
   Mean dt (ms)                                 53.3
   Median dt (ms)                               51.0
+  dt_p99 (ms)                                  96.0
+  dt_max (ms)                                 115.0
 
-  --- Sensor Health (IMU vs ENC) ---
+  --- Sensor Health (IMU vs ENC, whole-run) ---
   MAE (overall)                                0.52
   MAE (fast motion)                            0.72
   MAE (slow motion)                            0.44
   Max AE                                       4.18
-  RMS Error                                    0.74
+  RMS error                                    0.74
   Bias (IMU-ENC)                              -0.27
-
-  --- Setpoint Error (vs +0°) ---
-  Whole-run ENC MAE (°)                        4.50
-  (includes the rise — not comparable to HoldMAE)
-  IMU MAE (°)                                  4.67
-  ENC Bias (°)                                -2.16
-  ENC Max AE (°)                              51.86
-
-  --- Correlation & Tracking ---
-  Pearson r                                  0.9928
   IMU trails motion (%)                        39.1
   Encoder range (°)                            66.4
   IMU range (°)                                62.1
 
-  --- Oscillation & Windup ---
-  Oscillation freq (Hz)                        0.83
+  --- Hold-Window Tracking (ENC vs +0°, post-reach) ---
+  Whole-run ENC MAE (°)                        4.50
+  (includes rise — not comparable to HoldMAE_s)
+  Hold bias (°, signed)                       -2.63
+  Hold std (°)                                 4.50
+  Hold P95 |error| (°)                         9.91
+  Hold max |error| (°)                        14.50
+  Pearson r (hold window)                    0.9896
+  FFT dominant freq (Hz)                      0.008
+    (freq resolution Hz)                      0.008
+
+  --- Control Effort (hold window) ---
+  Mean throttle (avg M1+M2)                   600.0
+  RMS throttle                                600.0
+  Saturation upper % (>= max)                   0.0
+  Saturation lower % (<= min)                   0.0
+  RMS dM1/dt (throttle/s)                      96.1
+  RMS dM2/dt (throttle/s)                      96.1
+
+  --- Inner Loop (hold window) ---
+  Rate tracking RMS (°/s)                     19.35
+
+  --- Windup (whole-run) ---
   Angle windup events                             0
   Angle windup threshold                       50.0
   Rate windup events                              0
@@ -95,7 +113,7 @@ Loaded 2026-05-03_21-22-30: 2249 samples, 119.9s
 
 ### Plot
 
-`test_runs/flights/2026-05-03_21-22-30/plot.png` — open and review alongside this report.
+`test_runs/flights/2026-05-03_21-22-30/plot.png` — open alongside this report if needed.
 
 ---
 
@@ -103,36 +121,77 @@ Loaded 2026-05-03_21-22-30: 2249 samples, 119.9s
 
 | Metric | Value |
 |--------|-------|
-| Reached setpoint | YES |
+| Reached setpoint | Yes |
 | T→SP (s) | 2.3 |
-| HoldMAE (°), post-reach | 4.15 |
-| T@SP (s) | 111.7 |
+| Rise time 10-90% (s) | 2.9 |
+| Overshoot (% of step) | 28.0% |
+| Settling time T_s (s) | 103.7 |
+| HoldMAE_s (°), post-settle | 3.93 |
 
-## Sensor Health
+## Sample Rate
 
 | Metric | Value |
 |--------|-------|
-| Achieved sample rate (Hz) | 18.7 |
-| IMU-ENC MAE (°) | 0.52 |
-| IMU-ENC bias (°) | -0.27 |
-| Pearson r | 0.9928 |
+| Achieved Hz | 18.7 |
+| Mean dt (ms) | 53.3 |
+| Median dt (ms) | 51.0 |
+| dt_p99 (ms) | 96.0 |
+| dt_max (ms) | 115.0 |
+
+## Sensor Health (IMU vs ENC, whole-run)
+
+| Metric | Value |
+|--------|-------|
+| MAE overall (°) | 0.52 |
+| MAE fast motion (°) | 0.72 |
+| MAE slow motion (°) | 0.44 |
+| Bias IMU-ENC (°) | -0.27 |
 | IMU trails motion (%) | 39.1 |
 
-## Control Loop Health
+## Hold-Window Tracking (post-reach)
 
-| Metric | Value | Notes |
-|--------|-------|-------|
-| Oscillation frequency (Hz) | 0.83 | |
-| Whole-run ENC MAE (°) | 4.50 | Includes the rise — not directly comparable to HoldMAE |
-| Angle windup events | 0 | |
-| Rate windup events | 0 | |
+| Metric | Value |
+|--------|-------|
+| Hold bias (°, signed) | -2.63 |
+| Hold std (°) | 4.50 |
+| Hold P95 \|error\| (°) | 9.91 |
+| Hold max \|error\| (°) | 14.50 |
+| Pearson r (hold window) | 0.9896 |
+| FFT dominant freq (Hz) | 0.008 |
+
+## Control Effort (hold window)
+
+| Metric | Value |
+|--------|-------|
+| Mean throttle avg M1+M2 | 600.0 |
+| Saturation upper % (>= throttle_max) | 0.0 |
+| Saturation lower % (<= throttle_min) | 0.0 |
+| RMS dM1/dt (throttle/s) | 96.1 |
+| RMS dM2/dt (throttle/s) | 96.1 |
+
+## Inner Loop (hold window)
+
+| Metric | Value |
+|--------|-------|
+| Rate tracking RMS (°/s) | 19.35 |
+
+## Windup (whole-run)
+
+| Metric | Value |
+|--------|-------|
+| Angle windup events | 0 |
+| Rate windup events | 0 |
+
+---
 
 ## Observations
 
-- **Hold accuracy**: HoldMAE of 4.15° has two components visible in subplot 1: a consistent negative bias (ENC bias = −2.16°, lever hovering ~2° below setpoint) and a low-frequency oscillation at 0.83 Hz producing a regular symmetric wobble. Roughly half the error is from the offset, half from the oscillation amplitude.
+- **Hold quality**: Post-reach hold std (4.50°) substantially exceeds bias (−2.63°), indicating oscillation-dominated error rather than a steady-state offset. Settling was not confirmed until 103.7s — meaning the 101s between first reach (2.3s) and confirmed settling was spent in persistent oscillation that repeatedly left and re-entered the ±10° band without sustaining the 5s criterion. HoldMAE_s of 3.93° covers only the final 16.2s of the run.
 
-- **Control loop**: The angle I-term in subplot 3 trends negative over the hold, accumulating to compensate for the persistent negative bias — this is expected behaviour with ki=0.05. Zero windup events against the 100.0 limit confirms the I-term never saturated; the slow drift is well within its operating range. Rate ki=0.0, so no I-term accumulation in the inner loop, as expected.
+- **FFT dominant frequency**: 0.008 Hz equals the frequency resolution of the FFT window — this cannot be interpreted as a confirmed oscillation period. It indicates that the lowest non-DC bin carries the most energy, consistent with a very slow within-band drift rather than a resolved frequency.
 
-- **Motor balance**: M2 runs consistently higher than M1 throughout the hold (subplot 5, orange above blue by roughly 50–100 throttle units). This is the I-term compensation for the negative angle bias — to hold the lever at ~−2°, M2 requires elevated thrust relative to M1.
+- **Transient response**: 28% overshoot on the 51.9° step corresponds to ~14.5°, sending the lever to roughly −14.5°. Rise time of 2.9s is moderate. The combination of significant overshoot and very late settling (103.7s) shows the ring-down after the overshoot is the limiting factor for this run — the hold window between 2.3s and 103.7s is dominated by recovery.
 
-- **Sensor health**: IMU-ENC MAE of 0.52° and bias of −0.27° are small and consistent. Pearson r=0.9928 indicates clean correlation across the full run. IMU trailing motion 39.1% of samples is consistent with the known GRV filter lag at 50 Hz.
+- **Control effort**: Mean throttle is exactly 600 (base_throttle) and dM1/dt = dM2/dt = 96.1 throttle/s — perfectly symmetric, no saturation at either limit. The high symmetric dM rate reflects the ongoing oscillation, not chattering against a boundary. No steady disturbance is present.
+
+- **Inner loop**: Rate tracking RMS of 19.35 °/s during the hold window is high for a hold phase, consistent with the oscillating hold — the inner loop is servicing large angular rate demands rather than tracking a small residual around setpoint.
