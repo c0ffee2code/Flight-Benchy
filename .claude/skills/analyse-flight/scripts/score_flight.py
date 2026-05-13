@@ -24,12 +24,56 @@ import csv
 import json
 import math
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 HORIZONTAL_THRESHOLD_DEG = 10.0
 STANDARD_START_DEG       = 58.0
 START_TOLERANCE_DEG      = 10.0
 SETTLING_MIN_HOLD_S      = 5.0
+
+
+@dataclass
+class KpiResult:
+    """
+    KPI and diagnostic values for one flight run, computed by compute_kpis().
+
+    Fields
+    ------
+    start_angle      : Encoder angle at the first sample, degrees.
+    start_ok         : True if start_angle is within ±START_TOLERANCE_DEG of
+                       STANDARD_START_DEG (standard M1-end-down position).
+    reached          : True if the encoder entered the ±HORIZONTAL_THRESHOLD_DEG
+                       band around setpoint at least once.
+    time_to_s        : Seconds from run start to first band entry (T→SP); None if
+                       not reached.
+    rise_time_s      : 10–90% rise time in seconds; None if step is negligible.
+    overshoot_pct    : Max excursion past setpoint as % of initial step after first
+                       crossing; None if not reached.
+    damping_ratio    : Damping ratio ζ derived from overshoot via the canonical
+                       2nd-order formula; None if overshoot is 0 or not reached.
+    settling_time_s  : Time of first entry into the band that is never left for
+                       ≥ SETTLING_MIN_HOLD_S seconds; None if not confirmed.
+    hold_mae_settled : Encoder MAE from settling_time_s onward; None if settling
+                       not confirmed.
+    hold_start_idx   : Sample index of the first band entry; None if not reached.
+    settle_start_idx : Sample index of settling start; None if settling not confirmed.
+    duration_s       : Total run duration, seconds.
+    n                : Total number of samples.
+    """
+    start_angle:      float
+    start_ok:         bool
+    reached:          bool
+    time_to_s:        float | None
+    rise_time_s:      float | None
+    overshoot_pct:    float | None
+    damping_ratio:    float | None
+    settling_time_s:  float | None
+    hold_mae_settled: float | None
+    hold_start_idx:   int | None
+    settle_start_idx: int | None
+    duration_s:       float
+    n:                int
 
 
 def load_setpoint(run_dir):
@@ -124,6 +168,14 @@ def compute_kpis(samples, setpoint):
         else:
             overshoot_pct = 0.0
 
+    # Damping ratio ζ — derived from overshoot via the canonical 2nd-order formula.
+    # Valid only when overshoot > 0 (underdamped). OS=0 implies ζ ≥ 1 (overdamped or
+    # critically damped); the exact value cannot be recovered from step response alone.
+    damping_ratio = None
+    if overshoot_pct is not None and overshoot_pct > 0.0:
+        ln_os = math.log(overshoot_pct / 100.0)
+        damping_ratio = -ln_os / math.sqrt(math.pi ** 2 + ln_os ** 2)
+
     time_to_s = (samples[reached_idx][0] - t0) / 1000.0 if reached else None
 
     # Settling time + HoldMAE_settled
@@ -151,20 +203,21 @@ def compute_kpis(samples, setpoint):
                 post_s           = [a for _, a in samples[settle_idx:]]
                 hold_mae_settled = sum(abs(a - setpoint) for a in post_s) / len(post_s)
 
-    return {
-        "start_angle":      start_angle,
-        "start_ok":         start_ok,
-        "reached":          reached,
-        "time_to_s":        time_to_s,
-        "rise_time_s":      rise_time_s,
-        "overshoot_pct":    overshoot_pct,
-        "settling_time_s":  settling_time_s,
-        "hold_mae_settled": hold_mae_settled,
-        "hold_start_idx":   reached_idx,
-        "settle_start_idx": settle_idx,
-        "duration_s":       (samples[-1][0] - t0) / 1000.0,
-        "n":                len(samples),
-    }
+    return KpiResult(
+        start_angle=start_angle,
+        start_ok=start_ok,
+        reached=reached,
+        time_to_s=time_to_s,
+        rise_time_s=rise_time_s,
+        overshoot_pct=overshoot_pct,
+        damping_ratio=damping_ratio,
+        settling_time_s=settling_time_s,
+        hold_mae_settled=hold_mae_settled,
+        hold_start_idx=reached_idx,
+        settle_start_idx=settle_idx,
+        duration_s=(samples[-1][0] - t0) / 1000.0,
+        n=len(samples),
+    )
 
 
 def main():
@@ -187,33 +240,40 @@ def main():
     def _fmt(val, fmt, suffix=""):
         return f"{val:{fmt}}{suffix}" if val is not None else "-"
 
-    start_flag  = "ok" if k["start_ok"] else "!!"
-    reached_str = "YES" if k["reached"] else "NO"
-    t_to        = _fmt(k["time_to_s"],        ".1f", "s")
-    h_mae_s     = _fmt(k["hold_mae_settled"], ".2f", "°")
+    start_flag  = "ok" if k.start_ok else "!!"
+    reached_str = "YES" if k.reached else "NO"
+    t_to        = _fmt(k.time_to_s,        ".1f", "s")
+    h_mae_s     = _fmt(k.hold_mae_settled, ".2f", "deg")
 
-    header = (f"{'Run':<26} {'Start':>7} {'OK':>3} {'Reached':>8} "
-              f"{'T->SP (s)':>10} {'HoldMAE_s (°)':>14} {'Dur (s)':>8}")
+    header = (f"{'Run':<26} {'Start':>8} {'OK':>3} {'Reached':>8} "
+              f"{'T->SP (s)':>10} {'HoldMAE_s (deg)':>16} {'Dur (s)':>8}")
     sep = "-" * len(header)
     print(header)
     print(sep)
-    print(f"{run_dir.name:<26} {k['start_angle']:>6.1f}° {start_flag:>3} "
-          f"{reached_str:>8} {t_to:>10} {h_mae_s:>14} "
-          f"{k['duration_s']:>7.1f}s")
+    print(f"{run_dir.name:<26} {k.start_angle:>4.1f}deg {start_flag:>3} "
+          f"{reached_str:>8} {t_to:>10} {h_mae_s:>16} "
+          f"{k.duration_s:>7.1f}s")
     print(sep)
 
-    if k["reached"]:
-        rise = _fmt(k["rise_time_s"],    ".1f", "s")
-        os_  = _fmt(k["overshoot_pct"],  ".1f", "%")
-        ts   = _fmt(k["settling_time_s"], ".1f", "s")
+    if k.reached:
+        rise  = _fmt(k.rise_time_s,    ".1f", "s")
+        os_   = _fmt(k.overshoot_pct,  ".1f", "%")
+        ts    = _fmt(k.settling_time_s, ".1f", "s")
+        if k.damping_ratio is not None:
+            zeta_str = f"{k.damping_ratio:.3f}"
+        elif k.overshoot_pct is not None and k.overshoot_pct == 0.0:
+            zeta_str = ">=1 (no OS)"
+        else:
+            zeta_str = "-"
         print(f"\n  Rise 10-90%: {rise:<8}  Overshoot: {os_:<8}  T_s (settling): {ts}")
-        print(f"\nPassed — use profile_flight.py for deep dive:")
+        print(f"  Damping ratio zeta: {zeta_str}")
+        print(f"\nPassed - use profile_flight.py for deep dive:")
         print(f"  python .claude/skills/analyse-flight/scripts/profile_flight.py {run_dir}")
 
-    if not k["start_ok"]:
-        print(f"\nNon-standard start — lever was not at the restrictor "
-              f"(expected {STANDARD_START_DEG}° ± {START_TOLERANCE_DEG}°, "
-              f"got {k['start_angle']:+.1f}°). KPIs are not comparable to standard runs.")
+    if not k.start_ok:
+        print(f"\nNon-standard start - lever was not at the restrictor "
+              f"(expected {STANDARD_START_DEG}deg +/- {START_TOLERANCE_DEG}deg, "
+              f"got {k.start_angle:+.1f}deg). KPIs are not comparable to standard runs.")
 
 
 if __name__ == "__main__":

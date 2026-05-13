@@ -42,6 +42,12 @@ All times are measured from the start of the run (first telemetry row).
 
 **Why HoldMAE_s not whole-run MAE:** the approach phase dominates whole-run MAE on short runs and obscures hold quality. HoldMAE_s is the number that tracks tuning progress for the hold behaviour.
 
+**T→SP vs rise time — operational vs control-theoretic:** T→SP includes the pre-spin ramp phase, during which the lever is still constrained at the restrictor and the control loop has no authority over encoder angle. It is an *operational* metric (total time from power-on to target), not a control-theoretic one. Rise time (10→90%) is the control-theoretic transient metric: measurement begins only after the encoder starts moving, so the pre-spin phase is correctly excluded. When comparing against textbook step-response benchmarks, use rise time — not T→SP.
+
+**Overshoot normalisation:** overshoot is expressed as a percentage of the *initial step* (|setpoint − start_angle|), not the final held value. For runs that converge near setpoint with small steady-state bias, the two definitions differ by less than rounding error and the choice is immaterial. The initial-step normalisation is used because it is independent of hold accuracy — the same denominator applies regardless of how well the I-term compensates.
+
+**"Phase portrait" terminology:** the visualisation (figure 05) shows the realised state-space trajectory of one run in (angle, rate) space, time-coloured. Textbooks use "phase portrait" for the vector field with multiple trajectories overlaid; "state-space trajectory" is the strictly accurate term for a single realised path. "Phase portrait" is used here in the colloquial sense common in applied controls literature.
+
 ### Analysis pipeline
 
 ```

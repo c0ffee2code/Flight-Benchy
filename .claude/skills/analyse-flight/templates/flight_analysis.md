@@ -55,6 +55,7 @@
 | T→SP (s) | {T_TO_SP_S} |
 | Rise time 10-90% (s) | {RISE_TIME_S} |
 | Overshoot (% of step) | {OVERSHOOT_PCT} |
+| Damping ratio ζ | {DAMPING_RATIO} |
 | Settling time T_s (s) | {SETTLING_TIME_S} |
 | HoldMAE_s (°), post-settle | {HOLD_MAE_S_DEG} |
 
@@ -98,6 +99,9 @@
 | Saturation lower % (<= throttle_min) | {SATURATION_LOWER_PCT} |
 | RMS dM1/dt (throttle/s) | {RMS_DM1_DT} |
 | RMS dM2/dt (throttle/s) | {RMS_DM2_DT} |
+| ANG_I mean (hold, deg/s) | {ANG_I_MEAN_HOLD} |
+| M2−M1 mean (hold, throttle) | {M2_M1_MEAN_HOLD} |
+| I-term sign vs ΔM | {ITERM_SIGN_OK} |
 
 ## Inner Loop (hold window)
 

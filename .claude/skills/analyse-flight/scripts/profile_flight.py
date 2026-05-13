@@ -31,72 +31,195 @@ Run from project root:
 import csv
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from score_flight import compute_kpis, load_setpoint  # noqa: E402
+from score_flight import compute_kpis  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Data loading
+# Data containers
 # ---------------------------------------------------------------------------
+
+@dataclass
+class RunData:
+    """
+    Flight telemetry columns required by the profile pipeline, loaded from log.csv.
+
+    Fields
+    ------
+    t_ms      : Raw sample timestamps from T_MS column, milliseconds. Shape (n,).
+    t_s       : Elapsed time in seconds from the first sample (t_ms shifted and scaled).
+                Shape (n,).
+    enc_roll  : Encoder roll angle in degrees, derived from ENC_QR/ENC_QI quaternion.
+                Positive = M1 end lower. Shape (n,).
+    imu_roll  : IMU roll angle in degrees, derived from IMU_QR/IMU_QI quaternion.
+                Same sign convention as enc_roll. Shape (n,).
+    gyro_x    : Calibrated gyroscope rate around the roll axis (GYRO_X), degrees/s.
+                Shape (n,).
+    rate_sp   : Inner-loop rate setpoint output by the outer PID (RATE_SP), degrees/s.
+                Shape (n,).
+    ang_i     : Outer (angle) PID I-term (ANG_I), degrees/s. Shape (n,).
+    rate_i    : Inner (rate) PID I-term (RATE_I), throttle units. Shape (n,).
+    m1        : Motor 1 throttle command (M1), throttle units. Shape (n,).
+    m2        : Motor 2 throttle command (M2), throttle units. Shape (n,).
+    label     : Run folder name (YYYY-MM-DD_hh-mm-ss), used in printed output.
+    """
+    t_ms:     np.ndarray
+    t_s:      np.ndarray
+    enc_roll: np.ndarray
+    imu_roll: np.ndarray
+    gyro_x:   np.ndarray
+    rate_sp:  np.ndarray
+    ang_i:    np.ndarray
+    rate_i:   np.ndarray
+    m1:       np.ndarray
+    m2:       np.ndarray
+    label:    str
+
+
+@dataclass
+class RunConfig:
+    """
+    System configuration for one run, parsed from config.json.
+
+    Fields
+    ------
+    setpoint_roll_deg   : Target encoder roll angle, degrees (bench.session.setpoint.roll_deg).
+    throttle_min        : Lower motor throttle clamp (vehicle.motor.throttle_min).
+    throttle_max        : Upper motor throttle clamp (vehicle.motor.throttle_max).
+    motor_base          : Base (hover) throttle offset (vehicle.motor.base_throttle).
+    angle_kp            : Outer PID proportional gain.
+    angle_ki            : Outer PID integral gain.
+    angle_kd            : Outer PID derivative gain.
+    angle_iterm_limit   : Outer PID I-term clamp (vehicle.angle_pid.iterm_limit).
+    rate_kp             : Inner PID proportional gain.
+    rate_ki             : Inner PID integral gain.
+    rate_kd             : Inner PID derivative gain.
+    rate_iterm_limit    : Inner PID I-term clamp (vehicle.rate_pid.iterm_limit).
+    feedforward_lead_ms : Feedforward lead time in ms; None if not configured.
+    imu_summary         : Pre-formatted IMU report string for display (handles both
+                          single-report and dual-report config layouts).
+    """
+    setpoint_roll_deg:   float
+    throttle_min:        float
+    throttle_max:        float
+    motor_base:          float
+    angle_kp:            float
+    angle_ki:            float
+    angle_kd:            float
+    angle_iterm_limit:   float
+    rate_kp:             float
+    rate_ki:             float
+    rate_kd:             float
+    rate_iterm_limit:    float
+    feedforward_lead_ms: float
+    imu_summary:         str
+
+
+# ---------------------------------------------------------------------------
+# Loading
+# ---------------------------------------------------------------------------
+
+def _quat_to_roll(qr, qi):
+    return np.degrees(2.0 * np.arctan2(qi, qr))
+
+
+def _require(cfg, *path):
+    """Navigate a nested dict by path; exit with a clear message if any key is missing."""
+    obj = cfg
+    for key in path:
+        try:
+            obj = obj[key]
+        except (KeyError, TypeError):
+            sys.exit(f"config.json missing: {'.'.join(str(k) for k in path)}")
+    return obj
+
 
 def load_run(path_str):
     p        = Path(path_str)
-    csv_path = (p / "log.csv")     if p.is_dir() else p
-    cfg_path = (p / "config.json") if p.is_dir() else (p.parent / "config.json")
+    csv_path = (p / "log.csv") if p.is_dir() else p
     label    = p.name if p.is_dir() else p.stem
 
     if not csv_path.exists():
         sys.exit(f"log.csv not found: {csv_path}")
-    if not cfg_path.exists():
-        sys.exit(f"config.json not found in {p} — mandatory for profile")
-
-    with open(cfg_path) as f:
-        config = json.load(f)
 
     rows = []
     with open(csv_path, newline="") as f:
-        for r in csv.DictReader(f):
-            rows.append(r)
+        for row in csv.DictReader(f):
+            rows.append(row)
     if not rows:
         sys.exit(f"Empty CSV: {csv_path}")
 
-    cols = {k: np.array([float(r[k]) for r in rows]) for k in rows[0]}
-    return cols, config, label
+    def col(name):
+        return np.array([float(r[name]) for r in rows])
+
+    t_ms = col("T_MS")
+    return RunData(
+        t_ms=t_ms,
+        t_s=(t_ms - t_ms[0]) / 1000.0,
+        enc_roll=_quat_to_roll(col("ENC_QR"), col("ENC_QI")),
+        imu_roll=_quat_to_roll(col("IMU_QR"), col("IMU_QI")),
+        gyro_x=col("GYRO_X"),
+        rate_sp=col("RATE_SP"),
+        ang_i=col("ANG_I"),
+        rate_i=col("RATE_I"),
+        m1=col("M1"),
+        m2=col("M2"),
+        label=label,
+    )
 
 
-def quat_to_roll(qr, qi):
-    return np.degrees(2.0 * np.arctan2(qi, qr))
+def load_config(run_dir):
+    cfg_path = Path(run_dir) / "config.json"
+    if not cfg_path.exists():
+        sys.exit(f"config.json not found in {run_dir} — mandatory for profile")
+    with open(cfg_path) as f:
+        cfg = json.load(f)
 
+    vehicle = _require(cfg, "vehicle")
+    angle   = _require(vehicle, "angle_pid")
+    rate    = _require(vehicle, "rate_pid")
+    motor   = _require(vehicle, "motor")
+    imu = _require(vehicle, "imu")
+    ff  = vehicle.get("feedforward", {})
 
-def cols_to_samples(cols):
-    angles = quat_to_roll(cols["ENC_QR"], cols["ENC_QI"])
-    return list(zip(cols["T_MS"].tolist(), angles.tolist()))
+    imu_summary = (f"angle={_require(imu, 'angle_report')} @ {_require(imu, 'angle_report_hz')} Hz, "
+                   f"rate={_require(imu, 'rate_report')} @ {_require(imu, 'rate_report_hz')} Hz")
 
-
-def _get_iterm_limit(config, pid_key):
-    try:
-        return float(config["vehicle"][pid_key]["iterm_limit"])
-    except (KeyError, TypeError):
-        sys.exit(f"config.json missing vehicle.{pid_key}.iterm_limit")
+    return RunConfig(
+        setpoint_roll_deg=float(_require(cfg, "bench", "session", "setpoint", "roll_deg")),
+        throttle_min=float(_require(motor, "throttle_min")),
+        throttle_max=float(_require(motor, "throttle_max")),
+        motor_base=float(motor.get("base_throttle", 0)),
+        angle_kp=float(_require(angle, "kp")),
+        angle_ki=float(_require(angle, "ki")),
+        angle_kd=float(_require(angle, "kd")),
+        angle_iterm_limit=float(_require(angle, "iterm_limit")),
+        rate_kp=float(_require(rate, "kp")),
+        rate_ki=float(_require(rate, "ki")),
+        rate_kd=float(_require(rate, "kd")),
+        rate_iterm_limit=float(_require(rate, "iterm_limit")),
+        feedforward_lead_ms=float(ff["lead_ms"]) if "lead_ms" in ff else None,
+        imu_summary=imu_summary,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Stat groups — each owns one section of the output
 # ---------------------------------------------------------------------------
 
-def _sample_rate_stats(cols):
-    t_ms       = cols["T_MS"]
-    n          = len(t_ms)
-    dts        = np.diff(t_ms)
-    duration_s = (t_ms[-1] - t_ms[0]) / 1000.0
+def _sample_rate_stats(run_data):
+    n        = len(run_data.t_ms)
+    dts      = np.diff(run_data.t_ms)
+    duration = run_data.t_s[-1]
     return {
         "n_samples":    n,
-        "duration_s":   duration_s,
-        "actual_hz":    (n - 1) / duration_s if duration_s > 0 else 0.0,
+        "duration_s":   duration,
+        "actual_hz":    (n - 1) / duration if duration > 0 else 0.0,
         "dt_mean_ms":   float(np.mean(dts)),
         "dt_median_ms": float(np.median(dts)),
         "dt_p99_ms":    float(np.percentile(dts, 99)),
@@ -104,11 +227,10 @@ def _sample_rate_stats(cols):
     }
 
 
-def _sensor_health_stats(cols):
-    t_ms     = cols["T_MS"]
-    dts      = np.diff(t_ms)
-    enc_roll = quat_to_roll(cols["ENC_QR"], cols["ENC_QI"])
-    imu_roll = quat_to_roll(cols["IMU_QR"], cols["IMU_QI"])
+def _sensor_health_stats(run_data):
+    dts      = np.diff(run_data.t_ms)
+    enc_roll = run_data.enc_roll
+    imu_roll = run_data.imu_roll
 
     errors     = imu_roll - enc_roll
     abs_errors = np.abs(errors)
@@ -142,12 +264,10 @@ def _sensor_health_stats(cols):
     }
 
 
-def _hold_tracking_stats(cols, setpoint, hi):
-    enc_roll  = quat_to_roll(cols["ENC_QR"], cols["ENC_QI"])
-    imu_roll  = quat_to_roll(cols["IMU_QR"], cols["IMU_QI"])
-    hold_enc  = enc_roll[hi:]
-    hold_imu  = imu_roll[hi:]
-    hold_t_ms = cols["T_MS"][hi:]
+def _hold_tracking_stats(run_data, setpoint, hi):
+    hold_enc  = run_data.enc_roll[hi:]
+    hold_imu  = run_data.imu_roll[hi:]
+    hold_t_ms = run_data.t_ms[hi:]
     hold_err  = hold_enc - setpoint
 
     fft_freq = None
@@ -160,7 +280,7 @@ def _hold_tracking_stats(cols, setpoint, hi):
         nondc    = mag[1:]
         if len(freqs) > 1:
             fft_freq_resolution = float(freqs[1])
-        peak_idx     = int(np.argmax(nondc)) + 1   # index into mag / freqs
+        peak_idx     = int(np.argmax(nondc)) + 1
         median_nondc = float(np.median(nondc))
         if median_nondc > 0 and float(mag[peak_idx]) >= 3.0 * median_nondc:
             fft_freq = float(freqs[peak_idx])
@@ -170,73 +290,76 @@ def _hold_tracking_stats(cols, setpoint, hi):
         pearson_r = float(np.corrcoef(hold_enc, hold_imu)[0, 1])
 
     return {
-        "bias":              float(np.mean(hold_err)),
-        "std":               float(np.std(hold_err)),
-        "p95":               float(np.percentile(np.abs(hold_err), 95)),
-        "max_ae":            float(np.max(np.abs(hold_err))),
-        "pearson_r":         pearson_r,
+        "bias":                   float(np.mean(hold_err)),
+        "std":                    float(np.std(hold_err)),
+        "p95":                    float(np.percentile(np.abs(hold_err), 95)),
+        "max_ae":                 float(np.max(np.abs(hold_err))),
+        "pearson_r":              pearson_r,
         "fft_freq_hz":            fft_freq,
         "fft_freq_resolution_hz": fft_freq_resolution,
-        "whole_run_enc_mae":      float(np.mean(np.abs(enc_roll - setpoint))),
+        "whole_run_enc_mae":      float(np.mean(np.abs(run_data.enc_roll - setpoint))),
     }
 
 
-def _control_effort_stats(cols, config, hi):
-    try:
-        throttle_min = float(config["vehicle"]["motor"]["throttle_min"])
-        throttle_max = float(config["vehicle"]["motor"]["throttle_max"])
-    except (KeyError, TypeError):
-        sys.exit("config.json missing vehicle.motor.throttle_min / throttle_max")
-
-    hold_m1   = cols["M1"][hi:]
-    hold_m2   = cols["M2"][hi:]
-    hold_t_ms = cols["T_MS"][hi:]
+def _control_effort_stats(run_data, run_config, hi):
+    hold_m1   = run_data.m1[hi:]
+    hold_m2   = run_data.m2[hi:]
+    hold_t_ms = run_data.t_ms[hi:]
     avg_thr   = (hold_m1 + hold_m2) / 2.0
-    saturation_upper_mask = (hold_m1 >= throttle_max) | (hold_m2 >= throttle_max)
-    saturation_lower_mask = (hold_m1 <= throttle_min) | (hold_m2 <= throttle_min)
 
-    hold_dts  = np.diff(hold_t_ms) / 1000.0
-    safe_dts  = np.where(hold_dts > 0, hold_dts, 1e-6)
-    dm1_dt    = np.diff(hold_m1) / safe_dts
-    dm2_dt    = np.diff(hold_m2) / safe_dts
+    saturation_upper = (hold_m1 >= run_config.throttle_max) | (hold_m2 >= run_config.throttle_max)
+    saturation_lower = (hold_m1 <= run_config.throttle_min) | (hold_m2 <= run_config.throttle_min)
+
+    hold_dts = np.diff(hold_t_ms) / 1000.0
+    safe_dts = np.where(hold_dts > 0, hold_dts, 1e-6)
+    dm1_dt   = np.diff(hold_m1) / safe_dts
+    dm2_dt   = np.diff(hold_m2) / safe_dts
+
+    # I-term self-consistency: in a settled hold, ANG_P ≈ 0 and ANG_D ≈ 0, so the
+    # motor differential (M2−M1 = 2×output) is driven almost entirely by ANG_I.
+    # sign(mean ANG_I) must equal sign(mean M2−M1). Disagreement indicates a sign
+    # error somewhere in the control chain (gain, axis orientation, mixer direction).
+    ang_i_mean = float(np.mean(run_data.ang_i[hi:]))
+    m2_m1_mean = float(np.mean(hold_m2 - hold_m1))
 
     return {
         "mean_throttle":        float(np.mean(avg_thr)),
         "rms_throttle":         float(np.sqrt(np.mean(avg_thr ** 2))),
-        "saturation_upper_pct": float(np.mean(saturation_upper_mask) * 100.0),
-        "saturation_lower_pct": float(np.mean(saturation_lower_mask) * 100.0),
+        "saturation_upper_pct": float(np.mean(saturation_upper) * 100.0),
+        "saturation_lower_pct": float(np.mean(saturation_lower) * 100.0),
         "rms_dm1_dt":           float(np.sqrt(np.mean(dm1_dt ** 2))),
         "rms_dm2_dt":           float(np.sqrt(np.mean(dm2_dt ** 2))),
+        "ang_i_mean":           ang_i_mean,
+        "m2_m1_mean":           m2_m1_mean,
+        "iterm_sign_ok":        ang_i_mean * m2_m1_mean >= 0,
     }
 
 
-def _inner_loop_stats(cols, hi):
-    rate_err = cols["RATE_SP"][hi:] - cols["GYRO_X"][hi:]
+def _inner_loop_stats(run_data, hi):
+    rate_err = run_data.rate_sp[hi:] - run_data.gyro_x[hi:]
     return {
         "rate_tracking_rms": float(np.sqrt(np.mean(rate_err ** 2))),
     }
 
 
-def _windup_stats(cols, config):
-    ang_limit  = _get_iterm_limit(config, "angle_pid")
-    rate_limit = _get_iterm_limit(config, "rate_pid")
+def _windup_stats(run_data, run_config):
     return {
-        "ang_windup_events":     int(np.sum(np.abs(cols["ANG_I"])  >= ang_limit  * 0.5)),
-        "ang_windup_threshold":  ang_limit  * 0.5,
-        "rate_windup_events":    int(np.sum(np.abs(cols["RATE_I"]) >= rate_limit * 0.5)),
-        "rate_windup_threshold": rate_limit * 0.5,
+        "ang_windup_events":     int(np.sum(np.abs(run_data.ang_i)  >= run_config.angle_iterm_limit  * 0.5)),
+        "ang_windup_threshold":  run_config.angle_iterm_limit  * 0.5,
+        "rate_windup_events":    int(np.sum(np.abs(run_data.rate_i) >= run_config.rate_iterm_limit   * 0.5)),
+        "rate_windup_threshold": run_config.rate_iterm_limit   * 0.5,
     }
 
 
-def compute_stats(cols, config, setpoint, hold_start_idx=None):
+def compute_stats(run_data, run_config, hold_start_idx=None):
     hi = hold_start_idx if hold_start_idx is not None else 0
     return (
-        _sample_rate_stats(cols),
-        _sensor_health_stats(cols),
-        _hold_tracking_stats(cols, setpoint, hi),
-        _control_effort_stats(cols, config, hi),
-        _inner_loop_stats(cols, hi),
-        _windup_stats(cols, config),
+        _sample_rate_stats(run_data),
+        _sensor_health_stats(run_data),
+        _hold_tracking_stats(run_data, run_config.setpoint_roll_deg, hi),
+        _control_effort_stats(run_data, run_config, hi),
+        _inner_loop_stats(run_data, hi),
+        _windup_stats(run_data, run_config),
     )
 
 
@@ -248,47 +371,46 @@ def _row(name, value, fmt=".2f"):
     print(f"  {name:<38} {value:>10{fmt}}")
 
 
-def print_config_summary(config):
-    vehicle = config.get("vehicle", {})
-    angle   = vehicle.get("angle_pid", {})
-    rate    = vehicle.get("rate_pid", {})
-    motor   = vehicle.get("motor", {})
-    imu     = vehicle.get("imu", {})
-    print(f"  Angle PID: kp={angle.get('kp')}, ki={angle.get('ki')}, "
-          f"kd={angle.get('kd')}, iterm_limit={angle.get('iterm_limit')}")
-    print(f"  Rate PID:  kp={rate.get('kp')}, ki={rate.get('ki')}, "
-          f"kd={rate.get('kd')}, iterm_limit={rate.get('iterm_limit')}")
-    if "report_hz" in imu:
-        print(f"  IMU: {imu.get('report')} @ {imu.get('report_hz')} Hz")
-    else:
-        print(f"  IMU: angle={imu.get('angle_report')} @ {imu.get('angle_report_hz')} Hz, "
-              f"rate={imu.get('rate_report')} @ {imu.get('rate_report_hz')} Hz")
-    print(f"  Motor: base={motor.get('base_throttle')}, "
-          f"min={motor.get('throttle_min')}, max={motor.get('throttle_max')}")
-    ff = vehicle.get("feedforward", {})
-    if ff:
-        print(f"  Feedforward: lead_ms={ff.get('lead_ms')}")
+def print_config_summary(run_config):
+    print(f"  Angle PID: kp={run_config.angle_kp}, ki={run_config.angle_ki}, "
+          f"kd={run_config.angle_kd}, iterm_limit={run_config.angle_iterm_limit}")
+    print(f"  Rate PID:  kp={run_config.rate_kp}, ki={run_config.rate_ki}, "
+          f"kd={run_config.rate_kd}, iterm_limit={run_config.rate_iterm_limit}")
+    print(f"  IMU: {run_config.imu_summary}")
+    print(f"  Motor: base={run_config.motor_base}, "
+          f"min={run_config.throttle_min}, max={run_config.throttle_max}")
+    if run_config.feedforward_lead_ms is not None:
+        print(f"  Feedforward: lead_ms={run_config.feedforward_lead_ms}")
 
 
 def print_canonical_kpis(kpis):
     def _fmt(val, fmt, suffix=""):
         return f"{val:{fmt}}{suffix}" if val is not None else "-"
 
+    if kpis.damping_ratio is not None:
+        zeta_str = f"{kpis.damping_ratio:.3f}"
+    elif kpis.overshoot_pct is not None and kpis.overshoot_pct == 0.0:
+        zeta_str = ">=1 (no OS)"
+    else:
+        zeta_str = "-"
+
     print("  --- Canonical KPIs (from score_flight) ---")
-    print(f"  {'Reached setpoint':<38} {'YES' if kpis['reached'] else 'NO':>10}")
-    print(f"  {'T->SP (s)':<38} {_fmt(kpis['time_to_s'],        '.1f', 's'):>10}")
-    print(f"  {'Rise time 10-90% (s)':<38} {_fmt(kpis['rise_time_s'],     '.1f', 's'):>10}")
-    print(f"  {'Overshoot (% of step)':<38} {_fmt(kpis['overshoot_pct'],   '.1f', '%'):>10}")
-    print(f"  {'Settling time T_s (s)':<38} {_fmt(kpis['settling_time_s'], '.1f', 's'):>10}")
-    print(f"  {'HoldMAE_s (°), post-settle':<38} {_fmt(kpis['hold_mae_settled'], '.2f', '°'):>10}")
+    print(f"  {'Reached setpoint':<38} {'YES' if kpis.reached else 'NO':>10}")
+    print(f"  {'T->SP (s)':<38} {_fmt(kpis.time_to_s,        '.1f', 's'):>10}")
+    print(f"  {'Rise time 10-90% (s)':<38} {_fmt(kpis.rise_time_s,     '.1f', 's'):>10}")
+    print(f"  {'Overshoot (% of step)':<38} {_fmt(kpis.overshoot_pct,   '.1f', '%'):>10}")
+    print(f"  {'Damping ratio zeta':<38} {zeta_str:>10}")
+    print(f"  {'Settling time T_s (s)':<38} {_fmt(kpis.settling_time_s, '.1f', 's'):>10}")
+    print(f"  {'HoldMAE_s (deg), post-settle':<38} {_fmt(kpis.hold_mae_settled, '.2f', 'deg'):>10}")
 
 
-def print_profile(label, rate, sensor, hold, effort, inner, windup, config, kpis, setpoint):
+def print_profile(run_data, run_config, rate, sensor, hold, effort, inner, windup, kpis):
+    setpoint = run_config.setpoint_roll_deg
     w = 58
     print("=" * w)
-    print(f"  {label}")
+    print(f"  {run_data.label}")
     print("-" * w)
-    print_config_summary(config)
+    print_config_summary(run_config)
     print()
 
     if kpis is not None:
@@ -312,21 +434,25 @@ def print_profile(label, rate, sensor, hold, effort, inner, windup, config, kpis
     _row("RMS error",             sensor["rms_error"])
     _row("Bias (IMU-ENC)",        sensor["bias"])
     _row("IMU trails motion (%)", sensor["trail_pct"], ".1f")
-    _row("Encoder range (°)",     sensor["enc_range"], ".1f")
-    _row("IMU range (°)",         sensor["imu_range"], ".1f")
+    _row("Encoder range (deg)",   sensor["enc_range"], ".1f")
+    _row("IMU range (deg)",       sensor["imu_range"], ".1f")
 
-    print(f"\n  --- Hold-Window Tracking (ENC vs {setpoint:+.0f}°, post-reach) ---")
-    _row("Whole-run ENC MAE (°)",   hold["whole_run_enc_mae"])
-    print("  (includes rise — not comparable to HoldMAE_s)")
-    _row("Hold bias (°, signed)",   hold["bias"])
-    _row("Hold std (°)",            hold["std"])
-    _row("Hold P95 |error| (°)",    hold["p95"])
-    _row("Hold max |error| (°)",    hold["max_ae"])
+    print(f"\n  --- Hold-Window Tracking (ENC vs {setpoint:+.0f}deg, post-reach) ---")
+    _row("Whole-run ENC MAE (deg)",   hold["whole_run_enc_mae"])
+    print("  (includes rise - not comparable to HoldMAE_s)")
+    _row("Hold bias (deg, signed)",   hold["bias"])
+    _row("Hold std (deg)",            hold["std"])
+    _row("Hold P95 |error| (deg)",    hold["p95"])
+    _row("Hold max |error| (deg)",    hold["max_ae"])
     _row("Pearson r (hold window)", hold["pearson_r"], ".4f")
     fft_val = f"{hold['fft_freq_hz']:.3f}" if hold["fft_freq_hz"] is not None else "-"
     print(f"  {'FFT dominant freq (Hz)':<38} {fft_val:>10}")
     if hold["fft_freq_resolution_hz"] is not None:
         print(f"  {'  (freq resolution Hz)':<38} {hold['fft_freq_resolution_hz']:>10.3f}")
+    if (hold["fft_freq_hz"] is not None and
+            hold["fft_freq_resolution_hz"] is not None and
+            hold["fft_freq_hz"] < 3.0 * hold["fft_freq_resolution_hz"]):
+        print("  (advisory - peak within 3x resolution; may be drift rather than oscillation)")
 
     print("\n  --- Control Effort (hold window) ---")
     _row("Mean throttle (avg M1+M2)",          effort["mean_throttle"],        ".1f")
@@ -335,9 +461,13 @@ def print_profile(label, rate, sensor, hold, effort, inner, windup, config, kpis
     _row("Saturation lower % (<= min)",        effort["saturation_lower_pct"], ".1f")
     _row("RMS dM1/dt (throttle/s)",            effort["rms_dm1_dt"],           ".1f")
     _row("RMS dM2/dt (throttle/s)",            effort["rms_dm2_dt"],           ".1f")
+    _row("ANG_I mean (hold, deg/s)",           effort["ang_i_mean"],           ".2f")
+    _row("M2-M1 mean (hold, throttle)",        effort["m2_m1_mean"],           ".1f")
+    sign_str = "OK" if effort["iterm_sign_ok"] else "FLIP - sign error in control chain"
+    print(f"  {'I-term sign vs dM':<38} {sign_str:>10}")
 
     print("\n  --- Inner Loop (hold window) ---")
-    _row("Rate tracking RMS (°/s)", inner["rate_tracking_rms"])
+    _row("Rate tracking RMS (deg/s)", inner["rate_tracking_rms"])
 
     print("\n  --- Windup (whole-run) ---")
     _row("Angle windup events",  windup["ang_windup_events"],  ".0f")
@@ -357,21 +487,23 @@ def main():
         sys.exit("Usage: python .claude/skills/analyse-flight/scripts/profile_flight.py "
                  "test_runs/flights/<flight_id>")
 
-    cols, config, label = load_run(sys.argv[1])
-
     p        = Path(sys.argv[1])
     run_dir  = p if p.is_dir() else p.parent
-    setpoint = load_setpoint(run_dir)
+    run_data   = load_run(sys.argv[1])
+    run_config = load_config(run_dir)
 
-    kpis           = compute_kpis(cols_to_samples(cols), setpoint)
-    hold_start_idx = kpis["hold_start_idx"] if kpis else None
+    kpis = compute_kpis(
+        list(zip(run_data.t_ms.tolist(), run_data.enc_roll.tolist())),
+        run_config.setpoint_roll_deg,
+    )
+    hold_start_idx = kpis.hold_start_idx if kpis else None
 
     rate, sensor, hold, effort, inner, windup = compute_stats(
-        cols, config, setpoint, hold_start_idx=hold_start_idx,
+        run_data, run_config, hold_start_idx=hold_start_idx,
     )
 
-    print(f"Loaded {label}: {rate['n_samples']} samples, {rate['duration_s']:.1f}s\n")
-    print_profile(label, rate, sensor, hold, effort, inner, windup, config, kpis, setpoint)
+    print(f"Loaded {run_data.label}: {rate['n_samples']} samples, {rate['duration_s']:.1f}s\n")
+    print_profile(run_data, run_config, rate, sensor, hold, effort, inner, windup, kpis)
 
 
 if __name__ == "__main__":

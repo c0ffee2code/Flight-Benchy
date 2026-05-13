@@ -79,7 +79,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │       └── YYYY-MM-DD_hh-mm-ss/  # One folder per run
 │           ├── config.json  # System settings snapshot (PID gains, motor limits, etc.)
 │           └── log.csv      # Telemetry CSV
-├── decision/            # Architecture Decision Records
+├── decision/            # Decision Records
 └── resources/           # Docs, datasheets
 ```
 

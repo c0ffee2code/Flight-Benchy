@@ -74,8 +74,8 @@ def check_start_angle(rows):
     first = _quat_to_angle(rows[0]["ENC_QR"], rows[0]["ENC_QI"])
     if abs(first - _STANDARD_START_DEG) > _START_TOLERANCE_DEG:
         return (
-            f"start angle={first:+.1f}° is outside "
-            f"{_STANDARD_START_DEG}° ± {_START_TOLERANCE_DEG}°. "
+            f"start angle={first:+.1f}deg is outside "
+            f"{_STANDARD_START_DEG}deg +/- {_START_TOLERANCE_DEG}deg. "
             f"Reset-position step was missed — KPIs are not comparable to standard runs."
         )
     return None
@@ -96,7 +96,7 @@ def check_power_cut(rows, setpoint):
 
     if enc_std < _POWER_CUT_FLAT_STD_DEG and mean_diff > _POWER_CUT_ACTIVE_DIFF:
         return (
-            f"flat encoder std={enc_std:.1f}° (<{_POWER_CUT_FLAT_STD_DEG}°), "
+            f"flat encoder std={enc_std:.1f}deg (<{_POWER_CUT_FLAT_STD_DEG}deg), "
             f"motor differential mean={mean_diff:.0f} (>{_POWER_CUT_ACTIVE_DIFF:.0f}). "
             f"Pico was alive and commanding; ESC power was lost."
         )
@@ -123,7 +123,7 @@ def check_loop_meltdown(rows):
 
     if enc_range > _LOOP_MELTDOWN_ENC_RANGE_DEG and trail_pct > _LOOP_MELTDOWN_IMU_TRAIL_PCT:
         return (
-            f"encoder range={enc_range:.1f}° (>{_LOOP_MELTDOWN_ENC_RANGE_DEG:.0f}°), "
+            f"encoder range={enc_range:.1f}deg (>{_LOOP_MELTDOWN_ENC_RANGE_DEG:.0f}deg), "
             f"IMU trail={trail_pct:.1f}% (>{_LOOP_MELTDOWN_IMU_TRAIL_PCT:.0f}%). "
             f"Rate loop in positive feedback — check sensor_orientation in config."
         )
@@ -142,7 +142,7 @@ def check_sample_rate(rows):
     threshold = _SAMPLE_RATE_JITTER_FACTOR * median_dt
     if dt_p99 > threshold:
         return (
-            f"dt_p99={dt_p99:.0f}ms > {_SAMPLE_RATE_JITTER_FACTOR:.0f}× "
+            f"dt_p99={dt_p99:.0f}ms > {_SAMPLE_RATE_JITTER_FACTOR:.0f}x "
             f"median ({median_dt:.0f}ms). Loop jitter exceeds acceptable range."
         )
     return None
@@ -159,7 +159,7 @@ def main():
     missing = [name for name, path in [("log.csv", csv_path), ("config.json", cfg_path)]
                if not path.exists()]
     if missing:
-        sys.exit(f"[FAIL] missing       — {', '.join(missing)} not found in {run_dir}")
+        sys.exit(f"[FAIL] missing       - {', '.join(missing)} not found in {run_dir}")
 
     with open(cfg_path) as f:
         cfg = json.load(f)
@@ -170,7 +170,7 @@ def main():
 
     rows = _load(csv_path)
     if len(rows) < 5:
-        sys.exit(f"[FAIL] truncated     — {len(rows)} rows in log.csv; SD write likely interrupted")
+        sys.exit(f"[FAIL] truncated     - {len(rows)} rows in log.csv; SD write likely interrupted")
 
     for name, detail in [
         ("start-angle",   check_start_angle(rows)),
@@ -179,7 +179,7 @@ def main():
         ("sample-rate",   check_sample_rate(rows)),
     ]:
         if detail:
-            print(f"[FAIL] {name:<13} — {detail}")
+            print(f"[FAIL] {name:<13} - {detail}")
             sys.exit(1)
         print(f"[PASS] {name}")
 
