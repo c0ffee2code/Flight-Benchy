@@ -116,8 +116,148 @@ class RunConfig:
     rate_ki:             float
     rate_kd:             float
     rate_iterm_limit:    float
-    feedforward_lead_ms: float
+    feedforward_lead_ms: float | None
     imu_summary:         str
+
+
+@dataclass
+class SampleRateStats:
+    """
+    Timing diagnostics for one flight run, computed by _sample_rate_stats().
+
+    Fields
+    ------
+    n_samples    : Total number of CSV rows.
+    duration_s   : Elapsed time from first to last sample, seconds.
+    actual_hz    : Achieved sample rate = (n_samples − 1) / duration_s.
+    dt_mean_ms   : Mean inter-sample interval, milliseconds.
+    dt_median_ms : Median inter-sample interval, milliseconds.
+    dt_p99_ms    : 99th-percentile inter-sample interval, milliseconds.
+    dt_max_ms    : Maximum inter-sample interval, milliseconds.
+    """
+    n_samples:    int
+    duration_s:   float
+    actual_hz:    float
+    dt_mean_ms:   float
+    dt_median_ms: float
+    dt_p99_ms:    float
+    dt_max_ms:    float
+
+
+@dataclass
+class SensorHealthStats:
+    """
+    IMU-vs-encoder agreement over the full run, computed by _sensor_health_stats().
+
+    Fields
+    ------
+    mae         : Mean absolute error |IMU − ENC|, degrees.
+    rms_error   : RMS of (IMU − ENC), degrees.
+    max_ae      : Maximum |IMU − ENC|, degrees.
+    bias        : Mean signed error (IMU − ENC), degrees.
+    mae_fast    : MAE restricted to the top-quartile encoder velocity samples.
+    mae_slow    : MAE restricted to the bottom-quartile encoder velocity samples.
+    correlation : Pearson r between enc_roll and imu_roll over the full run.
+    trail_pct   : % of moving samples where IMU lags behind encoder direction.
+    enc_range   : Peak-to-peak encoder range, degrees.
+    imu_range   : Peak-to-peak IMU range, degrees.
+    """
+    mae:         float
+    rms_error:   float
+    max_ae:      float
+    bias:        float
+    mae_fast:    float
+    mae_slow:    float
+    correlation: float
+    trail_pct:   float
+    enc_range:   float
+    imu_range:   float
+
+
+@dataclass
+class HoldTrackingStats:
+    """
+    Encoder tracking statistics over the hold window (from first reach), computed by _hold_tracking_stats().
+
+    Fields
+    ------
+    bias                   : Mean signed error enc_roll − setpoint, degrees.
+    std                    : Standard deviation of hold error, degrees.
+    p95                    : 95th percentile of |hold error|, degrees.
+    max_ae                 : Maximum |hold error|, degrees.
+    pearson_r              : Pearson r between enc_roll and imu_roll over the hold window.
+    fft_freq_hz            : Dominant FFT frequency of hold error above 3× noise floor; None if
+                             no peak clears that threshold.
+    fft_freq_resolution_hz : Width of one FFT bin = 1 / hold_duration_s; None if window too short.
+    whole_run_enc_mae      : Whole-run ENC MAE vs setpoint (includes rise phase — reference only).
+    """
+    bias:                   float
+    std:                    float
+    p95:                    float
+    max_ae:                 float
+    pearson_r:              float
+    fft_freq_hz:            float | None
+    fft_freq_resolution_hz: float | None
+    whole_run_enc_mae:      float
+
+
+@dataclass
+class ControlEffortStats:
+    """
+    Motor output statistics over the hold window, computed by _control_effort_stats().
+
+    Fields
+    ------
+    mean_throttle        : Mean of (M1 + M2) / 2, throttle units.
+    rms_throttle         : RMS of (M1 + M2) / 2, throttle units.
+    saturation_upper_pct : % of hold samples where M1 or M2 >= throttle_max.
+    saturation_lower_pct : % of hold samples where M1 or M2 <= throttle_min.
+    rms_dm1_dt           : RMS of dM1/dt (throttle/s) — motor 1 command activity.
+    rms_dm2_dt           : RMS of dM2/dt (throttle/s) — motor 2 command activity.
+    ang_i_mean           : Mean ANG_I over hold window, degrees/s.
+    m2_m1_mean           : Mean (M2 − M1) over hold window, throttle units.
+    iterm_sign_ok        : True when sign(ang_i_mean) == sign(m2_m1_mean). Disagreement
+                           indicates a sign error somewhere in the control chain.
+    """
+    mean_throttle:        float
+    rms_throttle:         float
+    saturation_upper_pct: float
+    saturation_lower_pct: float
+    rms_dm1_dt:           float
+    rms_dm2_dt:           float
+    ang_i_mean:           float
+    m2_m1_mean:           float
+    iterm_sign_ok:        bool
+
+
+@dataclass
+class InnerLoopStats:
+    """
+    Inner rate-loop tracking quality over the hold window, computed by _inner_loop_stats().
+
+    Fields
+    ------
+    rate_tracking_rms : RMS of (RATE_SP − GYRO_X) during hold, degrees/s.
+    """
+    rate_tracking_rms: float
+
+
+@dataclass
+class WindupStats:
+    """
+    I-term saturation event counts over the full run, computed by _windup_stats().
+
+    Fields
+    ------
+    ang_windup_events     : Samples where |ANG_I| >= 50% of angle_iterm_limit.
+    ang_windup_threshold  : The 50% threshold applied (= angle_iterm_limit × 0.5).
+    rate_windup_events    : Samples where |RATE_I| >= 50% of rate_iterm_limit.
+    rate_windup_threshold : The 50% threshold applied (= rate_iterm_limit × 0.5).
+    """
+    ang_windup_events:     int
+    ang_windup_threshold:  float
+    rate_windup_events:    int
+    rate_windup_threshold: float
 
 
 # ---------------------------------------------------------------------------
@@ -216,15 +356,15 @@ def _sample_rate_stats(run_data):
     n        = len(run_data.t_ms)
     dts      = np.diff(run_data.t_ms)
     duration = run_data.t_s[-1]
-    return {
-        "n_samples":    n,
-        "duration_s":   duration,
-        "actual_hz":    (n - 1) / duration if duration > 0 else 0.0,
-        "dt_mean_ms":   float(np.mean(dts)),
-        "dt_median_ms": float(np.median(dts)),
-        "dt_p99_ms":    float(np.percentile(dts, 99)),
-        "dt_max_ms":    float(np.max(dts)),
-    }
+    return SampleRateStats(
+        n_samples=n,
+        duration_s=duration,
+        actual_hz=(n - 1) / duration if duration > 0 else 0.0,
+        dt_mean_ms=float(np.mean(dts)),
+        dt_median_ms=float(np.median(dts)),
+        dt_p99_ms=float(np.percentile(dts, 99)),
+        dt_max_ms=float(np.max(dts)),
+    )
 
 
 def _sensor_health_stats(run_data):
@@ -249,19 +389,19 @@ def _sensor_health_stats(run_data):
         trailing  = (motion_dir[moving] * imu_offset[moving]) > 0
         trail_pct = float(np.sum(trailing) / np.sum(moving) * 100)
 
-    return {
-        "mae":         float(np.mean(abs_errors)),
-        "rms_error":   float(np.sqrt(np.mean(errors ** 2))),
-        "max_ae":      float(np.max(abs_errors)),
-        "bias":        float(np.mean(errors)),
-        "mae_fast":    float(np.mean(abs_errors[fast_idx])) if len(fast_idx) > 0 else 0.0,
-        "mae_slow":    float(np.mean(abs_errors[slow_idx])) if len(slow_idx) > 0 else 0.0,
-        "correlation": float(np.corrcoef(enc_roll, imu_roll)[0, 1])
-                       if np.std(enc_roll) > 0 and np.std(imu_roll) > 0 else 0.0,
-        "trail_pct":   trail_pct,
-        "enc_range":   float(np.ptp(enc_roll)),
-        "imu_range":   float(np.ptp(imu_roll)),
-    }
+    return SensorHealthStats(
+        mae=float(np.mean(abs_errors)),
+        rms_error=float(np.sqrt(np.mean(errors ** 2))),
+        max_ae=float(np.max(abs_errors)),
+        bias=float(np.mean(errors)),
+        mae_fast=float(np.mean(abs_errors[fast_idx])) if len(fast_idx) > 0 else 0.0,
+        mae_slow=float(np.mean(abs_errors[slow_idx])) if len(slow_idx) > 0 else 0.0,
+        correlation=float(np.corrcoef(enc_roll, imu_roll)[0, 1])
+                    if np.std(enc_roll) > 0 and np.std(imu_roll) > 0 else 0.0,
+        trail_pct=trail_pct,
+        enc_range=float(np.ptp(enc_roll)),
+        imu_range=float(np.ptp(imu_roll)),
+    )
 
 
 def _hold_tracking_stats(run_data, setpoint, hi):
@@ -289,16 +429,16 @@ def _hold_tracking_stats(run_data, setpoint, hi):
     if len(hold_enc) > 1 and np.std(hold_enc) > 0 and np.std(hold_imu) > 0:
         pearson_r = float(np.corrcoef(hold_enc, hold_imu)[0, 1])
 
-    return {
-        "bias":                   float(np.mean(hold_err)),
-        "std":                    float(np.std(hold_err)),
-        "p95":                    float(np.percentile(np.abs(hold_err), 95)),
-        "max_ae":                 float(np.max(np.abs(hold_err))),
-        "pearson_r":              pearson_r,
-        "fft_freq_hz":            fft_freq,
-        "fft_freq_resolution_hz": fft_freq_resolution,
-        "whole_run_enc_mae":      float(np.mean(np.abs(run_data.enc_roll - setpoint))),
-    }
+    return HoldTrackingStats(
+        bias=float(np.mean(hold_err)),
+        std=float(np.std(hold_err)),
+        p95=float(np.percentile(np.abs(hold_err), 95)),
+        max_ae=float(np.max(np.abs(hold_err))),
+        pearson_r=pearson_r,
+        fft_freq_hz=fft_freq,
+        fft_freq_resolution_hz=fft_freq_resolution,
+        whole_run_enc_mae=float(np.mean(np.abs(run_data.enc_roll - setpoint))),
+    )
 
 
 def _control_effort_stats(run_data, run_config, hi):
@@ -322,33 +462,33 @@ def _control_effort_stats(run_data, run_config, hi):
     ang_i_mean = float(np.mean(run_data.ang_i[hi:]))
     m2_m1_mean = float(np.mean(hold_m2 - hold_m1))
 
-    return {
-        "mean_throttle":        float(np.mean(avg_thr)),
-        "rms_throttle":         float(np.sqrt(np.mean(avg_thr ** 2))),
-        "saturation_upper_pct": float(np.mean(saturation_upper) * 100.0),
-        "saturation_lower_pct": float(np.mean(saturation_lower) * 100.0),
-        "rms_dm1_dt":           float(np.sqrt(np.mean(dm1_dt ** 2))),
-        "rms_dm2_dt":           float(np.sqrt(np.mean(dm2_dt ** 2))),
-        "ang_i_mean":           ang_i_mean,
-        "m2_m1_mean":           m2_m1_mean,
-        "iterm_sign_ok":        ang_i_mean * m2_m1_mean >= 0,
-    }
+    return ControlEffortStats(
+        mean_throttle=float(np.mean(avg_thr)),
+        rms_throttle=float(np.sqrt(np.mean(avg_thr ** 2))),
+        saturation_upper_pct=float(np.mean(saturation_upper) * 100.0),
+        saturation_lower_pct=float(np.mean(saturation_lower) * 100.0),
+        rms_dm1_dt=float(np.sqrt(np.mean(dm1_dt ** 2))),
+        rms_dm2_dt=float(np.sqrt(np.mean(dm2_dt ** 2))),
+        ang_i_mean=ang_i_mean,
+        m2_m1_mean=m2_m1_mean,
+        iterm_sign_ok=ang_i_mean * m2_m1_mean >= 0,
+    )
 
 
 def _inner_loop_stats(run_data, hi):
     rate_err = run_data.rate_sp[hi:] - run_data.gyro_x[hi:]
-    return {
-        "rate_tracking_rms": float(np.sqrt(np.mean(rate_err ** 2))),
-    }
+    return InnerLoopStats(
+        rate_tracking_rms=float(np.sqrt(np.mean(rate_err ** 2))),
+    )
 
 
 def _windup_stats(run_data, run_config):
-    return {
-        "ang_windup_events":     int(np.sum(np.abs(run_data.ang_i)  >= run_config.angle_iterm_limit  * 0.5)),
-        "ang_windup_threshold":  run_config.angle_iterm_limit  * 0.5,
-        "rate_windup_events":    int(np.sum(np.abs(run_data.rate_i) >= run_config.rate_iterm_limit   * 0.5)),
-        "rate_windup_threshold": run_config.rate_iterm_limit   * 0.5,
-    }
+    return WindupStats(
+        ang_windup_events=int(np.sum(np.abs(run_data.ang_i)  >= run_config.angle_iterm_limit  * 0.5)),
+        ang_windup_threshold=run_config.angle_iterm_limit  * 0.5,
+        rate_windup_events=int(np.sum(np.abs(run_data.rate_i) >= run_config.rate_iterm_limit   * 0.5)),
+        rate_windup_threshold=run_config.rate_iterm_limit   * 0.5,
+    )
 
 
 def compute_stats(run_data, run_config, hold_start_idx=None):
@@ -418,62 +558,62 @@ def print_profile(run_data, run_config, rate, sensor, hold, effort, inner, windu
         print()
 
     print("  --- Sample Rate ---")
-    _row("Samples",        rate["n_samples"],    ".0f")
-    _row("Duration (s)",   rate["duration_s"],   ".1f")
-    _row("Achieved Hz",    rate["actual_hz"],    ".1f")
-    _row("Mean dt (ms)",   rate["dt_mean_ms"],   ".1f")
-    _row("Median dt (ms)", rate["dt_median_ms"], ".1f")
-    _row("dt_p99 (ms)",    rate["dt_p99_ms"],    ".1f")
-    _row("dt_max (ms)",    rate["dt_max_ms"],    ".1f")
+    _row("Samples",        rate.n_samples,    ".0f")
+    _row("Duration (s)",   rate.duration_s,   ".1f")
+    _row("Achieved Hz",    rate.actual_hz,    ".1f")
+    _row("Mean dt (ms)",   rate.dt_mean_ms,   ".1f")
+    _row("Median dt (ms)", rate.dt_median_ms, ".1f")
+    _row("dt_p99 (ms)",    rate.dt_p99_ms,    ".1f")
+    _row("dt_max (ms)",    rate.dt_max_ms,    ".1f")
 
     print("\n  --- Sensor Health (IMU vs ENC, whole-run) ---")
-    _row("MAE (overall)",         sensor["mae"])
-    _row("MAE (fast motion)",     sensor["mae_fast"])
-    _row("MAE (slow motion)",     sensor["mae_slow"])
-    _row("Max AE",                sensor["max_ae"])
-    _row("RMS error",             sensor["rms_error"])
-    _row("Bias (IMU-ENC)",        sensor["bias"])
-    _row("IMU trails motion (%)", sensor["trail_pct"], ".1f")
-    _row("Encoder range (deg)",   sensor["enc_range"], ".1f")
-    _row("IMU range (deg)",       sensor["imu_range"], ".1f")
+    _row("MAE (overall)",         sensor.mae)
+    _row("MAE (fast motion)",     sensor.mae_fast)
+    _row("MAE (slow motion)",     sensor.mae_slow)
+    _row("Max AE",                sensor.max_ae)
+    _row("RMS error",             sensor.rms_error)
+    _row("Bias (IMU-ENC)",        sensor.bias)
+    _row("IMU trails motion (%)", sensor.trail_pct, ".1f")
+    _row("Encoder range (deg)",   sensor.enc_range, ".1f")
+    _row("IMU range (deg)",       sensor.imu_range, ".1f")
 
     print(f"\n  --- Hold-Window Tracking (ENC vs {setpoint:+.0f}deg, post-reach) ---")
-    _row("Whole-run ENC MAE (deg)",   hold["whole_run_enc_mae"])
+    _row("Whole-run ENC MAE (deg)",   hold.whole_run_enc_mae)
     print("  (includes rise - not comparable to HoldMAE_s)")
-    _row("Hold bias (deg, signed)",   hold["bias"])
-    _row("Hold std (deg)",            hold["std"])
-    _row("Hold P95 |error| (deg)",    hold["p95"])
-    _row("Hold max |error| (deg)",    hold["max_ae"])
-    _row("Pearson r (hold window)", hold["pearson_r"], ".4f")
-    fft_val = f"{hold['fft_freq_hz']:.3f}" if hold["fft_freq_hz"] is not None else "-"
+    _row("Hold bias (deg, signed)",   hold.bias)
+    _row("Hold std (deg)",            hold.std)
+    _row("Hold P95 |error| (deg)",    hold.p95)
+    _row("Hold max |error| (deg)",    hold.max_ae)
+    _row("Pearson r (hold window)", hold.pearson_r, ".4f")
+    fft_val = f"{hold.fft_freq_hz:.3f}" if hold.fft_freq_hz is not None else "-"
     print(f"  {'FFT dominant freq (Hz)':<38} {fft_val:>10}")
-    if hold["fft_freq_resolution_hz"] is not None:
-        print(f"  {'  (freq resolution Hz)':<38} {hold['fft_freq_resolution_hz']:>10.3f}")
-    if (hold["fft_freq_hz"] is not None and
-            hold["fft_freq_resolution_hz"] is not None and
-            hold["fft_freq_hz"] < 3.0 * hold["fft_freq_resolution_hz"]):
+    if hold.fft_freq_resolution_hz is not None:
+        print(f"  {'  (freq resolution Hz)':<38} {hold.fft_freq_resolution_hz:>10.3f}")
+    if (hold.fft_freq_hz is not None and
+            hold.fft_freq_resolution_hz is not None and
+            hold.fft_freq_hz < 3.0 * hold.fft_freq_resolution_hz):
         print("  (advisory - peak within 3x resolution; may be drift rather than oscillation)")
 
     print("\n  --- Control Effort (hold window) ---")
-    _row("Mean throttle (avg M1+M2)",          effort["mean_throttle"],        ".1f")
-    _row("RMS throttle",                       effort["rms_throttle"],         ".1f")
-    _row("Saturation upper % (>= max)",        effort["saturation_upper_pct"], ".1f")
-    _row("Saturation lower % (<= min)",        effort["saturation_lower_pct"], ".1f")
-    _row("RMS dM1/dt (throttle/s)",            effort["rms_dm1_dt"],           ".1f")
-    _row("RMS dM2/dt (throttle/s)",            effort["rms_dm2_dt"],           ".1f")
-    _row("ANG_I mean (hold, deg/s)",           effort["ang_i_mean"],           ".2f")
-    _row("M2-M1 mean (hold, throttle)",        effort["m2_m1_mean"],           ".1f")
-    sign_str = "OK" if effort["iterm_sign_ok"] else "FLIP - sign error in control chain"
+    _row("Mean throttle (avg M1+M2)",          effort.mean_throttle,        ".1f")
+    _row("RMS throttle",                       effort.rms_throttle,         ".1f")
+    _row("Saturation upper % (>= max)",        effort.saturation_upper_pct, ".1f")
+    _row("Saturation lower % (<= min)",        effort.saturation_lower_pct, ".1f")
+    _row("RMS dM1/dt (throttle/s)",            effort.rms_dm1_dt,           ".1f")
+    _row("RMS dM2/dt (throttle/s)",            effort.rms_dm2_dt,           ".1f")
+    _row("ANG_I mean (hold, deg/s)",           effort.ang_i_mean,           ".2f")
+    _row("M2-M1 mean (hold, throttle)",        effort.m2_m1_mean,           ".1f")
+    sign_str = "OK" if effort.iterm_sign_ok else "FLIP - sign error in control chain"
     print(f"  {'I-term sign vs dM':<38} {sign_str:>10}")
 
     print("\n  --- Inner Loop (hold window) ---")
-    _row("Rate tracking RMS (deg/s)", inner["rate_tracking_rms"])
+    _row("Rate tracking RMS (deg/s)", inner.rate_tracking_rms)
 
     print("\n  --- Windup (whole-run) ---")
-    _row("Angle windup events",  windup["ang_windup_events"],  ".0f")
-    print(f"  {'Angle windup threshold':<38} {windup['ang_windup_threshold']:>10.1f}")
-    _row("Rate windup events",   windup["rate_windup_events"], ".0f")
-    print(f"  {'Rate windup threshold':<38} {windup['rate_windup_threshold']:>10.1f}")
+    _row("Angle windup events",  windup.ang_windup_events,  ".0f")
+    print(f"  {'Angle windup threshold':<38} {windup.ang_windup_threshold:>10.1f}")
+    _row("Rate windup events",   windup.rate_windup_events, ".0f")
+    print(f"  {'Rate windup threshold':<38} {windup.rate_windup_threshold:>10.1f}")
 
     print("=" * w)
 
@@ -502,7 +642,7 @@ def main():
         run_data, run_config, hold_start_idx=hold_start_idx,
     )
 
-    print(f"Loaded {run_data.label}: {rate['n_samples']} samples, {rate['duration_s']:.1f}s\n")
+    print(f"Loaded {run_data.label}: {rate.n_samples} samples, {rate.duration_s:.1f}s\n")
     print_profile(run_data, run_config, rate, sensor, hold, effort, inner, windup, kpis)
 
 

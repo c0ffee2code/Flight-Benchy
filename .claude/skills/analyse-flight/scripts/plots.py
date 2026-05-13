@@ -111,7 +111,91 @@ class RunData:
     label:    str
 
 
-def quat_to_roll(qr, qi):
+@dataclass
+class HoldData:
+    """
+    Statistics over the confirmed settled-hold window, computed by compute_hold_window().
+
+    Fields
+    ------
+    hold_err  : enc_roll[settle_start:] − setpoint, degrees. Shape (n,).
+    hold_t_ms : T_MS[settle_start:], milliseconds. Shared with compute_spectrum. Shape (n,).
+    n_samples : Number of samples in the hold window.
+    n_bins    : Histogram bin count (FD estimator clipped to [10, 50]).
+    mu        : Mean hold error, degrees.
+    sigma     : Std of hold error, degrees.
+    p95       : 95th percentile of |hold error|, degrees.
+    x_fit     : x values for the Gaussian overlay curve. Shape (300,).
+    gaussian  : Gaussian PDF evaluated at x_fit using mu and sigma. Shape (300,).
+    """
+    hold_err:  np.ndarray
+    hold_t_ms: np.ndarray
+    n_samples: int
+    n_bins:    int
+    mu:        float
+    sigma:     float
+    p95:       float
+    x_fit:     np.ndarray
+    gaussian:  np.ndarray
+
+
+@dataclass
+class SpectrumData:
+    """
+    One-sided Welch PSD of the hold-window error, computed by compute_spectrum().
+
+    Fields
+    ------
+    freqs        : Non-DC frequency bins, Hz. Shape (n,).
+    psd          : PSD at each non-DC frequency, °²/Hz. Shape (n,).
+    peak_freq    : Frequency of the highest-power non-DC bin, Hz.
+    median_floor : Median of the non-DC PSD — proxy for the noise floor, °²/Hz.
+    freq_res     : Width of one frequency bin = fs / nperseg, Hz.
+    fs           : Sample rate of the hold window, Hz.
+    n_samples    : Number of samples in the hold window.
+    hold_dur     : Duration of the hold window, seconds.
+    nperseg      : Window length used in the Welch estimate.
+    """
+    freqs:        np.ndarray
+    psd:          np.ndarray
+    peak_freq:    float
+    median_floor: float
+    freq_res:     float
+    fs:           float
+    n_samples:    int
+    hold_dur:     float
+    nperseg:      int
+
+
+@dataclass
+class StepData:
+    """
+    Pre-computed time/angle markers for the step response plot, from compute_step_response().
+
+    Fields
+    ------
+    start_angle  : Encoder angle at t=0, degrees.
+    initial_step : setpoint − start_angle (negative for the standard start at +58°).
+    mark_10      : Encoder angle at 10% of the step, degrees; None if step ≈ 0.
+    mark_90      : Encoder angle at 90% of the step, degrees; None if step ≈ 0.
+    t_10         : Time (s) when the 10% mark was first crossed; None if not reached.
+    t_90         : Time (s) when the 90% mark was first crossed; None if not reached.
+    peak_t       : Time (s) of the global overshoot extremum; None if no overshoot.
+    peak_angle   : Encoder angle (°) at the overshoot extremum; None if no overshoot.
+    t_zoom       : Right edge of the transient zoom subplot, seconds.
+    """
+    start_angle:  float
+    initial_step: float
+    mark_10:      float | None
+    mark_90:      float | None
+    t_10:         float | None
+    t_90:         float | None
+    peak_t:       float | None
+    peak_angle:   float | None
+    t_zoom:       float
+
+
+def _quat_to_roll(qr, qi):
     return np.degrees(2.0 * np.arctan2(qi, qr))
 
 
@@ -136,8 +220,8 @@ def load_run(path_str):
         csv_path=csv_path,
         t_ms=t_ms,
         t_s=(t_ms - t_ms[0]) / 1000.0,
-        enc_roll=quat_to_roll(col("ENC_QR"), col("ENC_QI")),
-        imu_roll=quat_to_roll(col("IMU_QR"), col("IMU_QI")),
+        enc_roll=_quat_to_roll(col("ENC_QR"), col("ENC_QI")),
+        imu_roll=_quat_to_roll(col("IMU_QR"), col("IMU_QI")),
         gyro_x=col("GYRO_X"),
         rate_sp=col("RATE_SP"),
         ang_p=col("ANG_P"),
@@ -213,8 +297,8 @@ def compute_hold_window(run_data, kpis, setpoint):
     Statistics over the confirmed settled-hold window (settle_start_idx onward).
     Returns None if settling was never confirmed or the window is too short.
 
-    Returned dict keys
-    ------------------
+    Returns HoldData with fields
+    ----------------------------
     hold_err  : enc_roll[settle_start:] − setpoint, degrees. Shape (n_samples,).
     hold_t_ms : T_MS[settle_start:] — shared with compute_spectrum for timing.
     n_samples : number of samples in the hold window.
@@ -249,17 +333,17 @@ def compute_hold_window(run_data, kpis, setpoint):
     x_fit    = np.linspace(hold_err.min() - sigma, hold_err.max() + sigma, 300)
     gaussian = np.exp(-0.5 * ((x_fit - mu) / sigma) ** 2) / (sigma * np.sqrt(2 * np.pi))
 
-    return {
-        "hold_err":  hold_err,
-        "hold_t_ms": hold_t_ms,
-        "n_samples": len(hold_err),
-        "n_bins":    n_bins,
-        "mu":        mu,
-        "sigma":     sigma,
-        "p95":       p95,
-        "x_fit":     x_fit,
-        "gaussian":  gaussian,
-    }
+    return HoldData(
+        hold_err=hold_err,
+        hold_t_ms=hold_t_ms,
+        n_samples=len(hold_err),
+        n_bins=n_bins,
+        mu=mu,
+        sigma=sigma,
+        p95=p95,
+        x_fit=x_fit,
+        gaussian=gaussian,
+    )
 
 
 def compute_spectrum(hold_data):
@@ -270,8 +354,8 @@ def compute_spectrum(hold_data):
     Takes hold_data from compute_hold_window — reuses hold_err and hold_t_ms to
     avoid recomputing the same slice.
 
-    Returned dict keys
-    ------------------
+    Returns SpectrumData with fields
+    ---------------------------------
     freqs        : non-DC frequency bins, Hz. Shape (n_bins,).
     psd          : PSD at each non-DC frequency, °²/Hz. Shape (n_bins,).
     peak_freq    : frequency of the highest-power non-DC bin, Hz.
@@ -292,8 +376,8 @@ def compute_spectrum(hold_data):
     if hold_data is None:
         return None
 
-    hold_err  = hold_data["hold_err"]
-    hold_t_ms = hold_data["hold_t_ms"]
+    hold_err  = hold_data.hold_err
+    hold_t_ms = hold_data.hold_t_ms
 
     if len(hold_err) < 10:
         return None
@@ -308,25 +392,25 @@ def compute_spectrum(hold_data):
     nondc_psd    = psd[nondc]
     peak_idx     = int(np.argmax(nondc_psd))
 
-    return {
-        "freqs":        nondc_freqs,
-        "psd":          nondc_psd,
-        "peak_freq":    float(nondc_freqs[peak_idx]),
-        "median_floor": float(np.median(nondc_psd)),
-        "freq_res":     fs / nperseg,
-        "fs":           fs,
-        "n_samples":    len(hold_err),
-        "hold_dur":     float(hold_t_ms[-1] - hold_t_ms[0]) / 1000.0,
-        "nperseg":      nperseg,
-    }
+    return SpectrumData(
+        freqs=nondc_freqs,
+        psd=nondc_psd,
+        peak_freq=float(nondc_freqs[peak_idx]),
+        median_floor=float(np.median(nondc_psd)),
+        freq_res=fs / nperseg,
+        fs=fs,
+        n_samples=len(hold_err),
+        hold_dur=float(hold_t_ms[-1] - hold_t_ms[0]) / 1000.0,
+        nperseg=nperseg,
+    )
 
 
 def compute_step_response(run_data, kpis, setpoint):
     """
     Pre-compute all time/angle markers and the zoom window for the step response plot.
 
-    Returned dict keys
-    ------------------
+    Returns StepData with fields
+    -----------------------------
     start_angle  : encoder angle at t=0, degrees.
     initial_step : setpoint − start_angle (negative for the standard start at +58°).
     mark_10      : encoder angle at 10% of the step, degrees; None if step ≈ 0.
@@ -391,17 +475,17 @@ def compute_step_response(run_data, kpis, setpoint):
         6.0)
     t_zoom = min(t_zoom, 15.0, t_s[-1])
 
-    return {
-        "start_angle":  start_angle,
-        "initial_step": initial_step,
-        "mark_10":      mark_10,
-        "mark_90":      mark_90,
-        "t_10":         t_10,
-        "t_90":         t_90,
-        "peak_t":       peak_t,
-        "peak_angle":   peak_angle,
-        "t_zoom":       t_zoom,
-    }
+    return StepData(
+        start_angle=start_angle,
+        initial_step=initial_step,
+        mark_10=mark_10,
+        mark_90=mark_90,
+        t_10=t_10,
+        t_90=t_90,
+        peak_t=peak_t,
+        peak_angle=peak_angle,
+        t_zoom=t_zoom,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -562,14 +646,14 @@ def render_hold_error_distribution(hold_data, label, setpoint):
     skew — are visually obvious against the smooth reference. Without it, these shapes
     are much harder to spot in a bare histogram.
     """
-    hold_err  = hold_data["hold_err"]
-    n_bins    = hold_data["n_bins"]
-    mu        = hold_data["mu"]
-    sigma     = hold_data["sigma"]
-    p95       = hold_data["p95"]
-    x_fit     = hold_data["x_fit"]
-    gaussian  = hold_data["gaussian"]
-    n_samples = hold_data["n_samples"]
+    hold_err  = hold_data.hold_err
+    n_bins    = hold_data.n_bins
+    mu        = hold_data.mu
+    sigma     = hold_data.sigma
+    p95       = hold_data.p95
+    x_fit     = hold_data.x_fit
+    gaussian  = hold_data.gaussian
+    n_samples = hold_data.n_samples
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 5))
     fig.suptitle(f"Hold-Error Distribution — {label}", fontsize=13)
@@ -603,15 +687,15 @@ def render_hold_error_distribution(hold_data, label, setpoint):
 
 
 def render_spectrum(spec_data, label):
-    freqs        = spec_data["freqs"]
-    psd          = spec_data["psd"]
-    peak_freq    = spec_data["peak_freq"]
-    median_floor = spec_data["median_floor"]
-    freq_res     = spec_data["freq_res"]
-    fs           = spec_data["fs"]
-    n_samples    = spec_data["n_samples"]
-    hold_dur     = spec_data["hold_dur"]
-    nperseg      = spec_data["nperseg"]
+    freqs        = spec_data.freqs
+    psd          = spec_data.psd
+    peak_freq    = spec_data.peak_freq
+    median_floor = spec_data.median_floor
+    freq_res     = spec_data.freq_res
+    fs           = spec_data.fs
+    n_samples    = spec_data.n_samples
+    hold_dur     = spec_data.hold_dur
+    nperseg      = spec_data.nperseg
 
     fig, ax = plt.subplots(1, 1, figsize=(8, 5))
     fig.suptitle(f"Hold-Error Spectrum — {label}", fontsize=13)
@@ -651,14 +735,14 @@ def render_step_response(run_data, step_data, setpoint, kpis):
     """
     enc_roll     = run_data.enc_roll
     t_s          = run_data.t_s
-    initial_step = step_data["initial_step"]
-    mark_10      = step_data["mark_10"]
-    mark_90      = step_data["mark_90"]
-    t_10         = step_data["t_10"]
-    t_90         = step_data["t_90"]
-    peak_t       = step_data["peak_t"]
-    peak_angle   = step_data["peak_angle"]
-    t_zoom       = step_data["t_zoom"]
+    initial_step = step_data.initial_step
+    mark_10      = step_data.mark_10
+    mark_90      = step_data.mark_90
+    t_10         = step_data.t_10
+    t_90         = step_data.t_90
+    peak_t       = step_data.peak_t
+    peak_angle   = step_data.peak_angle
+    t_zoom       = step_data.t_zoom
 
     zoom_mask = t_s <= t_zoom
 
