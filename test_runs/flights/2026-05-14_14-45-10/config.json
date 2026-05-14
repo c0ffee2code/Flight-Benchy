@@ -10,7 +10,7 @@
       "kp": 3.0,
       "ki": 0.05,
       "kd": 0.5,
-      "iterm_limit": 5.0,
+      "iterm_limit": 100.0,
       "output_limit": 130
     },
     "rate_pid": {
@@ -24,7 +24,7 @@
       "base_throttle": 500,
       "throttle_min": 100,
       "throttle_max": 900,
-      "expo": 0.0
+      "expo": 0.3
     },
     "feedforward": {
       "lead_ms": 15

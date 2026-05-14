@@ -218,6 +218,9 @@ class ControlEffortStats:
     m2_m1_mean           : Mean (M2 − M1) over hold window, throttle units.
     iterm_sign_ok        : True when sign(ang_i_mean) == sign(m2_m1_mean). Disagreement
                            indicates a sign error somewhere in the control chain.
+                           None when |ANG_P mean| >= |ANG_I mean| — the P-term dominates
+                           during hold, so the I-term-drives-differential assumption is
+                           violated (typical after a slow rise with residual I-term buildup).
     """
     mean_throttle:        float
     rms_throttle:         float
@@ -227,7 +230,7 @@ class ControlEffortStats:
     rms_dm2_dt:           float
     ang_i_mean:           float
     m2_m1_mean:           float
-    iterm_sign_ok:        bool
+    iterm_sign_ok:        bool | None
 
 
 @dataclass
@@ -459,8 +462,19 @@ def _control_effort_stats(run_data, run_config, hi):
     # motor differential (M2−M1 = 2×output) is driven almost entirely by ANG_I.
     # sign(mean ANG_I) must equal sign(mean M2−M1). Disagreement indicates a sign
     # error somewhere in the control chain (gain, axis orientation, mixer direction).
+    # Guard: only meaningful when I-term dominates (|ANG_P| < |ANG_I|). A large
+    # P-term means the hold is not quiet — either the error is large or the I-term
+    # is a residual from the rise phase that hasn't drained yet. In that case the
+    # assumption is violated and the check is suppressed (iterm_sign_ok = None).
     ang_i_mean = float(np.mean(run_data.ang_i[hi:]))
     m2_m1_mean = float(np.mean(hold_m2 - hold_m1))
+    ang_p_mean = float(np.mean(
+        run_config.angle_kp * (run_data.imu_roll[hi:] - run_config.setpoint_roll_deg)
+    ))
+    if abs(ang_i_mean) > abs(ang_p_mean):
+        iterm_sign_ok: bool | None = ang_i_mean * m2_m1_mean >= 0
+    else:
+        iterm_sign_ok = None
 
     return ControlEffortStats(
         mean_throttle=float(np.mean(avg_thr)),
@@ -471,7 +485,7 @@ def _control_effort_stats(run_data, run_config, hi):
         rms_dm2_dt=float(np.sqrt(np.mean(dm2_dt ** 2))),
         ang_i_mean=ang_i_mean,
         m2_m1_mean=m2_m1_mean,
-        iterm_sign_ok=ang_i_mean * m2_m1_mean >= 0,
+        iterm_sign_ok=iterm_sign_ok,
     )
 
 
@@ -603,7 +617,12 @@ def print_profile(run_data, run_config, rate, sensor, hold, effort, inner, windu
     _row("RMS dM2/dt (throttle/s)",            effort.rms_dm2_dt,           ".1f")
     _row("ANG_I mean (hold, deg/s)",           effort.ang_i_mean,           ".2f")
     _row("M2-M1 mean (hold, throttle)",        effort.m2_m1_mean,           ".1f")
-    sign_str = "OK" if effort.iterm_sign_ok else "FLIP - sign error in control chain"
+    if effort.iterm_sign_ok is None:
+        sign_str = "N/A (P-term dominant)"
+    elif effort.iterm_sign_ok:
+        sign_str = "OK"
+    else:
+        sign_str = "FLIP - sign error in control chain"
     print(f"  {'I-term sign vs dM':<38} {sign_str:>10}")
 
     print("\n  --- Inner Loop (hold window) ---")

@@ -77,7 +77,7 @@ Empirical thrust data (BetaFPV Lava 1104 7200KV, single motor):
 
 Systematic tuning steps: angle_kp 1.0→3.5, angle_kd 0.1→0.3 (reduced oscillation 0.27→0.05 Hz), iterm_limit 30→100 (max I contribution 1.5→5 deg/s). BASE=500 tested and rejected — thrust curve asymmetry below BASE=600 reduces available differential from 19.5 g to 13.5 g.
 
-**New baseline (run `2026-04-07_16-19-21`, 141.8s):**
+**Baseline (run `2026-04-07_16-19-21`, 141.8s):**
 
 | Metric | Value |
 |---|---|
@@ -90,6 +90,21 @@ Systematic tuning steps: angle_kp 1.0→3.5, angle_kd 0.1→0.3 (reduced oscilla
 Additional findings: IMU tare quality with precision jig + bubble level is ~0.10° residual — not the limiting factor. GRV dynamic lag (~0.8°) is the sensor floor independent of tare quality. Power supply limit (30W) requires LiHV batteries at BASE≥600; ~25s per charge.
 
 See `decision/DR-008-cascaded-pid.md` Amendment 2026-04-07.
+
+### Settling oscillation fix — DONE (2026-05-14)
+
+A bimodal settling mode was present in ~1/3 of runs: the lever reached setpoint but then ring-down took 79–91s (goal: ≤60s hold). Root cause: the angle PID I-term accumulated 10–29 deg/s during the approach with `iterm_limit=100`; at setpoint crossing where P≈0, the residual drove overshoot ≥19%, triggering a slow ring-down. Fix: `angle_kd` 0.3→0.5, `angle_pid.iterm_limit` 100→5. Hold I-term equilibrium (1–3 deg/s) is well below 5, so hold quality is unaffected. Expo=0.3 was tested and rejected (worsened overshoot by removing P-term approach braking without touching the I-term).
+
+**Confirmed baseline (3 consecutive flights, 2026-05-14):**
+
+| Metric | Value |
+|---|---|
+| T_s (settling time) | 17–26 s |
+| Overshoot | 11–14% |
+| HoldMAE_s (post-settle) | 1.9–3.3° |
+| Gains | angle kp=3.0 ki=0.05 kd=0.5 iterm_limit=5; rate kp=0.5 kd=0.009 |
+
+See `decision/DR-008-cascaded-pid.md` Amendment 2026-05-14 and `tuning/2026-05-14-reduce-oscillation-hold-60s.md`.
 
 **Depends on:** mechanical rebuild, M4.
 
@@ -112,17 +127,15 @@ from `−d(measurement)/dt` instead of `d(error)/dt`, avoiding derivative kick w
 steps. The inner rate loop passes `measurement=gyro_x`. The outer angle loop is unaffected
 (setpoint is a constant 0°, so error derivative already equals measurement derivative).
 
-### Thrust linearization / expo (planned)
+### ~~Thrust linearization / expo~~ — CLOSED (rejected 2026-05-14)
 
-Motor thrust ∝ RPM², so effective thrust is nonlinear with DShot throttle value. `LeverMixer` outputs throttle values directly, meaning plant gain varies with operating point. A Betaflight-style expo mapping (`f(x) = (1−e)x + e·x³`, normalised) applied to the PID output before the mixer would reduce near-setpoint sensitivity without reducing authority at large errors — directly addressing the slow hold oscillation (0.05 Hz) observed in the current baseline. Planned as next tuning step after baseline is confirmed stable.
+Expo was tested twice (2026-04-10 at expo=0.1; 2026-05-02 and 2026-05-14 at expo=0.3). Both attempts worsened hold quality. The root cause: expo reduces P-term authority near setpoint (approach braking) without affecting the I-term. When the slow-settle mode was I-term driven (the actual root cause identified 2026-05-14), expo removed the one mechanism that could slow the lever before crossing — net effect was more overshoot, not less. See `decision/DR-012-thrust-expo.md`.
 
-### I-term relax for large disturbances
+Actuator nonlinearity compensation (per-motor thrust curve inversion) remains a valid future item once DR-007 thrust measurements exist, but is separate from gain scheduling.
 
-During large transients the angle PID I-term continues accumulating during nonlinear large-signal
-operation. Betaflight's "I-term relax" freezes integration when angular rate exceeds a threshold,
-preventing windup during disturbances. Current `iterm_limit=100` (max I contribution 5 deg/s) is
-large enough that post-disturbance overshoot is possible; revisit if characterization reveals
-systematic hunting after large perturbations.
+### ~~I-term relax for large disturbances~~ — CLOSED (solved differently, 2026-05-14)
+
+The symptom this item described — post-disturbance overshoot from I-term accumulation — was the root cause of the bimodal slow-settle mode. Resolved by reducing `iterm_limit` from 100 to 5, which caps approach-phase accumulation at ≤5 deg/s without freezing integration. Hold I-term equilibrium (1–3 deg/s) is well within the new limit. No code change required. See `tuning/2026-05-14-reduce-oscillation-hold-60s.md`.
 
 ### Telemetry not flushed on crash
 

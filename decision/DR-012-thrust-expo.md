@@ -1,6 +1,6 @@
 # DR-012: Differential Expo in LeverMixer
 
-**Status:** Rejected (second attempt, 2026-05-02) — expo=0.3 worsened HoldMAE and produced elevated bias across two runs; rate_kd raised to 0.009 as the next lever (see Amendment 2026-05-01)
+**Status:** Rejected (closed 2026-05-14) — expo tested twice (2026-04-10, 2026-05-02/14); both attempts worsened hold quality. Root cause identified 2026-05-14: the slow-settle mode was I-term-driven, not a gain-excess problem. expo removed approach braking without touching the I-term, making overshoot worse. Fix was iterm_limit 100→5 (see DR-008 Amendment 2026-05-14).
 **Date:** 2026-04-09
 **Context:** Post-rebuild baseline (2026-04-07) has 6.90° HoldMAE and 0.05 Hz oscillation near setpoint; PID gains are tuned for recovery authority from −58° start, which makes them too aggressive near horizontal.
 
@@ -317,3 +317,11 @@ Two runs at expo=0.3 (expo=0.0 baseline: 2.46° HoldMAE, 0.02° bias, 1.38 Hz):
 Both stop conditions from the test plan were met. expo=0.3 consistently worsened HoldMAE relative to baseline and produced large T→0 degradation. The session-to-session bias variation (2.37° vs 0.39° at identical config) indicates the system is near the friction-floor boundary — small session-to-session differences in initial conditions tip it between acceptable and unacceptable hold.
 
 Expo re-test is closed. Next lever: rate_kd 0.006 → 0.009 (expo=0.0 restored). First results at rate_kd=0.009 in runs 2026-05-02_09-17-54 (2.60° HoldMAE, 0.74 Hz) and 2026-05-02_10-57-21 (3.63° HoldMAE, 1.08° bias).
+
+## Amendment 2026-05-14 — Root cause identified; expo closed
+
+A tuning session on 2026-05-14 diagnosed the slow-settle mode directly. The cause was not near-setpoint gain excess (the original hypothesis) but **approach I-term accumulation**: ki=0.05 over a 10–30s rise built 10–29 deg/s of I-term with `iterm_limit=100` never binding. At setpoint crossing P≈0, the residual drove overshoot ≥19% and a 60–91s ring-down.
+
+Expo=0.3 was retested as part of this session (run `2026-05-14_14-45-10`) to rule out the gain-excess reading. Result: overshoot worsened from 19.8% to 24.5%. The mechanism: expo reduces near-setpoint P-term output (approach braking) but leaves the I-term intact — it removed the one damping mechanism that was partially slowing the lever at crossing, making things worse. This definitively closed the expo approach.
+
+The fix — `iterm_limit` 100→5 — is in DR-008 Amendment 2026-05-14. Expo infrastructure (`LeverMixer` normalisation, `expo` config field) remains in place for future use if per-motor actuator compensation (DR-007) requires it.

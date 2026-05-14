@@ -335,7 +335,44 @@ force_diff    = throttle_diff × 0.147 g/unit
 
 IMU tare quality confirmed with precision jig + bubble level: ~0.10° residual. The ~0.8° bias seen during running telemetry is GRV dynamic lag during oscillation, independent of tare quality. DC power supply (30W) insufficient at BASE≥600; LiHV batteries required (~25s per charge).
 
-**Next:** thrust expo in `LeverMixer` to reduce near-setpoint P-term sensitivity and improve hold accuracy. See **DR-012**.
+**Next:** thrust expo in `LeverMixer` to reduce near-setpoint P-term sensitivity and improve hold accuracy. See **DR-012**. *(Expo was subsequently tested and rejected; see Amendment 2026-05-14.)*
+
+---
+
+## Amendment — 2026-05-14: Settling oscillation fix (iterm_limit + kd)
+
+**Status:** Confirmed over 3 consecutive flights.
+
+### Problem
+
+A bimodal settling mode was present after the 2026-04-07 retuning: ~1/3 of runs produced T_s ≈ 79–91s instead of the expected 17–27s. The distinguishing observable was overshoot: fast-settle runs had overshoot ≤14.4%; slow-settle runs had overshoot ≥19.1%. kd increase (0.3→0.5) improved damping but did not eliminate the slow mode — the bimodal pattern reappeared at kd=0.5 in confirmation runs.
+
+### Root cause
+
+The angle PID I-term accumulated unconstrained during the approach phase. With ki=0.05 acting on ~27° average error over a 10–30s rise, and `iterm_limit=100` never binding, the I-term built to 10–29 deg/s by the time the lever reached setpoint. At the crossing, P≈0 but the large positive I-term drove a positive `rate_setpoint`, pushing the lever past zero. Overshoot ≥19% triggered the ring-down phase. Hold I-term was only 1–3 deg/s across all runs — the integrator's role is approach-phase, not hold-phase.
+
+Expo (0.3) was tested as a candidate fix — it reduced P-term approach braking without touching the I-term, making overshoot worse (19.8% → 24.5%). This confirmed the I-term, not kinetic energy, as the primary driver.
+
+### Fix
+
+| Parameter | Old | New |
+|---|---|---|
+| angle_pid.kd | 0.3 | **0.5** |
+| angle_pid.iterm_limit | 100.0 | **5.0** |
+
+`kd` 0.3→0.5 raises the damping ratio and is part of the accepted final config. `iterm_limit` 100→5 caps the crossing I-term residual at ≤5 deg/s. Hold I-term equilibrium (1–3 deg/s) is well below 5; hold quality is unaffected.
+
+Note: angle_kp was also reduced from 3.5 (2026-04-07 baseline) to 3.0 during intervening tuning sessions (no dedicated DR — config.json is the source of truth).
+
+### Confirmed baseline (3 consecutive flights, 2026-05-14)
+
+| Run | T_s (s) | Overshoot (%) | HoldMAE_s (°) |
+|---|---|---|---|
+| 2026-05-14_16-16-07 | 23.3 | 14.4 | 3.25 |
+| 2026-05-14_16-22-45 | 26.2 | 13.0 | 3.05 |
+| 2026-05-14_16-28-32 | 17.7 | 11.2 | 1.88 |
+
+Full session log: `tuning/2026-05-14-reduce-oscillation-hold-60s.md`.
 
 ---
 
