@@ -1,11 +1,11 @@
 """
-deploy.py — upload config.json (and optionally all source files) to the Pico
+deploy.py — upload config.json + criteria.json (and optionally all source files) to the Pico
 
 Run from project root:
   python .claude/skills/deploy/scripts/deploy.py [--full]
 
-  (no flag)  Upload config.json only — use for PID / config tuning between runs
-  --full     Upload config.json + all source files — use after code changes
+  (no flag)  Upload config.json + criteria.json — use for PID / config tuning between runs
+  --full     Upload config.json + criteria.json + all source files — use after code changes
 
 Pico must be connected on COM7. mpremote interrupts any running script on connect.
 """
@@ -34,7 +34,10 @@ SOURCE_FILES = [
     ("DShot/driver/motor_throttle_group.py", "motor_throttle_group.py"),
 ]
 
-CONFIG_FILE = ("src/config.json", "config.json")
+CONFIG_FILES = [
+    ("src/config.json",   "config.json"),
+    ("src/criteria.json", "criteria.json"),
+]
 
 
 def _upload(local_rel, remote_name):
@@ -55,7 +58,7 @@ def _upload(local_rel, remote_name):
 
 def main():
     full = "--full" in sys.argv
-    files = ([CONFIG_FILE] + SOURCE_FILES) if full else [CONFIG_FILE]
+    files = (CONFIG_FILES + SOURCE_FILES) if full else CONFIG_FILES
     mode = "full deploy" if full else "config only"
 
     print(f"Deploying to Pico on {COM_PORT} ({mode})...")

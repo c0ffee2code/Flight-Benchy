@@ -1,15 +1,30 @@
 ---
 name: tune-config
-description: Pair-tune the Flight Benchy control algorithm toward a stated objective by adjusting config.json values only. Reads recent run history, identifies a baseline, proposes config changes with full reasoning, and tracks the session as a structured markdown log. Use when the user names a tuning objective like "reduce HoldMAE", "increase hold time", "fix the residual oscillation" — anything where the goal is to improve a measurable KPI through iterative config changes. Triggers on phrases like "tune", "tune config", "pair tune", "let's improve <KPI>", "tuning session for <objective>", "new tuning session". Does NOT cover source code changes (e.g. editing pid.py or mixer.py — out of scope, the skill only modifies config.json), one-off config edits without a tracked objective, fully autonomous tuning (this skill keeps the human in the loop on every iteration), or comparing two specific runs (out of scope until spectator exists). The skill produces a session log under tuning/ and is the only producer of those files.
+description: Pair-tune the Flight Benchy control algorithm to meet a tightened acceptance threshold in criteria.json, by adjusting config.json values only. The user opens a session by asking to tighten one threshold in criteria.json; that tightening becomes the session objective. The skill reads run history, identifies a baseline, proposes config changes iteratively with full reasoning, and tracks the session as a structured markdown log. Triggers on phrases like "new tuning session". Does NOT cover source code changes (only edits config.json and criteria.json), one-off config edits without a tracked session, fully autonomous tuning (human-in-the-loop on every iteration), or cross-session comparison. Produces a session log under tuning/ and is the only producer of those files.
 ---
 
 ## Arguments
 
 ```
-<objective in plain language>
+<criteria tightening request in plain language>
 ```
 
-The objective is given in natural language at session open. The skill is responsible for translating it into a measurable form (KPI + threshold) and confirming with the user before any iteration begins.
+The user opens a session by requesting a tightening of one threshold in `criteria.json`. Examples:
+
+- "tighten HoldMAE pass to 4°"
+- "push hold_time_s excellent from 60 to 90"
+- "tighten T_s good to 8s"
+
+The request names a KPI, a threshold level (`pass`, `good`, or `excellent`), and the new value. The agent:
+
+1. Reads the current `criteria.json`.
+2. Confirms the parsed `(kpi, level, new_value)` with the user before any file edit.
+3. On confirmation, edits criteria.json — one threshold, one parameter (the same one-variable-at-a-time discipline that governs iterations).
+4. That tightening *is* the session objective. The just-edited KPI is the session target; meeting the new threshold value is the goal.
+
+If the user's request is ambiguous ("let's get HoldMAE under 4°" — which level?), the agent asks for clarification before editing. Loose phrasing is fine if the agent confirms its interpretation.
+
+If `criteria.json` does not yet exist in the project, see the **Missing criteria.json** subsection below.
 
 # Tune Flight
 
@@ -31,7 +46,45 @@ A tuning session without structure produces a sequence of changes that locally m
 
 The goal is not to produce optimal configs faster. The goal is to produce understanding that compounds — so that the tenth session's iteration 1 starts from a richer mental model than the first session's did.
 
-## Hard rules — apply throughout the session
+## The criteria.json model
+
+`criteria.json` is the slowly-evolving spec of what success means for this rig. It lives at the project root next to `config.json` and is copied into each run folder by `SdSink`. Each KPI has three thresholds: `pass`, `good`, and `excellent`.
+
+Two files; two rates of change:
+
+- **`config.json`** changes every iteration — that's the search.
+- **`criteria.json`** changes once per session, at session open — that's the bar.
+
+A session is the act of pulling config up to a tightened criteria bar. The discipline is recursive: one config parameter changes per iteration; one criteria threshold tightens per session. The session opens with a criteria edit, closes when config has caught up (Met) or when the tightening has been shown unreachable (Abandoned, recommend revert).
+
+### Envelope semantics
+
+When the session targets KPI X by tightening threshold X.level to a new value, **every other KPI's `pass` threshold remains an envelope constraint**:
+
+- An iteration that improves X but pushes another KPI *below its pass threshold* → **Reject**, regardless of how well X moved.
+- An iteration that improves X and another KPI drops a level *without going below pass* (e.g. excellent → good) → the Verdict is judged on X alone, but the trade-off must be named in Lessons. This is normal optimisation; future sessions need to see the trade-off was made deliberately, not silently.
+
+The session's target KPI is exempt from envelope check on itself: tightening HoldMAE.pass from 5° to 4° means HoldMAE temporarily sits below the new pass threshold by definition — that's the whole point of the session.
+
+### Missing criteria.json
+
+If `criteria.json` does not exist when the session opens, the agent surfaces this and asks:
+
+> "No criteria.json found. Three options: (a) create one now with default thresholds and tighten as you described; (b) proceed in legacy mode — natural-language objective, no envelope check, hardcoded ±10° tolerance; (c) stop and create criteria.json manually first. Which?"
+
+The agent does not silently fall back to legacy mode; the choice must be explicit. Legacy mode disables the envelope check entirely and is intended only for projects that haven't adopted IDEA-001 yet.
+
+### Outcome and the criteria.json undo
+
+The Outcome section of every session records what happened to criteria.json:
+
+- **Met and confirmed** → criteria.json tightening stands; the session log is the record of how the rig got there.
+- **Abandoned** → the agent recommends reverting the criteria.json edit (or loosening it to a reachable level, with a specific value backed by session evidence). The human decides; the agent does not auto-revert. The session's Outcome includes the recommended new value and the evidence supporting it.
+- **Failed** → criteria.json state is whatever it was at session open; the session never produced evidence to support either keeping or reverting. Postmortem first, then revisit the tightening as a fresh session.
+
+This is the engineering loop the skill enforces: *propose a tighter bar → prove you can meet it → keep the tighter bar; or prove you can't → revert with evidence.*
+
+
 
 - **Predict before observing.** Every iteration writes Prediction and Falsifier *before* the run. Post-hoc narrative is the failure mode this rule exists to prevent. If you find yourself wanting to revise a prediction after seeing the result, stop — the original prediction stays, and the discrepancy becomes the lesson.
 
@@ -61,11 +114,17 @@ Subagent contracts are documented in `.claude/skills/tune-config/subagents/`. If
 
 ### Session open
 
-The user states the objective in plain language. The agent:
+The user states the tightening request in plain language. The agent:
 
-1. **Proposes the measurable form.** Translates the natural-language objective into a KPI threshold. Examples: "increase hold window from 20s to 30s" → "T@SP ≥ 30s"; "reduce HoldMAE_s below 5°" → "HoldMAE_s ≤ 5°". The agent confirms the mapping with the user before proceeding. If the objective is ambiguous ("make it more stable"), the agent asks what KPI to target.
+1. **Parses and confirms the tightening.** Extracts `(kpi, level, new_value)` from the user's request. Reads current `criteria.json` to see the current value. Presents the parsed edit to the user for confirmation:
 
-   KPI vocabulary matches `analysis.md` output: `T→SP` (time to first reach), `HoldMAE_s` (encoder MAE post-settle), `T@SP` (derived: run duration − T→SP). Note on `T@SP`: it is a proxy, not a direct measurement — it assumes the lever stays in band after first reach. On runs with significant re-excursion, `T@SP` overstates actual hold time. When `T@SP` is the session's target KPI, the agent must check for re-excursion in the profile section before interpreting `T@SP` values as face value.
+   > "You want to tighten `criteria.json` → `<kpi>.<level>` from `<current_value>` to `<new_value>`. The session target will be: get `<kpi>` to meet `<new_value>` on every confirmation run. Confirm?"
+
+   On confirmation, the agent edits `criteria.json` — one threshold, one parameter. This edit happens *before* any iteration; the criteria edit and the session are linked atomically (Met keeps it, Abandoned recommends revert).
+
+   If `criteria.json` is missing, see "Missing criteria.json" in the model section above.
+
+   If the user's request is ambiguous, the agent asks for clarification before editing. The agent never edits criteria.json without explicit confirmation of the exact `(kpi, level, new_value)` triple.
 
 2. **Pulls recent project history.** Runs the history reader:
    ```
@@ -78,17 +137,18 @@ The user states the objective in plain language. The agent:
    - **Sufficient (≥3 analysed runs at current config):** proceed to step 4.
    - **Insufficient (<3 analysed runs at current config):** the agent's *first proposal* is "run K baseline runs at current config before any tuning iteration." K = (3 − existing count). The agent presents this as the iteration 1 proposal with the hypothesis "baseline KPIs are not yet established; we cannot measure tuning impact against undefined noise." The user approves; baseline runs happen; *then* the session continues with the real iteration 1.
 
-4. **Surfaces prior same-objective sessions, if any.** Invokes the `prior-session-finder` subagent with the current objective text and the `tuning/` directory. If the subagent returns a match, the agent writes a single-paragraph **Prior session note** in Starting State summarising: prior session date, prior Outcome (Met / Abandoned / Failed), final config delta from baseline at that time, and the single most relevant lesson — all sourced from the subagent's structured output. This is the one-time prior at session open — mid-session iterations do not reference it again. If the subagent returns null, omit the field entirely (do not write "none found"; absence is the default).
+4. **Surfaces prior same-KPI sessions, if any.** Invokes the `prior-session-finder` subagent with the structured tightening (kpi, level, new_value, prior_value) and the `tuning/` directory. If the subagent returns a match, the agent writes a single-paragraph **Prior session note** in Starting State summarising: prior session date, prior Outcome (Met / Abandoned / Failed), final config delta from baseline at that time, and the single most relevant lesson — all sourced from the subagent's structured output. Strongest matches are prior sessions that targeted the same KPI, regardless of level or value. This is the one-time prior at session open — mid-session iterations do not reference it again. If the subagent returns null, omit the field entirely (do not write "none found"; absence is the default).
 
-5. **Writes the Starting State block.** From the history reader's Baseline analysis section. This block is **frozen** for the rest of the session — it is the reference point against which all subsequent results are measured. Includes:
+5. **Writes the Starting State block.** From the history reader's Baseline analysis section and the current `criteria.json`. This block is **frozen** for the rest of the session — it is the reference point against which all subsequent results are measured. Includes:
    - Current config (all PID gains, motor base, feedforward lead if present).
    - Prior session note (if step 4 found one).
+   - **Criteria snapshot:** the post-edit `criteria.json` thresholds for all KPIs, with the session target line marked. For each non-target KPI, the agent computes which level (`pass`, `good`, `excellent`, or `below pass`) the baseline currently sits in — this is the envelope starting state and what Verdict checks against.
    - Baseline KPI means and standard deviations across the baseline runs.
    - List of baseline run IDs.
 
 6. **Drafts iteration 1.** Following the iteration template. Presents to user for pre-run review.
 
-7. **Creates the session file.** Path: `tuning/<YYYY-MM-DD>-<objective-slug>.md`. The slug is a short kebab-case description of the objective ("reduce-holdmae", "increase-hold-window"). If a file with the same name exists, append `-2`, `-3`, etc. Use the session template at `.claude/skills/tune-config/templates/session.md` as the starting structure. Initial contents: Objective, Starting State (frozen), and iteration 1 draft (status: pending pre-run approval).
+7. **Creates the session file.** Path: `tuning/<YYYY-MM-DD>-<tightening-slug>.md`. The slug is a short kebab-case description of what was tightened — e.g. `holdmae-pass-4deg`, `holdtime-excellent-90s`, `ts-good-8s`. If a file with the same name exists, append `-2`, `-3`, etc. Use the session template at `.claude/skills/tune-config/templates/session.md` as the starting structure. Initial contents: Objective (the criteria edit), Starting State (frozen, including criteria snapshot), and iteration 1 draft (status: pending pre-run approval).
 
 ### Per-iteration loop
 
@@ -108,13 +168,14 @@ On approval, the agent:
 
 **Post-run draft (on `completed`).** The agent reads `analysis.md` directly from `analysis_md_path` — the headline KPI dict is for triage, but the analysis prose is the evidence base. The agent then re-invokes the history reader for updated context and fills:
 
-- **Observed** — KPIs from the new run, pulled from analysis.md. Direct values, no interpretation yet.
+- **Observed** — KPIs from the new run, pulled from analysis.md. Direct values, no interpretation yet. Includes the session target KPI *and* all other KPIs that have thresholds in criteria.json (the envelope).
+- **Envelope check** — for each non-target KPI: did the new run's value stay ≥ that KPI's `pass` threshold? Any KPI that went below pass is an envelope violation and forces Reject regardless of how the target moved. Level drops that stay above pass (e.g. excellent → good) are *not* envelope violations but must be named in Lessons as a deliberate trade-off.
 - **Verdict** — *Accept*, *Provisionally consistent*, *Reject*, or *Inconclusive*. With reasoning that explicitly references the iteration's Prediction and Falsifier. Verdict rules:
-  - *Accept* — observed result matches Prediction AND falls outside baseline variance in the predicted direction, **and** the Prediction was about a single measurement (not a distribution-level claim).
-  - *Provisionally consistent* — observed result matches a Prediction that makes a claim about *all runs*, *every run*, or a change in distribution shape ("the slow mode is eliminated", "T_s consistently ≤ X"). N=1 cannot accept a distributional claim. This Verdict advances the iteration toward confirmation phase if exit-condition-1 also triggers, but is weaker than Accept and must not be quoted as "the change worked" in subsequent iteration Context.
-  - *Reject* — observed result matches the Falsifier criterion, OR moves opposite to the Prediction by more than baseline variance.
-  - *Inconclusive* — observed result is within baseline variance of the prior state, OR does not clearly match either Prediction or Falsifier.
-- **Lessons** — mandatory. What this iteration taught us about the system. "Nothing new — prediction matched cleanly" is acceptable. Empty is not. The act of writing it surfaces whether iterations are still informative.
+  - *Accept* — observed result matches Prediction on the target KPI AND falls outside baseline variance in the predicted direction, **and** the Prediction was about a single measurement (not a distribution-level claim), **and** no envelope violations.
+  - *Provisionally consistent* — observed target matches a Prediction that makes a claim about *all runs*, *every run*, or a change in distribution shape ("the slow mode is eliminated", "T_s consistently ≤ X"), **and** no envelope violations. N=1 cannot accept a distributional claim. This Verdict advances the iteration toward confirmation phase if exit-condition-1 also triggers, but is weaker than Accept and must not be quoted as "the change worked" in subsequent iteration Context.
+  - *Reject* — observed result matches the Falsifier criterion, OR moves opposite to the Prediction by more than baseline variance, OR any envelope violation occurred (even if the target KPI moved as predicted). Envelope-driven Reject is a distinct sub-case: the change *did* help the target but broke spec elsewhere, and Lessons must name what broke.
+  - *Inconclusive* — observed result is within baseline variance of the prior state on the target KPI, OR does not clearly match either Prediction or Falsifier. Envelope must still be intact; an envelope violation overrides Inconclusive to Reject.
+- **Lessons** — mandatory. What this iteration taught us about the system. "Nothing new — prediction matched cleanly" is acceptable. Empty is not. If a non-target KPI dropped a level (even staying above pass), the Lesson must name the trade-off explicitly. The act of writing it surfaces whether iterations are still informative.
 
 After the post-run draft, the agent also assesses whether any **exit condition** has been triggered (see below) and surfaces it as part of the Verdict if so.
 
@@ -130,31 +191,36 @@ The agent recommends; the human confirms. Three exits:
 
 **Exit 1 — Met and confirmed.**
 
-Triggered when an iteration's observed KPI clears the goal threshold *by more than baseline standard deviation* in the right direction. Example: goal is HoldMAE_s ≤ 5°, baseline std dev is 0.4°, observed is 4.5°. Margin = 0.5°, which exceeds 0.4° → eligible for confirmation. Observed 4.7° would *not* be eligible — within noise.
+Triggered when an iteration's observed target KPI clears the tightened criteria threshold *by more than baseline standard deviation* in the right direction, **and** the envelope check passed. Example: tightened HoldMAE.pass to 4°, baseline std dev is 0.4°, observed is 3.5°, all other KPIs stayed ≥ pass. Margin = 0.5°, exceeds 0.4° → eligible for confirmation. Observed 3.7° would *not* be eligible — within noise.
 
-When triggered, the agent's Verdict on the qualifying iteration includes: "Goal met, exceeds baseline variance by <margin>. Recommend transitioning to confirmation runs." Note that this is compatible with a *Provisionally consistent* Verdict on a distributional claim — exit-condition-1 advances to confirmation regardless of Accept vs Provisionally consistent.
+When triggered, the agent's Verdict on the qualifying iteration includes: "Tightened threshold met, exceeds baseline variance by `<margin>`, envelope intact. Recommend transitioning to confirmation runs." Note that this is compatible with a *Provisionally consistent* Verdict on a distributional claim — exit-condition-1 advances to confirmation regardless of Accept vs Provisionally consistent.
 
 On user approval, the session transitions into **confirmation phase**:
 
 - Run **2 additional iterations at the same config** as the qualifying iteration (no change). 3 additional if the qualifying margin is within 20% of the goal threshold — i.e. the win is narrow and needs more evidence.
 - Each confirmation iteration uses the same format as a normal iteration, but:
-  - Hypothesis: "Config X is stable at the goal level."
+  - Hypothesis: "Config X is stable at the goal level, with envelope intact."
   - Proposed change: none.
-  - Prediction: KPIs match the qualifying iteration within baseline variance.
-  - Falsifier: any KPI misses the goal threshold.
-- All confirmation runs must pass for the session to close as **Met and confirmed**. If any confirmation run misses the threshold, the win was a fluke — the session reopens for further iteration.
+  - Prediction: target KPI meets the tightened threshold within baseline variance, all envelope KPIs stay ≥ pass.
+  - Falsifier: target KPI misses the tightened threshold on any run, OR any envelope KPI drops below pass on any run.
+- All confirmation runs must pass for the session to close as **Met and confirmed**. If any confirmation run misses the target threshold OR breaks the envelope, the win was a fluke — the session reopens for further iteration.
 
-On successful confirmation, the session's Outcome section is filled and the file is committed.
+On successful confirmation, the session's Outcome section is filled (criteria.json tightening stands) and the file is committed.
 
 **Exit 2 — Abandoned.**
 
 Two sub-triggers:
 
-*(a) Budget exhausted.* After 3 iterations (not counting confirmation runs, since those don't happen for an abandoned session), the cumulative movement of the target KPI toward the goal is within baseline variance. The strategy isn't working. The agent's Verdict on iteration 3 includes: "3 iterations completed, no meaningful movement toward goal. Recommend abandoning this session and regrouping."
+*(a) Budget exhausted.* After 3 iterations (not counting confirmation runs, since those don't happen for an abandoned session), the cumulative movement of the target KPI toward the tightened threshold is within baseline variance. The strategy isn't working. The agent's Verdict on iteration 3 includes: "3 iterations completed, no meaningful movement toward `<kpi>.<level>` = `<new_value>`. Recommend abandoning this session and reverting the criteria.json tightening."
 
-*(b) Goal structurally unreachable.* At any iteration's post-run checkpoint, the agent may conclude — with reasoning — that the goal is below the achievable floor of the current system. Example: targeting HoldMAE ≤ 0.5° when GRV sensor floor is ~0.8°. The Verdict surfaces this as a recommendation: "Goal appears unreachable for reasons X, Y, Z. Recommend abandoning and revising the objective."
+*(b) Tightening structurally unreachable.* At any iteration's post-run checkpoint, the agent may conclude — with reasoning — that the tightened threshold is below the achievable floor of the current system. Example: tightened HoldMAE.pass to 0.5° when GRV sensor floor is ~0.8°. The Verdict surfaces this as a recommendation with a specific loosened value: "Tightening to `<new_value>` appears unreachable for reasons X, Y, Z. Recommend reverting to `<prior_value>`, or loosening to `<suggested_value>` (justified by observed floor of ~`<observed_min>`)."
 
-In both cases, on user approval, the session's Outcome is filled with reason and the file is committed.
+In both cases, on user approval, the session's Outcome is filled with:
+- Reason for abandoning.
+- Recommended action on criteria.json: revert to prior value, or loosen to a specific new value with evidence.
+- The agent does **not** auto-edit criteria.json on Abandoned — the human applies the recommendation.
+
+The file is then committed.
 
 **Exit 3 — Failed.**
 
@@ -176,7 +242,11 @@ The postmortem hand-off is a *workflow step*, not an automated action. The agent
 
 - **Multi-variable changes.** Even when two changes "obviously go together," they go in separate iterations. Cause-and-effect attribution is the session's whole purpose.
 
-- **Declaring victory on a single run.** A KPI that clears the goal threshold once is not a win. The baseline-variance gate + confirmation runs exist precisely because single-run results can be noise. Distributional claims ("eliminates the slow mode", "every run will pass") are *Provisionally consistent* at best on N=1 — never *Accept*.
+- **Declaring victory on a single run.** A KPI that clears the tightened criteria threshold once is not a win. The baseline-variance gate + confirmation runs exist precisely because single-run results can be noise. Distributional claims ("eliminates the slow mode", "every run will pass") are *Provisionally consistent* at best on N=1 — never *Accept*.
+
+- **Silent envelope trade-offs.** If a non-target KPI drops a level — even staying above pass — the trade-off must be named in Lessons. Tuning sessions that quietly burn through the envelope produce configs that meet the latest tightening but are worse overall than where the project started. The envelope check is the mechanism; Lessons-naming is the audit trail.
+
+- **Auto-editing criteria.json mid-session or on Abandoned.** The agent edits criteria.json *only* at session open, with explicit user confirmation, for the one tightening that defines the session. On Abandoned, the agent recommends a revert or loosening with a specific value — but the human applies it.
 
 - **Approving rubber-stamps.** If the agent's Context doesn't actually justify the proposed change, the human's job is to reject and ask for re-reasoning. Approving thin Context defeats the whole skill.
 

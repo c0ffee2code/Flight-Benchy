@@ -1,6 +1,6 @@
 # Deploy
 
-Uploads `src/config.json` (and optionally all source files) to the Pico via `mpremote`.
+Uploads `src/config.json` + `src/criteria.json` (and optionally all source files) to the Pico via `mpremote`.
 
 ## When to use
 
@@ -19,10 +19,10 @@ Trigger phrases: "deploy config", "upload config", "push config to Pico", "deplo
 python .claude/skills/deploy/scripts/deploy.py [--full]
 ```
 
-No flag: uploads `src/config.json` only — use this when tuning PID gains or any other
-config parameter between runs.
+No flag: uploads `src/config.json` + `src/criteria.json` — use this when tuning PID gains,
+adjusting config, or tightening acceptance thresholds between runs.
 
-`--full`: uploads `src/config.json` + all source files — use after code changes.
+`--full`: uploads `src/config.json` + `src/criteria.json` + all source files — use after code changes.
 
 Run from the project root.
 
@@ -33,6 +33,7 @@ All files land flat at the Pico root:
 | Local | Pico |
 |-------|------|
 | `src/config.json` | `config.json` |
+| `src/criteria.json` | `criteria.json` |
 | `src/main.py` | `main.py` |
 | `src/pid.py` | `pid.py` |
 | `src/mixer.py` | `mixer.py` |

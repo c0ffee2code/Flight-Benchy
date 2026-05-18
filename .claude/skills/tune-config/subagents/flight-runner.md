@@ -34,12 +34,28 @@ Two possible shapes. The parent dispatches on `status`.
   "analysis_md_path": "runs/2026-05-14_14-26-21/analysis.md",
   "headline_kpis": {
     "reached": true,
-    "T_to_SP_s": 14.4,
-    "T_s_s": 14.4,
-    "HoldMAE_s_deg": 2.82,
-    "T_at_SP_s": 105.5,
     "oscillation_hz": 0.009,
-    "run_duration_s": 119.9
+    "run_duration_s": 119.9,
+    "hold_mae_deg": {
+      "value": 2.82,
+      "level": "good",
+      "thresholds": { "pass": 5.0, "good": 3.5, "excellent": 2.5 }
+    },
+    "time_to_sp_s": {
+      "value": 1.4,
+      "level": "excellent",
+      "thresholds": { "pass": 10.0, "good": 5.0, "excellent": 3.0 }
+    },
+    "settling_time_s": {
+      "value": 22.1,
+      "level": "good",
+      "thresholds": { "pass": 35.0, "good": 25.0, "excellent": 20.0 }
+    },
+    "overshoot_pct": {
+      "value": 13.2,
+      "level": "good",
+      "thresholds": { "pass": 25.0, "good": 18.0, "excellent": 12.0 }
+    }
   }
 }
 ```
@@ -87,7 +103,7 @@ Stage semantics:
 - You do not retry. The skill's Exit 3 logic explicitly requires no auto-recovery. If a stage fails, you return failed. The human decides what to do.
 - You do not modify configs. The parent stages the config; you only deploy it.
 - You do not write to the session file. The parent owns the session file. You write to `runs/<run_id>/` only.
-- `headline_kpis` field set must match whatever `analyse-flight` currently emits — do not invent fields, do not omit fields. If `analyse-flight` emits something unexpected, return success with whatever it actually emitted (the parent will notice and can ask).
+- `headline_kpis` is read from `kpis.json` in the run folder (written by `score_flight.py`). Do not recompute or reinterpret fields — surface them as-is. `oscillation_hz` and `run_duration_s` come from `analysis.md`. If `kpis.json` is absent or malformed, return `{status: failed, stage: analyse, ...}`.
 - `rig_state` is your honest read. If you genuinely don't know whether the rig needs human attention, default to `needs_human` — false positives are cheap (the human looks at the rig and confirms), false negatives are expensive (the next run damages something).
 
 ## What you do NOT do

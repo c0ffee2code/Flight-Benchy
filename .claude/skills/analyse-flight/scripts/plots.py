@@ -39,8 +39,8 @@ from matplotlib.lines import Line2D
 
 sys.path.insert(0, str(Path(__file__).parent))
 from score_flight import (  # noqa: E402
-    HORIZONTAL_THRESHOLD_DEG,
     compute_kpis,
+    load_criteria,
 )
 
 
@@ -492,15 +492,15 @@ def compute_step_response(run_data, kpis, setpoint):
 # Render layer — matplotlib only, no data computation
 # ---------------------------------------------------------------------------
 
-def render_timeseries(run_data, setpoint, kpis, throttle_min, throttle_max):
+def render_timeseries(run_data, setpoint, kpis, throttle_min, throttle_max, tolerance_deg):
     t_s        = run_data.t_s
     duration_s = t_s[-1]
 
     fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=(12, 13), sharex=True)
     fig.suptitle(f"Flight Benchy — {run_data.label}  ({duration_s:.1f}s)", fontsize=13)
 
-    ax1.axhspan(setpoint - HORIZONTAL_THRESHOLD_DEG,
-                setpoint + HORIZONTAL_THRESHOLD_DEG,
+    ax1.axhspan(setpoint - tolerance_deg,
+                setpoint + tolerance_deg,
                 color="gray", alpha=0.08, zorder=0)
     ax1.axhline(setpoint, color="gray", linewidth=0.8, linestyle="--",
                 label=f"Setpoint ({setpoint:+.0f}°)")
@@ -557,7 +557,7 @@ def render_timeseries(run_data, setpoint, kpis, throttle_min, throttle_max):
 
     h1, _ = ax1.get_legend_handles_labels()
     h1 += [Patch(facecolor='gray', alpha=0.5, edgecolor='none',
-                 label=f'±{HORIZONTAL_THRESHOLD_DEG:.0f}° band')]
+                 label=f'±{tolerance_deg:.0f}° band')]
     if kpis is not None:
         if kpis.hold_start_idx is not None:
             h1 += [Line2D([0], [0], color='tab:green', linewidth=0.8,
@@ -581,7 +581,7 @@ def render_timeseries(run_data, setpoint, kpis, throttle_min, throttle_max):
     return fig
 
 
-def render_phase_portrait(run_data, setpoint, kpis):
+def render_phase_portrait(run_data, setpoint, kpis, tolerance_deg):
     """
     Phase portrait: encoder angle (x-axis) vs angular rate (y-axis), coloured by time.
 
@@ -612,8 +612,8 @@ def render_phase_portrait(run_data, setpoint, kpis):
     ax.autoscale_view()
 
     # Setpoint band — angle axis only (see docstring)
-    ax.axvspan(setpoint - HORIZONTAL_THRESHOLD_DEG,
-               setpoint + HORIZONTAL_THRESHOLD_DEG,
+    ax.axvspan(setpoint - tolerance_deg,
+               setpoint + tolerance_deg,
                color="gray", alpha=0.08, zorder=0)
     ax.axvline(setpoint, color="gray", linewidth=0.8, linestyle="--", alpha=0.6, zorder=1)
     ax.axhline(0,        color="gray", linewidth=0.8, linestyle="--", alpha=0.6, zorder=1)
@@ -637,7 +637,7 @@ def render_phase_portrait(run_data, setpoint, kpis):
     return fig
 
 
-def render_hold_error_distribution(hold_data, label, setpoint):
+def render_hold_error_distribution(hold_data, label, setpoint, tolerance_deg):
     """
     Density histogram of encoder error over the confirmed settled-hold window.
 
@@ -668,9 +668,9 @@ def render_hold_error_distribution(hold_data, label, setpoint):
                label=f"Setpoint ({setpoint:+.1f}°)")
     ax.axvline(mu, color="tab:orange", linewidth=1.2, linestyle="--",
                label=f"Bias ({mu:+.2f}°)")
-    ax.axvspan(-HORIZONTAL_THRESHOLD_DEG, HORIZONTAL_THRESHOLD_DEG,
+    ax.axvspan(-tolerance_deg, tolerance_deg,
                color="gray", alpha=0.08, zorder=0,
-               label=f"±{HORIZONTAL_THRESHOLD_DEG:.0f}° band")
+               label=f"±{tolerance_deg:.0f}° band")
 
     stats_text = f"n = {n_samples}\nbias = {mu:+.2f}°\nstd = {sigma:.2f}°\nP95 = {p95:.2f}°"
     ax.text(0.97, 0.97, stats_text, transform=ax.transAxes, fontsize=8,
@@ -719,7 +719,7 @@ def render_spectrum(spec_data, label):
     return fig
 
 
-def render_step_response(run_data, step_data, setpoint, kpis):
+def render_step_response(run_data, step_data, setpoint, kpis, tolerance_deg):
     """
     Annotated step response: two stacked subplots.
 
@@ -754,8 +754,8 @@ def render_step_response(run_data, step_data, setpoint, kpis):
     # ---- Top: full run with milestones ----
     fmt_top, xlabel_top = _time_formatter(t_s[-1])
 
-    ax_top.axhspan(setpoint - HORIZONTAL_THRESHOLD_DEG,
-                   setpoint + HORIZONTAL_THRESHOLD_DEG,
+    ax_top.axhspan(setpoint - tolerance_deg,
+                   setpoint + tolerance_deg,
                    color="gray", alpha=0.08, zorder=0)
     ax_top.axhline(setpoint, color="gray", linewidth=0.8, linestyle="--", alpha=0.6)
     ax_top.plot(t_s, enc_roll, color="tab:blue", linewidth=0.9, label="Encoder")
@@ -785,8 +785,8 @@ def render_step_response(run_data, step_data, setpoint, kpis):
 
     # ---- Bottom: transient zoom ----
     ax_bot.set_title(f"Transient zoom (first {t_zoom:.0f}s)", fontsize=9, pad=4)
-    ax_bot.axhspan(setpoint - HORIZONTAL_THRESHOLD_DEG,
-                   setpoint + HORIZONTAL_THRESHOLD_DEG,
+    ax_bot.axhspan(setpoint - tolerance_deg,
+                   setpoint + tolerance_deg,
                    color="gray", alpha=0.08, zorder=0)
     ax_bot.axhline(setpoint, color="gray", linewidth=0.8, linestyle="--", alpha=0.6)
     ax_bot.plot(t_s[zoom_mask], enc_roll[zoom_mask],
@@ -858,27 +858,30 @@ def main():
 
     run_data   = load_run(args.flight_folder)
     run_config = load_config(run_dir)
+    criteria   = load_criteria(run_dir)
     print(f"Loaded {run_data.label}: {len(run_data.t_ms)} samples")
 
+    sp        = run_config.setpoint_roll_deg
+    tol       = criteria.tolerance_deg
     samples   = list(zip(run_data.t_ms.tolist(), run_data.enc_roll.tolist()))
-    kpis      = compute_kpis(samples, run_config.setpoint_roll_deg)
-    hold_data = compute_hold_window(run_data, kpis, run_config.setpoint_roll_deg)
+    kpis      = compute_kpis(samples, sp, tol)
+    hold_data = compute_hold_window(run_data, kpis, sp)
     spec_data = compute_spectrum(hold_data)
-    step_data = compute_step_response(run_data, kpis, run_config.setpoint_roll_deg)
+    step_data = compute_step_response(run_data, kpis, sp)
 
     out_dir = run_data.csv_path.parent
     do_all  = args.plot_type == "all"
 
     if do_all or args.plot_type == "timeseries":
-        fig = render_timeseries(run_data, run_config.setpoint_roll_deg, kpis,
-                                run_config.throttle_min, run_config.throttle_max)
+        fig = render_timeseries(run_data, sp, kpis,
+                                run_config.throttle_min, run_config.throttle_max, tol)
         out = out_dir / "01_timeseries.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved: {out}")
 
     if do_all or args.plot_type == "step_response":
-        fig = render_step_response(run_data, step_data, run_config.setpoint_roll_deg, kpis)
+        fig = render_step_response(run_data, step_data, sp, kpis, tol)
         out = out_dir / "02_step_response.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)
@@ -896,8 +899,7 @@ def main():
 
     if do_all or args.plot_type == "histogram":
         if hold_data is not None:
-            fig = render_hold_error_distribution(hold_data, run_data.label,
-                                                 run_config.setpoint_roll_deg)
+            fig = render_hold_error_distribution(hold_data, run_data.label, sp, tol)
             out = out_dir / "04_hold_error_distribution.png"
             fig.savefig(out, dpi=150, bbox_inches="tight")
             plt.close(fig)
@@ -906,7 +908,7 @@ def main():
             print("Skipped 04_hold_error_distribution.png — no confirmed settled hold.")
 
     if do_all or args.plot_type == "phase":
-        fig = render_phase_portrait(run_data, run_config.setpoint_roll_deg, kpis)
+        fig = render_phase_portrait(run_data, sp, kpis, tol)
         out = out_dir / "05_phase_portrait.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)

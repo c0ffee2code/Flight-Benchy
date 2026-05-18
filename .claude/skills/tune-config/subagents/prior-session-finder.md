@@ -10,13 +10,17 @@ Once per session, in step 4 of Session open. The parent does not invoke this mid
 
 ```
 {
-  "objective_text": "<the natural-language objective the user gave>",
-  "objective_kpi": "<the KPI + threshold the agent translated to, e.g. 'T_s ≤ 60s on every run'>",
+  "tightening": {
+    "kpi": "<e.g. 'hold_mae_deg'>",
+    "level": "<'pass' | 'good' | 'excellent'>",
+    "new_value": <number>,
+    "prior_value": <number>
+  },
   "tuning_dir": "tuning/"
 }
 ```
 
-The parent passes both the raw text and the translated KPI. Match against either: same KPI direction (T_s reduction, HoldMAE_s reduction, etc.) counts as a match even if thresholds differ.
+The parent passes the structured criteria edit. Match logic: prior sessions that targeted the same `kpi` are the strongest matches, regardless of which level or value was being tightened — knowledge about how a KPI responds to config changes transfers across threshold levels. Prior sessions on related KPIs (e.g. `T→SP` and `T_s` are related; `hold_mae_deg` and `oscillation_hz` are not) are weaker matches.
 
 ## Output
 
@@ -48,9 +52,9 @@ If multiple prior sessions match, return the **most recent successful** one. If 
 1. List all `.md` files in `tuning_dir`. Skip ones that don't match the session-file format (`YYYY-MM-DD-<slug>.md`).
 2. For each candidate, read the Objective section and the Outcome section (these are at known positions in the template — top and bottom). Skip the iterations themselves; they're not needed for the synthesis.
 3. Score matches:
-   - Strong match: same KPI, same direction, same operating regime (e.g. both reducing HoldMAE).
-   - Weak match: same KPI different direction, or related KPIs (T_s and T@SP are related; HoldMAE and oscillation Hz are not).
-   - No match: different objective entirely.
+   - Strong match: same `kpi` as the current tightening, any level/value.
+   - Weak match: related KPI (`T→SP` ↔ `T_s` ↔ `T@SP` are related; `hold_mae_deg` ↔ `oscillation_hz` are not).
+   - No match: different KPI entirely.
 4. Pick the best match per the precedence rule above (most recent Met > most recent Abandoned > most recent Failed > nothing).
 5. For the picked session, read the Starting State to get the starting config and read all Lessons fields across iterations. Synthesise the single most-relevant lesson into `key_lesson` — your own words, not a quote. Compute `config_delta` by diffing final iteration's config against Starting State's config.
 6. Return the structured result.

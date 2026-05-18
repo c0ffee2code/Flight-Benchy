@@ -16,7 +16,7 @@
 |-----------|-------|
 | angle_pid | kp=3.0, ki=0.05, kd=0.5, iterm_limit=5.0 |
 | rate_pid | kp=0.5, ki=0.0, kd=0.009, iterm_limit=50.0 |
-| motor | base=500.0, min=100.0, max=900.0, expo=0.0 |
+| motor | base=500, min=100, max=900 |
 | feedforward_lead_ms | 15.0 |
 | angle_report | game_rotation_vector @ 50 Hz |
 | rate_report | calibrated_gyroscope @ 200 Hz |
@@ -32,6 +32,13 @@ Run                           Start  OK  Reached  T->SP (s)  HoldMAE_s (deg)  Du
 -------------------------------------------------------------------------------------
 2026-05-14_16-22-45        51.9deg  ok      YES      26.1s          3.05deg   119.9s
 -------------------------------------------------------------------------------------
+
+  Acceptance levels (tolerance: +/-10 deg):
+    hold_mae_deg             3.05  ->  good
+    time_to_sp_s            26.06  ->  below_pass
+    settling_time_s         26.16  ->  pass
+    hold_duration_s         93.73  ->  good
+    overshoot_pct           13.03  ->  good
 
   Rise 10-90%: 32.9s     Overshoot: 13.0%     T_s (settling): 26.2s
   Damping ratio zeta: 0.544
@@ -58,7 +65,7 @@ Loaded 2026-05-14_16-22-45: 2289 samples, 119.9s
   Reached setpoint                              YES
   T->SP (s)                                   26.1s
   Rise time 10-90% (s)                        32.9s
-  Overshoot (% of step)                       26.2s
+  Overshoot (% of step)                       13.0%
   Damping ratio zeta                          0.544
   Settling time T_s (s)                       26.2s
   HoldMAE_s (deg), post-settle              3.05deg
@@ -118,25 +125,26 @@ Loaded 2026-05-14_16-22-45: 2289 samples, 119.9s
 
 ### Plots
 
-- `test_runs/flights/2026-05-14_16-22-45/01_timeseries.png`
-- `test_runs/flights/2026-05-14_16-22-45/02_step_response.png`
-- `test_runs/flights/2026-05-14_16-22-45/03_spectrum.png`
-- `test_runs/flights/2026-05-14_16-22-45/04_hold_error_distribution.png`
-- `test_runs/flights/2026-05-14_16-22-45/05_phase_portrait.png`
+- `test_runs/flights/2026-05-14_16-22-45/01_timeseries.png` — full time-series (angle, rate, PID terms, motors)
+- `test_runs/flights/2026-05-14_16-22-45/02_step_response.png` — full run milestones + transient zoom
+- `test_runs/flights/2026-05-14_16-22-45/03_spectrum.png` — PSD of hold-window error
+- `test_runs/flights/2026-05-14_16-22-45/04_hold_error_distribution.png` — hold-error histogram
+- `test_runs/flights/2026-05-14_16-22-45/05_phase_portrait.png` — phase portrait, time-coloured trajectory
 
 ---
 
 ## KPI Scorecard
 
-| Metric | Value |
-|--------|-------|
-| Reached setpoint | YES |
-| T→SP (s) | 26.1 |
-| Rise time 10-90% (s) | 32.9 |
-| Overshoot (% of step) | 13.0% |
-| Damping ratio ζ | 0.544 |
-| Settling time T_s (s) | 26.2 |
-| HoldMAE_s (°), post-settle | 3.05 |
+| Metric | Value | Level |
+|--------|-------|-------|
+| Reached setpoint | YES | — |
+| T->SP (s) | 26.1 | below_pass |
+| Rise time 10-90% (s) | 32.9 | — |
+| Overshoot (% of step) | 13.0% | good |
+| Damping ratio zeta | 0.544 | — |
+| Settling time T_s (s) | 26.2 | pass |
+| Hold Duration (s) | 93.7 | good |
+| HoldMAE_s (°), post-settle | 3.05 | good |
 
 ## Sample Rate
 
@@ -155,14 +163,14 @@ Loaded 2026-05-14_16-22-45: 2289 samples, 119.9s
 | MAE overall (°) | 1.14 |
 | MAE fast motion (°) | 1.28 |
 | MAE slow motion (°) | 1.09 |
-| Bias IMU-ENC (°) | −1.14 |
+| Bias IMU-ENC (°) | -1.14 |
 | IMU trails motion (%) | 0.0 |
 
 ## Hold-Window Tracking (post-reach)
 
 | Metric | Value |
 |--------|-------|
-| Hold bias (°, signed) | −0.02 |
+| Hold bias (°, signed) | -0.02 |
 | Hold std (°) | 3.78 |
 | Hold P95 \|error\| (°) | 9.40 |
 | Hold max \|error\| (°) | 10.02 |
@@ -174,13 +182,13 @@ Loaded 2026-05-14_16-22-45: 2289 samples, 119.9s
 | Metric | Value |
 |--------|-------|
 | Mean throttle avg M1+M2 | 500.0 |
-| Saturation upper % | 0.0 |
-| Saturation lower % | 0.0 |
+| Saturation upper % (>= throttle_max) | 0.0 |
+| Saturation lower % (<= throttle_min) | 0.0 |
 | RMS dM1/dt (throttle/s) | 41.5 |
 | RMS dM2/dt (throttle/s) | 41.5 |
-| ANG_I mean (hold, deg/s) | −0.08 |
-| M2−M1 mean (hold, throttle) | −2.5 |
-| I-term sign vs ΔM | N/A (P-term dominant) |
+| ANG_I mean (hold, deg/s) | -0.08 |
+| M2-M1 mean (hold, throttle) | -2.5 |
+| I-term sign vs dM | N/A (P-term dominant) |
 
 ## Inner Loop (hold window)
 
@@ -199,10 +207,10 @@ Loaded 2026-05-14_16-22-45: 2289 samples, 119.9s
 
 ## Observations
 
-- **Overshoot and settling**: 13.0% overshoot with T_s = T→SP = 26.2s — no ring-down, immediate settle. Damping ratio ζ = 0.544. HoldMAE_s = 3.05° is the best fast-settle hold accuracy in this session. ANG_I mean = −0.08 deg/s confirms the integrator stays near-zero throughout; hold tracking is P-term-driven with zero integrator contribution.
+- **Transient response:** T->SP of 26.1 s is below the 10 s pass threshold, the slowest approach in this session. Rise time 10-90% of 32.9 s confirms a very gradual climb. T_s of 26.2 s is 0.1 s after T->SP, indicating the lever crossed the band boundary and immediately confirmed settled hold with no prior bounce. Overshoot of 13.0% is good.
 
-- **Resolved hold oscillation**: FFT dominant freq = 0.053 Hz (period ≈ 19s), above the 3× resolution threshold (0.033 Hz) — this is a resolved, not advisory, frequency. Hold std = 3.78° and P95 = 9.40° are consistent with a low-amplitude 0.05 Hz wobble over the ~93s hold window. Hold max of 10.02° touches the ±10° settling band edge. HoldMAE_s = 3.05° reflects the mean level; the FFT shows a slow periodic component that the headline MAE underrepresents.
+- **Hold quality:** HoldMAE_s 3.05° with bias -0.02° and std 3.78° — the hold is almost perfectly centered (bias negligible) but oscillation-dominated. P95 of 9.40° and max of 10.02° show the lever is right at the edge of the band on peak excursions, just touching the boundary. FFT dominant frequency of 0.053 Hz (one cycle ~19 s) is a clearly resolved slow oscillation, well above the 3x resolution threshold of 0.033 Hz.
 
-- **Timing clean**: dt_p99 = 70.1ms, dt_max = 77.0ms — best timing of any run at iterm_limit=5. Rate tracking RMS = 11.52°/s, consistent with iteration 5 (11.88°/s). No saturation events, symmetric motor differential.
+- **Control effort:** Mean throttle at base (500.0), zero saturation, and perfectly symmetric motors (RMS dM1/dt = RMS dM2/dt = 41.5 throttle/s). ANG_I mean of -0.08 deg/s and M2-M1 mean of -2.5 throttle units indicate negligible steady-state load. The controller is operating entirely in P-term dominant mode throughout the hold.
 
-- **Near-zero hold bias**: −0.02° — the lever is centred almost exactly on setpoint over the hold window. The M2−M1 mean of −2.5 throttle is the P-term correcting a small steady angular error rather than integrator accumulation.
+- **Sensor health:** IMU-ENC bias of -1.14° matches 2026-05-14_16-16-07 exactly. The slightly higher fast-motion MAE (1.28° vs slow 1.09°) is consistent with a small lag component on top of the fixed offset. IMU trails at 0.0% and Pearson r 0.9996 confirm good sensor agreement.

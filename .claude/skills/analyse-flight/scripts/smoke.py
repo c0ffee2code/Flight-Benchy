@@ -43,6 +43,9 @@ import math
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from score_flight import load_criteria  # noqa: E402
+
 # Start-angle thresholds
 _STANDARD_START_DEG      = 58.0  # expected first encoder reading (M1-end on restrictor)
 _START_TOLERANCE_DEG     = 10.0  # ±band around standard start
@@ -50,7 +53,6 @@ _START_TOLERANCE_DEG     = 10.0  # ±band around standard start
 # Power-cut thresholds
 _POWER_CUT_FLAT_STD_DEG  = 3.0   # encoder std below this → lever stationary
 _POWER_CUT_ACTIVE_DIFF   = 20.0  # mean |M2-M1| above this → loop was commanding
-_SETPOINT_BAND_DEG       = 10.0  # ±band used to decide "reached setpoint"
 
 # Loop-meltdown thresholds — both must fire
 _LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0  # lever traversed near-full mechanical range
@@ -81,13 +83,13 @@ def check_start_angle(rows):
     return None
 
 
-def check_power_cut(rows, setpoint):
+def check_power_cut(rows, setpoint, tolerance_deg):
     """Return detail string on detection, None if clean."""
     enc  = [_quat_to_angle(r["ENC_QR"], r["ENC_QI"]) for r in rows]
     diffs = [abs(float(r["M2"]) - float(r["M1"])) for r in rows]
 
     # If the lever reached the setpoint zone, ESCs were clearly working.
-    if any(abs(a - setpoint) <= _SETPOINT_BAND_DEG for a in enc):
+    if any(abs(a - setpoint) <= tolerance_deg for a in enc):
         return None
 
     mean_a    = sum(enc) / len(enc)
@@ -156,8 +158,11 @@ def main():
     csv_path = run_dir / "log.csv"
     cfg_path = run_dir / "config.json"
 
-    missing = [name for name, path in [("log.csv", csv_path), ("config.json", cfg_path)]
-               if not path.exists()]
+    missing = [name for name, path in [
+        ("log.csv",        csv_path),
+        ("config.json",    cfg_path),
+        ("criteria.json",  run_dir / "criteria.json"),
+    ] if not path.exists()]
     if missing:
         sys.exit(f"[FAIL] missing       - {', '.join(missing)} not found in {run_dir}")
 
@@ -168,13 +173,15 @@ def main():
     except (KeyError, TypeError) as e:
         sys.exit(f"config.json missing bench.session.setpoint.roll_deg: {e}")
 
+    criteria = load_criteria(run_dir)
+
     rows = _load(csv_path)
     if len(rows) < 5:
         sys.exit(f"[FAIL] truncated     - {len(rows)} rows in log.csv; SD write likely interrupted")
 
     for name, detail in [
         ("start-angle",   check_start_angle(rows)),
-        ("power-cut",     check_power_cut(rows, setpoint)),
+        ("power-cut",     check_power_cut(rows, setpoint, criteria.tolerance_deg)),
         ("loop-meltdown", check_loop_meltdown(rows)),
         ("sample-rate",   check_sample_rate(rows)),
     ]:

@@ -3,11 +3,11 @@ Step 3 of the analyse-flight pipeline. Scores a single flight against the standa
 
 Standard test convention:
   Start position : M1-end on the restrictor, encoder ≈ +58°
-  Goal           : reach within ±10° of the configured setpoint and hold there
+  Goal           : reach within ±tolerance_deg of the configured setpoint and hold there
   Start OK flag  : start encoder within ±10° of +58°
 
 KPIs (all measured from encoder — ground truth):
-  T→SP          Seconds from run start to first entry into the ±10° band around setpoint.
+  T->SP          Seconds from run start to first entry into the tolerance band around setpoint.
   Rise time     10–90% of the initial step — rate of approach (excludes pre-spin phase).
   Overshoot     Max excursion past setpoint as % of initial step after first setpoint crossing.
   T_s           Settling time — first moment the encoder enters the band and stays inside for
@@ -16,21 +16,162 @@ KPIs (all measured from encoder — ground truth):
   HoldMAE_s     Encoder MAE from settling time onward — pure hold quality, no overshoot.
                 None if the run never confirms SETTLING_MIN_HOLD_S of settled hold.
 
+Acceptance criteria are read from criteria.json in the run folder (mandatory).
+
 Run from project root:
   python .claude/skills/analyse-flight/scripts/score_flight.py test_runs/flights/<flight_id>
 """
+
+# Python >= 3.11
 
 import csv
 import json
 import math
 import sys
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
-HORIZONTAL_THRESHOLD_DEG = 10.0
-STANDARD_START_DEG       = 58.0
-START_TOLERANCE_DEG      = 10.0
-SETTLING_MIN_HOLD_S      = 5.0
+STANDARD_START_DEG  = 58.0
+START_TOLERANCE_DEG = 10.0
+SETTLING_MIN_HOLD_S = 5.0
+
+
+# ---------------------------------------------------------------------------
+# Criteria model
+# ---------------------------------------------------------------------------
+
+class KpiDirection(StrEnum):
+    LOWER_IS_BETTER  = "lower_is_better"
+    HIGHER_IS_BETTER = "higher_is_better"
+
+
+@dataclass
+class KpiSpec:
+    direction:           KpiDirection
+    threshold_pass:      float
+    threshold_good:      float
+    threshold_excellent: float
+
+
+@dataclass
+class Criteria:
+    tolerance_deg:   float
+    hold_mae_deg:    KpiSpec
+    time_to_sp_s:    KpiSpec
+    settling_time_s: KpiSpec
+    hold_duration_s: KpiSpec
+    overshoot_pct:   KpiSpec
+
+
+@dataclass
+class ScoredKpi:
+    value: float | None
+    level: str | None   # "excellent" | "good" | "pass" | "below_pass" | None
+    spec:  KpiSpec
+
+    def to_dict(self):
+        return {
+            "value": self.value,
+            "level": self.level,
+            "thresholds": {
+                "pass":      self.spec.threshold_pass,
+                "good":      self.spec.threshold_good,
+                "excellent": self.spec.threshold_excellent,
+            },
+        }
+
+
+@dataclass
+class ScoredRun:
+    reached:         bool
+    hold_mae_deg:    ScoredKpi
+    time_to_sp_s:    ScoredKpi
+    settling_time_s: ScoredKpi
+    hold_duration_s: ScoredKpi
+    overshoot_pct:   ScoredKpi
+
+    def to_dict(self):
+        return {
+            "reached":         self.reached,
+            "hold_mae_deg":    self.hold_mae_deg.to_dict(),
+            "time_to_sp_s":    self.time_to_sp_s.to_dict(),
+            "settling_time_s": self.settling_time_s.to_dict(),
+            "hold_duration_s": self.hold_duration_s.to_dict(),
+            "overshoot_pct":   self.overshoot_pct.to_dict(),
+        }
+
+
+def load_criteria(run_dir):
+    """Load and parse criteria.json from run_dir. Exits immediately if absent or malformed."""
+    path = Path(run_dir) / "criteria.json"
+    if not path.exists():
+        sys.exit(f"criteria.json not found in {run_dir}")
+    with open(path) as f:
+        raw = json.load(f)
+
+    def _kpi(key):
+        try:
+            entry = raw["kpis"][key]
+            return KpiSpec(
+                direction=KpiDirection(entry["direction"]),
+                threshold_pass=float(entry["thresholds"]["pass"]),
+                threshold_good=float(entry["thresholds"]["good"]),
+                threshold_excellent=float(entry["thresholds"]["excellent"]),
+            )
+        except (KeyError, TypeError, ValueError) as err:
+            sys.exit(f"criteria.json malformed at kpis.{key}: {err}")
+
+    try:
+        tolerance_deg = float(raw["tolerance_deg"])
+    except (KeyError, TypeError) as e:
+        sys.exit(f"criteria.json missing tolerance_deg: {e}")
+
+    return Criteria(
+        tolerance_deg=tolerance_deg,
+        hold_mae_deg=_kpi("hold_mae_deg"),
+        time_to_sp_s=_kpi("time_to_sp_s"),
+        settling_time_s=_kpi("settling_time_s"),
+        hold_duration_s=_kpi("hold_duration_s"),
+        overshoot_pct=_kpi("overshoot_pct"),
+    )
+
+
+def score_kpi_levels(kpis, criteria):
+    """Score a KpiResult against criteria thresholds. Returns dict[str, ScoredKpi]."""
+    def _score(value, spec):
+        if value is None:
+            return ScoredKpi(value=None, level=None, spec=spec)
+        if spec.direction == KpiDirection.LOWER_IS_BETTER:
+            if value <= spec.threshold_excellent:
+                level = "excellent"
+            elif value <= spec.threshold_good:
+                level = "good"
+            elif value <= spec.threshold_pass:
+                level = "pass"
+            else:
+                level = "below_pass"
+        else:
+            if value >= spec.threshold_excellent:
+                level = "excellent"
+            elif value >= spec.threshold_good:
+                level = "good"
+            elif value >= spec.threshold_pass:
+                level = "pass"
+            else:
+                level = "below_pass"
+        return ScoredKpi(value=value, level=level, spec=spec)
+
+    return ScoredRun(
+        reached=kpis.reached,
+        hold_mae_deg=    _score(kpis.hold_mae_settled,  criteria.hold_mae_deg),
+        time_to_sp_s=    _score(kpis.time_to_s,         criteria.time_to_sp_s),
+        settling_time_s= _score(kpis.settling_time_s,   criteria.settling_time_s),
+        hold_duration_s= _score(kpis.hold_duration_s,   criteria.hold_duration_s),
+        overshoot_pct=   _score(kpis.overshoot_pct,     criteria.overshoot_pct),
+    )
+
+
 
 
 @dataclass
@@ -45,7 +186,7 @@ class KpiResult:
                        STANDARD_START_DEG (standard M1-end-down position).
     reached          : True if the encoder entered the ±HORIZONTAL_THRESHOLD_DEG
                        band around setpoint at least once.
-    time_to_s        : Seconds from run start to first band entry (T→SP); None if
+    time_to_s        : Seconds from run start to first band entry (T->SP); None if
                        not reached.
     rise_time_s      : 10–90% rise time in seconds; None if step is negligible.
     overshoot_pct    : Max excursion past setpoint as % of initial step after first
@@ -54,6 +195,8 @@ class KpiResult:
                        2nd-order formula; None if overshoot is 0 or not reached.
     settling_time_s  : Time of first entry into the band that is never left for
                        ≥ SETTLING_MIN_HOLD_S seconds; None if not confirmed.
+    hold_duration_s  : duration_s − settling_time_s — clean hold length; None if
+                       settling not confirmed.
     hold_mae_settled : Encoder MAE from settling_time_s onward; None if settling
                        not confirmed.
     hold_start_idx   : Sample index of the first band entry; None if not reached.
@@ -69,6 +212,7 @@ class KpiResult:
     overshoot_pct:    float | None
     damping_ratio:    float | None
     settling_time_s:  float | None
+    hold_duration_s:  float | None
     hold_mae_settled: float | None
     hold_start_idx:   int | None
     settle_start_idx: int | None
@@ -116,7 +260,7 @@ def load_angles(csv_path):
     return result
 
 
-def compute_kpis(samples, setpoint):
+def compute_kpis(samples, setpoint, tolerance_deg):
     if not samples:
         return None
 
@@ -127,10 +271,10 @@ def compute_kpis(samples, setpoint):
     initial_step     = setpoint - start_angle   # e.g. 0 − 58 = −58
     initial_step_abs = abs(initial_step)
 
-    # T→SP: first entry into ±HORIZONTAL_THRESHOLD_DEG band
+    # T->SP: first entry into ±tolerance_deg band
     reached_idx = None
     for i, (t, a) in enumerate(samples):
-        if abs(a - setpoint) <= HORIZONTAL_THRESHOLD_DEG:
+        if abs(a - setpoint) <= tolerance_deg:
             reached_idx = i
             break
     reached = reached_idx is not None
@@ -181,12 +325,13 @@ def compute_kpis(samples, setpoint):
     # Settling time + HoldMAE_settled
     # Scan backward from end to find last sample outside the band (at or after reach)
     settling_time_s  = None
+    hold_duration_s  = None
     hold_mae_settled = None
     settle_idx       = None
     if reached:
         last_out = None
         for i in range(len(samples) - 1, reached_idx - 1, -1):
-            if abs(samples[i][1] - setpoint) > HORIZONTAL_THRESHOLD_DEG:
+            if abs(samples[i][1] - setpoint) > tolerance_deg:
                 last_out = i
                 break
         if last_out is None:
@@ -200,8 +345,11 @@ def compute_kpis(samples, setpoint):
             settled_dur = (samples[-1][0] - t_settle) / 1000.0
             if settled_dur >= SETTLING_MIN_HOLD_S:
                 settling_time_s  = (t_settle - t0) / 1000.0
+                hold_duration_s  = settled_dur
                 post_s           = [a for _, a in samples[settle_idx:]]
                 hold_mae_settled = sum(abs(a - setpoint) for a in post_s) / len(post_s)
+
+    duration_s = (samples[-1][0] - t0) / 1000.0
 
     return KpiResult(
         start_angle=start_angle,
@@ -212,10 +360,11 @@ def compute_kpis(samples, setpoint):
         overshoot_pct=overshoot_pct,
         damping_ratio=damping_ratio,
         settling_time_s=settling_time_s,
+        hold_duration_s=hold_duration_s,
         hold_mae_settled=hold_mae_settled,
         hold_start_idx=reached_idx,
         settle_start_idx=settle_idx,
-        duration_s=(samples[-1][0] - t0) / 1000.0,
+        duration_s=duration_s,
         n=len(samples),
     )
 
@@ -230,12 +379,17 @@ def main():
     if not csv_path.exists():
         sys.exit(f"log.csv not found in {run_dir}")
 
-    samples = load_angles(csv_path)
+    criteria = load_criteria(run_dir)
+    samples  = load_angles(csv_path)
     if len(samples) < 5:
         sys.exit(f"Too few samples ({len(samples)}) — run may be corrupt")
 
     setpoint = load_setpoint(run_dir)
-    k        = compute_kpis(samples, setpoint)
+    k        = compute_kpis(samples, setpoint, criteria.tolerance_deg)
+    scored   = score_kpi_levels(k, criteria)
+
+    with open(run_dir / "kpis.json", "w") as f:
+        json.dump(scored.to_dict(), f, indent=2)
 
     def _fmt(val, fmt, suffix=""):
         return f"{val:{fmt}}{suffix}" if val is not None else "-"
@@ -254,6 +408,18 @@ def main():
           f"{reached_str:>8} {t_to:>10} {h_mae_s:>16} "
           f"{k.duration_s:>7.1f}s")
     print(sep)
+
+    print(f"\n  Acceptance levels (tolerance: +/-{criteria.tolerance_deg:.0f} deg):")
+    for name, sk in [
+        ("hold_mae_deg",    scored.hold_mae_deg),
+        ("time_to_sp_s",    scored.time_to_sp_s),
+        ("settling_time_s", scored.settling_time_s),
+        ("hold_duration_s", scored.hold_duration_s),
+        ("overshoot_pct",   scored.overshoot_pct),
+    ]:
+        val_str = f"{sk.value:.2f}" if sk.value is not None else "-"
+        lvl_str = sk.level if sk.level is not None else "-"
+        print(f"    {name:<20} {val_str:>8}  ->  {lvl_str}")
 
     if k.reached:
         rise  = _fmt(k.rise_time_s,    ".1f", "s")
