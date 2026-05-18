@@ -1,0 +1,48 @@
+{
+  "reached": true,
+  "hold_mae_deg": {
+    "value": 3.047332021814554,
+    "level": "good",
+    "thresholds": {
+      "pass": 5.0,
+      "good": 3.5,
+      "excellent": 2.5
+    }
+  },
+  "time_to_sp_s": {
+    "value": 26.057,
+    "level": "below_pass",
+    "thresholds": {
+      "pass": 10.0,
+      "good": 5.0,
+      "excellent": 3.0
+    }
+  },
+  "settling_time_s": {
+    "value": 26.163,
+    "level": "pass",
+    "thresholds": {
+      "pass": 35.0,
+      "good": 25.0,
+      "excellent": 20.0
+    }
+  },
+  "hold_duration_s": {
+    "value": 93.735,
+    "level": "good",
+    "thresholds": {
+      "pass": 60.0,
+      "good": 90.0,
+      "excellent": 100.0
+    }
+  },
+  "overshoot_pct": {
+    "value": 13.027764008913097,
+    "level": "good",
+    "thresholds": {
+      "pass": 25.0,
+      "good": 18.0,
+      "excellent": 12.0
+    }
+  }
+}
