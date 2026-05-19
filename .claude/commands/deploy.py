@@ -2,7 +2,7 @@
 deploy.py — upload config.json + specification.json (and optionally all source files) to the Pico
 
 Run from project root:
-  python .claude/skills/deploy/scripts/deploy.py [--full]
+  python .claude/commands/deploy.py [--full]
 
   (no flag)  Upload config.json + specification.json — use for PID / config tuning between runs
   --full     Upload config.json + specification.json + all source files — use after code changes
@@ -16,7 +16,7 @@ from pathlib import Path
 
 PYTHON   = sys.executable
 COM_PORT = "COM7"
-ROOT     = Path(__file__).resolve().parents[4]
+ROOT     = Path(__file__).resolve().parents[2]
 
 SOURCE_FILES = [
     ("src/main.py",                          "main.py"),
@@ -28,14 +28,14 @@ SOURCE_FILES = [
     ("src/telemetry/time_source.py",         "time_source.py"),
     ("src/telemetry/sdcard.py",              "sdcard.py"),
     ("AS5600/driver/as5600.py",              "as5600.py"),
-    ("BNO085/driver/bno08x.py",              "bno08x.py"),
-    ("BNO085/driver/i2c.py",                 "i2c.py"),
+    ("BNO085/driver/bno08x.py",             "bno08x.py"),
+    ("BNO085/driver/i2c.py",                "i2c.py"),
     ("DShot/driver/dshot_pio.py",            "dshot_pio.py"),
     ("DShot/driver/motor_throttle_group.py", "motor_throttle_group.py"),
 ]
 
 CONFIG_FILES = [
-    ("src/config.json",   "config.json"),
+    ("src/config.json",        "config.json"),
     ("src/specification.json", "specification.json"),
 ]
 

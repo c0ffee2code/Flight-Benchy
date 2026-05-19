@@ -2,7 +2,7 @@
 Open-loop position reset — drives M1 end to the restrictor (resting position).
 
 Applies a fixed M1 throttle for RESET_DURATION_MS, then disarms.
-Run via:  mpremote run .claude/skills/reset-position/scripts/reset_position.py
+Run via:  python -m mpremote connect COM7 run .claude/commands/reset_position.py
 No SD card or encoder access needed — open-loop only.
 """
 from micropython import const
@@ -34,7 +34,7 @@ def main():
     send_for_ms(motor, THROTTLE_RESET, RESET_DURATION_MS)
     send_for_ms(motor, THROTTLE_MIN, 500)         # cooldown
     send_for_ms(motor, 0, 200)                    # disarm
-    print("Done — M1 end at restrictor.")
+    print("Done -- M1 end at restrictor.")
 
 
 main()

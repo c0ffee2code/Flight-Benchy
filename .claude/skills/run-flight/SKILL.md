@@ -7,10 +7,10 @@ description: Full autonomous flight pipeline — reset position, deploy config, 
 
 Executes the full autonomous flight pipeline end-to-end:
 
-1. Reset position (`/reset-position`)
-2. Deploy config (`/deploy`)
+1. Reset position
+2. Deploy config
 3. Run `flight.py` on the Pico — waits for it to complete naturally (duration governed by `session.duration_s` in config)
-4. Fetch the new run from SD card (`/fetch-flights`)
+4. Pull the new run from SD card
 5. Analyse the new run (`/analyse-flight`)
 
 ## Pre-conditions
@@ -31,11 +31,19 @@ If the script exits non-zero, stop and show its output. Do not proceed.
 
 ## Step 1 — Reset position
 
-Run the `/reset-position` skill. Wait for "Done — M1 end at restrictor." before continuing.
+```
+python -m mpremote connect COM7 run .claude/commands/reset_position.py
+```
+
+Wait for "Done -- M1 end at restrictor." before continuing.
 
 ## Step 2 — Deploy config
 
-Run the `/deploy` skill (no `--full` flag — config-only is sufficient unless the user explicitly asks for a full deploy).
+```
+python .claude/commands/deploy.py
+```
+
+Config-only (no `--full`) is sufficient unless the user explicitly asks for a full deploy.
 
 ## Step 3 — Run flight
 
@@ -47,9 +55,13 @@ This blocks until `flight.py` exits — i.e. until `session.duration_s` elapses.
 
 If mpremote exits with a non-zero code or prints a traceback, report the error verbatim and stop. Do not proceed to fetch or analyse — the run may be incomplete or absent from the SD card.
 
-## Step 4 — Fetch
+## Step 4 — Pull
 
-Run the `/fetch-flights` skill. Identifies the new run (the one not yet in `test_runs/flights/`). If no new run appears, report it — the flight may have crashed before opening the SD session.
+```
+python .claude/commands/pull.py --yes
+```
+
+Identifies the new run (the one not yet in `test_runs/flights/`). If no new run appears, report it — the flight may have crashed before opening the SD session.
 
 ## Step 5 — Analyse
 

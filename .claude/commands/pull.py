@@ -1,8 +1,8 @@
 """
-fetch_flights.py — move new flight runs from Pico SD card to test_runs/flights/
+pull.py — move new flight runs from Pico SD card to test_runs/flights/
 
 Run from project root:
-  python .claude/skills/fetch-flights/scripts/fetch_flights.py [--yes]
+  python .claude/commands/pull.py [--yes]
 
   --yes   skip confirmation, move all new runs immediately
 
@@ -19,12 +19,12 @@ from pathlib import Path
 
 PYTHON = sys.executable  # use same interpreter that's running this script
 
-# ── Configuration ──────────────────────────────────────────────────────────
+# -- Configuration -------------------------------------------------------------
 COM_PORT   = "COM7"
 REMOTE_DIR = "/sd/flights"
 LOCAL_DIR  = Path("test_runs/flights")
 
-# ── Pico-side SD mount boilerplate ─────────────────────────────────────────
+# -- Pico-side SD mount boilerplate --------------------------------------------
 _SD_MOUNT = """\
 import os, time
 from machine import SPI, Pin
@@ -37,7 +37,7 @@ _sd  = sdcard.SDCard(_spi, _cs)
 os.mount(os.VfsFat(_sd), '/sd')
 """
 
-# ── Pico-side scripts ──────────────────────────────────────────────────────
+# -- Pico-side scripts ---------------------------------------------------------
 
 _LIST_SCRIPT = _SD_MOUNT + """\
 try:
@@ -92,7 +92,7 @@ finally:
 """
 
 
-# ── mpremote runner ────────────────────────────────────────────────────────
+# -- mpremote runner -----------------------------------------------------------
 
 def _run_on_pico(code, timeout=120):
     """Write code to a temp file and run it on the Pico via mpremote run."""
@@ -112,7 +112,7 @@ def _run_on_pico(code, timeout=120):
     return result.stdout
 
 
-# ── Transfer output parser ─────────────────────────────────────────────────
+# -- Transfer output parser ----------------------------------------------------
 
 def _parse_transfer(output):
     """Parse base64-encoded structured output from the transfer script.
@@ -143,7 +143,7 @@ def _parse_transfer(output):
     return files, expected_sizes
 
 
-# ── Core operations ────────────────────────────────────────────────────────
+# -- Core operations -----------------------------------------------------------
 
 def list_remote():
     out = _run_on_pico(_LIST_SCRIPT)
@@ -199,12 +199,12 @@ def delete_from_sd(ok_ids):
             print(f"  WARNING: {line}")
 
 
-# ── Main ───────────────────────────────────────────────────────────────────
+# -- Main ----------------------------------------------------------------------
 
 def main():
     auto_yes = '--yes' in sys.argv
 
-    print(f"Connecting to Pico on {COM_PORT} — listing SD card...")
+    print(f"Connecting to Pico on {COM_PORT} -- listing SD card...")
     remote = list_remote()
     local  = list_local()
     new_ids = sorted(set(remote) - local)
@@ -212,14 +212,14 @@ def main():
     print(f"  SD card : {len(remote)} run(s)  |  local: {len(local)} run(s)")
 
     if not new_ids:
-        print("Nothing new to fetch.")
+        print("Nothing new to pull.")
         return
 
     print(f"\nNew ({len(new_ids)}):")
     for fid in new_ids:
         print(f"  {fid}")
 
-    if not auto_yes and input("\nFetch all? [Y/n]: ").strip().lower() == 'n':
+    if not auto_yes and input("\nPull all? [Y/n]: ").strip().lower() == 'n':
         print("Aborted.")
         return
 
@@ -228,7 +228,7 @@ def main():
     if ok_ids:
         delete_from_sd(ok_ids)
 
-    print(f"\nDone: {len(ok_ids)} fetched, {len(failed_ids)} failed.")
+    print(f"\nDone: {len(ok_ids)} pulled, {len(failed_ids)} failed.")
     if failed_ids:
         print("Failed runs remain on SD card:")
         for fid in failed_ids:
