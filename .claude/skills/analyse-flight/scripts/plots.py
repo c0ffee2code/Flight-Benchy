@@ -40,7 +40,7 @@ from matplotlib.lines import Line2D
 sys.path.insert(0, str(Path(__file__).parent))
 from score_flight import (  # noqa: E402
     compute_kpis,
-    load_criteria,
+    load_specification,
 )
 
 
@@ -858,11 +858,11 @@ def main():
 
     run_data   = load_run(args.flight_folder)
     run_config = load_config(run_dir)
-    criteria   = load_criteria(run_dir)
+    spec = load_specification(run_dir)
     print(f"Loaded {run_data.label}: {len(run_data.t_ms)} samples")
 
     sp        = run_config.setpoint_roll_deg
-    tol       = criteria.tolerance_deg
+    tol       = spec.tolerance_deg
     samples   = list(zip(run_data.t_ms.tolist(), run_data.enc_roll.tolist()))
     kpis      = compute_kpis(samples, sp, tol)
     hold_data = compute_hold_window(run_data, kpis, sp)

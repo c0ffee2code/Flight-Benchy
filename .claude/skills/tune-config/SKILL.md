@@ -1,6 +1,6 @@
 ---
 name: tune-config
-description: Pair-tune the Flight Benchy control algorithm to meet a tightened acceptance threshold in criteria.json, by adjusting config.json values only. The user opens a session by asking to tighten one threshold in criteria.json; that tightening becomes the session objective. The skill reads run history, identifies a baseline, proposes config changes iteratively with full reasoning, and tracks the session as a structured markdown log. Triggers on phrases like "new tuning session". Does NOT cover source code changes (only edits config.json and criteria.json), one-off config edits without a tracked session, fully autonomous tuning (human-in-the-loop on every iteration), or cross-session comparison. Produces a session log under tuning/ and is the only producer of those files.
+description: Pair-tune the Flight Benchy control algorithm to meet a tightened acceptance threshold in specification.json, by adjusting config.json values only. The user opens a session by asking to tighten one threshold in specification.json; that tightening becomes the session objective. The skill reads run history, identifies a baseline, proposes config changes iteratively with full reasoning, and tracks the session as a structured markdown log. Triggers on phrases like "new tuning session". Does NOT cover source code changes (only edits config.json and specification.json), one-off config edits without a tracked session, fully autonomous tuning (human-in-the-loop on every iteration), or cross-session comparison. Produces a session log under tuning/ and is the only producer of those files.
 ---
 
 ## Arguments
@@ -9,7 +9,7 @@ description: Pair-tune the Flight Benchy control algorithm to meet a tightened a
 <criteria tightening request in plain language>
 ```
 
-The user opens a session by requesting a tightening of one threshold in `criteria.json`. Examples:
+The user opens a session by requesting a tightening of one threshold in `specification.json`. Examples:
 
 - "tighten HoldMAE pass to 4°"
 - "push hold_time_s excellent from 60 to 90"
@@ -17,14 +17,14 @@ The user opens a session by requesting a tightening of one threshold in `criteri
 
 The request names a KPI, a threshold level (`pass`, `good`, or `excellent`), and the new value. The agent:
 
-1. Reads the current `criteria.json`.
+1. Reads the current `specification.json`.
 2. Confirms the parsed `(kpi, level, new_value)` with the user before any file edit.
-3. On confirmation, edits criteria.json — one threshold, one parameter (the same one-variable-at-a-time discipline that governs iterations).
+3. On confirmation, edits specification.json — one threshold, one parameter (the same one-variable-at-a-time discipline that governs iterations).
 4. That tightening *is* the session objective. The just-edited KPI is the session target; meeting the new threshold value is the goal.
 
 If the user's request is ambiguous ("let's get HoldMAE under 4°" — which level?), the agent asks for clarification before editing. Loose phrasing is fine if the agent confirms its interpretation.
 
-If `criteria.json` does not yet exist in the project, see the **Missing criteria.json** subsection below.
+If `specification.json` does not yet exist in the project, see the **Missing specification.json** subsection below.
 
 # Tune Flight
 
@@ -46,14 +46,14 @@ A tuning session without structure produces a sequence of changes that locally m
 
 The goal is not to produce optimal configs faster. The goal is to produce understanding that compounds — so that the tenth session's iteration 1 starts from a richer mental model than the first session's did.
 
-## The criteria.json model
+## The specification.json model
 
-`criteria.json` is the slowly-evolving spec of what success means for this rig. It lives at the project root next to `config.json` and is copied into each run folder by `SdSink`. Each KPI has three thresholds: `pass`, `good`, and `excellent`.
+`specification.json` is the slowly-evolving spec of what success means for this rig. It lives at the project root next to `config.json` and is copied into each run folder by `SdSink`. Each KPI has three thresholds: `pass`, `good`, and `excellent`.
 
 Two files; two rates of change:
 
 - **`config.json`** changes every iteration — that's the search.
-- **`criteria.json`** changes once per session, at session open — that's the bar.
+- **`specification.json`** changes once per session, at session open — that's the bar.
 
 A session is the act of pulling config up to a tightened criteria bar. The discipline is recursive: one config parameter changes per iteration; one criteria threshold tightens per session. The session opens with a criteria edit, closes when config has caught up (Met) or when the tightening has been shown unreachable (Abandoned, recommend revert).
 
@@ -66,21 +66,21 @@ When the session targets KPI X by tightening threshold X.level to a new value, *
 
 The session's target KPI is exempt from envelope check on itself: tightening HoldMAE.pass from 5° to 4° means HoldMAE temporarily sits below the new pass threshold by definition — that's the whole point of the session.
 
-### Missing criteria.json
+### Missing specification.json
 
-If `criteria.json` does not exist when the session opens, the agent surfaces this and asks:
+If `specification.json` does not exist when the session opens, the agent surfaces this and asks:
 
-> "No criteria.json found. Three options: (a) create one now with default thresholds and tighten as you described; (b) proceed in legacy mode — natural-language objective, no envelope check, hardcoded ±10° tolerance; (c) stop and create criteria.json manually first. Which?"
+> "No specification.json found. Three options: (a) create one now with default thresholds and tighten as you described; (b) proceed in legacy mode — natural-language objective, no envelope check, hardcoded ±10° tolerance; (c) stop and create specification.json manually first. Which?"
 
 The agent does not silently fall back to legacy mode; the choice must be explicit. Legacy mode disables the envelope check entirely and is intended only for projects that haven't adopted IDEA-001 yet.
 
-### Outcome and the criteria.json undo
+### Outcome and the specification.json undo
 
-The Outcome section of every session records what happened to criteria.json:
+The Outcome section of every session records what happened to specification.json:
 
-- **Met and confirmed** → criteria.json tightening stands; the session log is the record of how the rig got there.
-- **Abandoned** → the agent recommends reverting the criteria.json edit (or loosening it to a reachable level, with a specific value backed by session evidence). The human decides; the agent does not auto-revert. The session's Outcome includes the recommended new value and the evidence supporting it.
-- **Failed** → criteria.json state is whatever it was at session open; the session never produced evidence to support either keeping or reverting. Postmortem first, then revisit the tightening as a fresh session.
+- **Met and confirmed** → specification.json tightening stands; the session log is the record of how the rig got there.
+- **Abandoned** → the agent recommends reverting the specification.json edit (or loosening it to a reachable level, with a specific value backed by session evidence). The human decides; the agent does not auto-revert. The session's Outcome includes the recommended new value and the evidence supporting it.
+- **Failed** → specification.json state is whatever it was at session open; the session never produced evidence to support either keeping or reverting. Postmortem first, then revisit the tightening as a fresh session.
 
 This is the engineering loop the skill enforces: *propose a tighter bar → prove you can meet it → keep the tighter bar; or prove you can't → revert with evidence.*
 
@@ -116,15 +116,15 @@ Subagent contracts are documented in `.claude/skills/tune-config/subagents/`. If
 
 The user states the tightening request in plain language. The agent:
 
-1. **Parses and confirms the tightening.** Extracts `(kpi, level, new_value)` from the user's request. Reads current `criteria.json` to see the current value. Presents the parsed edit to the user for confirmation:
+1. **Parses and confirms the tightening.** Extracts `(kpi, level, new_value)` from the user's request. Reads current `specification.json` to see the current value. Presents the parsed edit to the user for confirmation:
 
-   > "You want to tighten `criteria.json` → `<kpi>.<level>` from `<current_value>` to `<new_value>`. The session target will be: get `<kpi>` to meet `<new_value>` on every confirmation run. Confirm?"
+   > "You want to tighten `specification.json` → `<kpi>.<level>` from `<current_value>` to `<new_value>`. The session target will be: get `<kpi>` to meet `<new_value>` on every confirmation run. Confirm?"
 
-   On confirmation, the agent edits `criteria.json` — one threshold, one parameter. This edit happens *before* any iteration; the criteria edit and the session are linked atomically (Met keeps it, Abandoned recommends revert).
+   On confirmation, the agent edits `specification.json` — one threshold, one parameter. This edit happens *before* any iteration; the criteria edit and the session are linked atomically (Met keeps it, Abandoned recommends revert).
 
-   If `criteria.json` is missing, see "Missing criteria.json" in the model section above.
+   If `specification.json` is missing, see "Missing specification.json" in the model section above.
 
-   If the user's request is ambiguous, the agent asks for clarification before editing. The agent never edits criteria.json without explicit confirmation of the exact `(kpi, level, new_value)` triple.
+   If the user's request is ambiguous, the agent asks for clarification before editing. The agent never edits specification.json without explicit confirmation of the exact `(kpi, level, new_value)` triple.
 
 2. **Pulls recent project history.** Runs the history reader:
    ```
@@ -139,10 +139,10 @@ The user states the tightening request in plain language. The agent:
 
 4. **Surfaces prior same-KPI sessions, if any.** Invokes the `prior-session-finder` subagent with the structured tightening (kpi, level, new_value, prior_value) and the `tuning/` directory. If the subagent returns a match, the agent writes a single-paragraph **Prior session note** in Starting State summarising: prior session date, prior Outcome (Met / Abandoned / Failed), final config delta from baseline at that time, and the single most relevant lesson — all sourced from the subagent's structured output. Strongest matches are prior sessions that targeted the same KPI, regardless of level or value. This is the one-time prior at session open — mid-session iterations do not reference it again. If the subagent returns null, omit the field entirely (do not write "none found"; absence is the default).
 
-5. **Writes the Starting State block.** From the history reader's Baseline analysis section and the current `criteria.json`. This block is **frozen** for the rest of the session — it is the reference point against which all subsequent results are measured. Includes:
+5. **Writes the Starting State block.** From the history reader's Baseline analysis section and the current `specification.json`. This block is **frozen** for the rest of the session — it is the reference point against which all subsequent results are measured. Includes:
    - Current config (all PID gains, motor base, feedforward lead if present).
    - Prior session note (if step 4 found one).
-   - **Criteria snapshot:** the post-edit `criteria.json` thresholds for all KPIs, with the session target line marked. For each non-target KPI, the agent computes which level (`pass`, `good`, `excellent`, or `below pass`) the baseline currently sits in — this is the envelope starting state and what Verdict checks against.
+   - **Criteria snapshot:** the post-edit `specification.json` thresholds for all KPIs, with the session target line marked. For each non-target KPI, the agent computes which level (`pass`, `good`, `excellent`, or `below pass`) the baseline currently sits in — this is the envelope starting state and what Verdict checks against.
    - Baseline KPI means and standard deviations across the baseline runs.
    - List of baseline run IDs.
 
@@ -168,7 +168,7 @@ On approval, the agent:
 
 **Post-run draft (on `completed`).** The agent reads `analysis.md` directly from `analysis_md_path` — the headline KPI dict is for triage, but the analysis prose is the evidence base. The agent then re-invokes the history reader for updated context and fills:
 
-- **Observed** — KPIs from the new run, pulled from analysis.md. Direct values, no interpretation yet. Includes the session target KPI *and* all other KPIs that have thresholds in criteria.json (the envelope).
+- **Observed** — KPIs from the new run, pulled from analysis.md. Direct values, no interpretation yet. Includes the session target KPI *and* all other KPIs that have thresholds in specification.json (the envelope).
 - **Envelope check** — for each non-target KPI: did the new run's value stay ≥ that KPI's `pass` threshold? Any KPI that went below pass is an envelope violation and forces Reject regardless of how the target moved. Level drops that stay above pass (e.g. excellent → good) are *not* envelope violations but must be named in Lessons as a deliberate trade-off.
 - **Verdict** — *Accept*, *Provisionally consistent*, *Reject*, or *Inconclusive*. With reasoning that explicitly references the iteration's Prediction and Falsifier. Verdict rules:
   - *Accept* — observed result matches Prediction on the target KPI AND falls outside baseline variance in the predicted direction, **and** the Prediction was about a single measurement (not a distribution-level claim), **and** no envelope violations.
@@ -205,20 +205,20 @@ On user approval, the session transitions into **confirmation phase**:
   - Falsifier: target KPI misses the tightened threshold on any run, OR any envelope KPI drops below pass on any run.
 - All confirmation runs must pass for the session to close as **Met and confirmed**. If any confirmation run misses the target threshold OR breaks the envelope, the win was a fluke — the session reopens for further iteration.
 
-On successful confirmation, the session's Outcome section is filled (criteria.json tightening stands) and the file is committed.
+On successful confirmation, the session's Outcome section is filled (specification.json tightening stands) and the file is committed.
 
 **Exit 2 — Abandoned.**
 
 Two sub-triggers:
 
-*(a) Budget exhausted.* After 3 iterations (not counting confirmation runs, since those don't happen for an abandoned session), the cumulative movement of the target KPI toward the tightened threshold is within baseline variance. The strategy isn't working. The agent's Verdict on iteration 3 includes: "3 iterations completed, no meaningful movement toward `<kpi>.<level>` = `<new_value>`. Recommend abandoning this session and reverting the criteria.json tightening."
+*(a) Budget exhausted.* After 3 iterations (not counting confirmation runs, since those don't happen for an abandoned session), the cumulative movement of the target KPI toward the tightened threshold is within baseline variance. The strategy isn't working. The agent's Verdict on iteration 3 includes: "3 iterations completed, no meaningful movement toward `<kpi>.<level>` = `<new_value>`. Recommend abandoning this session and reverting the specification.json tightening."
 
 *(b) Tightening structurally unreachable.* At any iteration's post-run checkpoint, the agent may conclude — with reasoning — that the tightened threshold is below the achievable floor of the current system. Example: tightened HoldMAE.pass to 0.5° when GRV sensor floor is ~0.8°. The Verdict surfaces this as a recommendation with a specific loosened value: "Tightening to `<new_value>` appears unreachable for reasons X, Y, Z. Recommend reverting to `<prior_value>`, or loosening to `<suggested_value>` (justified by observed floor of ~`<observed_min>`)."
 
 In both cases, on user approval, the session's Outcome is filled with:
 - Reason for abandoning.
-- Recommended action on criteria.json: revert to prior value, or loosen to a specific new value with evidence.
-- The agent does **not** auto-edit criteria.json on Abandoned — the human applies the recommendation.
+- Recommended action on specification.json: revert to prior value, or loosen to a specific new value with evidence.
+- The agent does **not** auto-edit specification.json on Abandoned — the human applies the recommendation.
 
 The file is then committed.
 
@@ -246,7 +246,7 @@ The postmortem hand-off is a *workflow step*, not an automated action. The agent
 
 - **Silent envelope trade-offs.** If a non-target KPI drops a level — even staying above pass — the trade-off must be named in Lessons. Tuning sessions that quietly burn through the envelope produce configs that meet the latest tightening but are worse overall than where the project started. The envelope check is the mechanism; Lessons-naming is the audit trail.
 
-- **Auto-editing criteria.json mid-session or on Abandoned.** The agent edits criteria.json *only* at session open, with explicit user confirmation, for the one tightening that defines the session. On Abandoned, the agent recommends a revert or loosening with a specific value — but the human applies it.
+- **Auto-editing specification.json mid-session or on Abandoned.** The agent edits specification.json *only* at session open, with explicit user confirmation, for the one tightening that defines the session. On Abandoned, the agent recommends a revert or loosening with a specific value — but the human applies it.
 
 - **Approving rubber-stamps.** If the agent's Context doesn't actually justify the proposed change, the human's job is to reject and ask for re-reasoning. Approving thin Context defeats the whole skill.
 

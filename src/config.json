@@ -9,7 +9,7 @@
     "angle_pid": {
       "kp": 3.0,
       "ki": 0.05,
-      "kd": 0.5,
+      "kd": 0.4,
       "iterm_limit": 5.0,
       "output_limit": 130
     },

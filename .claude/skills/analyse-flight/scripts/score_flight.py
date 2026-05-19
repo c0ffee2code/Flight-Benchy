@@ -16,7 +16,7 @@ KPIs (all measured from encoder — ground truth):
   HoldMAE_s     Encoder MAE from settling time onward — pure hold quality, no overshoot.
                 None if the run never confirms SETTLING_MIN_HOLD_S of settled hold.
 
-Acceptance criteria are read from criteria.json in the run folder (mandatory).
+Acceptance criteria are read from specification.json in the run folder (mandatory).
 
 Run from project root:
   python .claude/skills/analyse-flight/scripts/score_flight.py test_runs/flights/<flight_id>
@@ -38,7 +38,7 @@ SETTLING_MIN_HOLD_S = 5.0
 
 
 # ---------------------------------------------------------------------------
-# Criteria model
+# Specification model
 # ---------------------------------------------------------------------------
 
 class KpiDirection(StrEnum):
@@ -55,7 +55,7 @@ class KpiSpec:
 
 
 @dataclass
-class Criteria:
+class Specification:
     tolerance_deg:   float
     hold_mae_deg:    KpiSpec
     time_to_sp_s:    KpiSpec
@@ -102,11 +102,11 @@ class ScoredRun:
         }
 
 
-def load_criteria(run_dir):
-    """Load and parse criteria.json from run_dir. Exits immediately if absent or malformed."""
-    path = Path(run_dir) / "criteria.json"
+def load_specification(run_dir):
+    """Load and parse specification.json from run_dir. Exits immediately if absent or malformed."""
+    path = Path(run_dir) / "specification.json"
     if not path.exists():
-        sys.exit(f"criteria.json not found in {run_dir}")
+        sys.exit(f"specification.json not found in {run_dir}")
     with open(path) as f:
         raw = json.load(f)
 
@@ -120,14 +120,14 @@ def load_criteria(run_dir):
                 threshold_excellent=float(entry["thresholds"]["excellent"]),
             )
         except (KeyError, TypeError, ValueError) as err:
-            sys.exit(f"criteria.json malformed at kpis.{key}: {err}")
+            sys.exit(f"specification.json malformed at kpis.{key}: {err}")
 
     try:
         tolerance_deg = float(raw["tolerance_deg"])
     except (KeyError, TypeError) as e:
-        sys.exit(f"criteria.json missing tolerance_deg: {e}")
+        sys.exit(f"specification.json missing tolerance_deg: {e}")
 
-    return Criteria(
+    return Specification(
         tolerance_deg=tolerance_deg,
         hold_mae_deg=_kpi("hold_mae_deg"),
         time_to_sp_s=_kpi("time_to_sp_s"),
@@ -137,38 +137,38 @@ def load_criteria(run_dir):
     )
 
 
-def score_kpi_levels(kpis, criteria):
-    """Score a KpiResult against criteria thresholds. Returns dict[str, ScoredKpi]."""
-    def _score(value, spec):
+def score_kpi_levels(kpis, spec):
+    """Score a KpiResult against a Specification. Returns dict[str, ScoredKpi]."""
+    def _score(value, kpi_spec):
         if value is None:
-            return ScoredKpi(value=None, level=None, spec=spec)
-        if spec.direction == KpiDirection.LOWER_IS_BETTER:
-            if value <= spec.threshold_excellent:
+            return ScoredKpi(value=None, level=None, spec=kpi_spec)
+        if kpi_spec.direction == KpiDirection.LOWER_IS_BETTER:
+            if value <= kpi_spec.threshold_excellent:
                 level = "excellent"
-            elif value <= spec.threshold_good:
+            elif value <= kpi_spec.threshold_good:
                 level = "good"
-            elif value <= spec.threshold_pass:
+            elif value <= kpi_spec.threshold_pass:
                 level = "pass"
             else:
                 level = "below_pass"
         else:
-            if value >= spec.threshold_excellent:
+            if value >= kpi_spec.threshold_excellent:
                 level = "excellent"
-            elif value >= spec.threshold_good:
+            elif value >= kpi_spec.threshold_good:
                 level = "good"
-            elif value >= spec.threshold_pass:
+            elif value >= kpi_spec.threshold_pass:
                 level = "pass"
             else:
                 level = "below_pass"
-        return ScoredKpi(value=value, level=level, spec=spec)
+        return ScoredKpi(value=value, level=level, spec=kpi_spec)
 
     return ScoredRun(
         reached=kpis.reached,
-        hold_mae_deg=    _score(kpis.hold_mae_settled,  criteria.hold_mae_deg),
-        time_to_sp_s=    _score(kpis.time_to_s,         criteria.time_to_sp_s),
-        settling_time_s= _score(kpis.settling_time_s,   criteria.settling_time_s),
-        hold_duration_s= _score(kpis.hold_duration_s,   criteria.hold_duration_s),
-        overshoot_pct=   _score(kpis.overshoot_pct,     criteria.overshoot_pct),
+        hold_mae_deg=    _score(kpis.hold_mae_settled,  spec.hold_mae_deg),
+        time_to_sp_s=    _score(kpis.time_to_s,         spec.time_to_sp_s),
+        settling_time_s= _score(kpis.settling_time_s,   spec.settling_time_s),
+        hold_duration_s= _score(kpis.hold_duration_s,   spec.hold_duration_s),
+        overshoot_pct=   _score(kpis.overshoot_pct,     spec.overshoot_pct),
     )
 
 
@@ -379,14 +379,14 @@ def main():
     if not csv_path.exists():
         sys.exit(f"log.csv not found in {run_dir}")
 
-    criteria = load_criteria(run_dir)
+    spec = load_specification(run_dir)
     samples  = load_angles(csv_path)
     if len(samples) < 5:
         sys.exit(f"Too few samples ({len(samples)}) — run may be corrupt")
 
     setpoint = load_setpoint(run_dir)
-    k        = compute_kpis(samples, setpoint, criteria.tolerance_deg)
-    scored   = score_kpi_levels(k, criteria)
+    k        = compute_kpis(samples, setpoint, spec.tolerance_deg)
+    scored   = score_kpi_levels(k, spec)
 
     with open(run_dir / "kpis.json", "w") as f:
         json.dump(scored.to_dict(), f, indent=2)
@@ -409,7 +409,7 @@ def main():
           f"{k.duration_s:>7.1f}s")
     print(sep)
 
-    print(f"\n  Acceptance levels (tolerance: +/-{criteria.tolerance_deg:.0f} deg):")
+    print(f"\n  Acceptance levels (tolerance: +/-{spec.tolerance_deg:.0f} deg):")
     for name, sk in [
         ("hold_mae_deg",    scored.hold_mae_deg),
         ("time_to_sp_s",    scored.time_to_sp_s),

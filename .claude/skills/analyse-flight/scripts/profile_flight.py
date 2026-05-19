@@ -37,7 +37,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from score_flight import compute_kpis, load_criteria  # noqa: E402
+from score_flight import compute_kpis, load_specification  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -650,12 +650,12 @@ def main():
     run_dir  = p if p.is_dir() else p.parent
     run_data   = load_run(sys.argv[1])
     run_config = load_config(run_dir)
-    criteria   = load_criteria(run_dir)
+    spec = load_specification(run_dir)
 
     kpis = compute_kpis(
         list(zip(run_data.t_ms.tolist(), run_data.enc_roll.tolist())),
         run_config.setpoint_roll_deg,
-        criteria.tolerance_deg,
+        spec.tolerance_deg,
     )
     hold_start_idx = kpis.hold_start_idx if kpis else None
 

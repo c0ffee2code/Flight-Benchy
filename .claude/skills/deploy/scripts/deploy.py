@@ -1,11 +1,11 @@
 """
-deploy.py — upload config.json + criteria.json (and optionally all source files) to the Pico
+deploy.py — upload config.json + specification.json (and optionally all source files) to the Pico
 
 Run from project root:
   python .claude/skills/deploy/scripts/deploy.py [--full]
 
-  (no flag)  Upload config.json + criteria.json — use for PID / config tuning between runs
-  --full     Upload config.json + criteria.json + all source files — use after code changes
+  (no flag)  Upload config.json + specification.json — use for PID / config tuning between runs
+  --full     Upload config.json + specification.json + all source files — use after code changes
 
 Pico must be connected on COM7. mpremote interrupts any running script on connect.
 """
@@ -36,7 +36,7 @@ SOURCE_FILES = [
 
 CONFIG_FILES = [
     ("src/config.json",   "config.json"),
-    ("src/criteria.json", "criteria.json"),
+    ("src/specification.json", "specification.json"),
 ]
 
 

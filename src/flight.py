@@ -39,9 +39,9 @@ PIN_SD_MOSI    = const(19)
 # =====================================================
 # Constants
 # =====================================================
-PRESPIN_SETTLE_MS = const(1000)  # wait at throttle_min after arming — lets both ESCs finish their start sequence before the ramp begins
+PRESPIN_SETTLE_MS = const(2000)  # wait at throttle_min after arming — lets both ESCs finish their start sequence before the ramp begins
 PRESPIN_STEP_MS   = const(50)   # delay between throttle increments during pre-spin ramp
-PRESPIN_DWELL_MS  = const(500)  # wait after reaching base_throttle before starting the control loop
+PRESPIN_DWELL_MS  = const(1000)  # wait after reaching base_throttle before starting the control loop
 
 # =====================================================
 # Hardware
@@ -73,8 +73,6 @@ def arm_motors(motors, throttle_min):
     motors.start()
     motors.arm()
     motors.setAllThrottles([throttle_min, throttle_min])
-
-def prespin_motors(motors, throttle_min, base):
     """Settle, ramp both motors from throttle_min to base, then dwell.
 
     PRESPIN_SETTLE_MS idles both motors at throttle_min first — observed 0.25–0.5s
@@ -86,6 +84,8 @@ def prespin_motors(motors, throttle_min, base):
     opens and applies differential thrust.
     """
     utime.sleep_ms(PRESPIN_SETTLE_MS)
+
+def prespin_motors(motors, throttle_min, base):
     for t in range(throttle_min, base + 10, 10):
         v = min(t, base)
         motors.setAllThrottles([v, v])

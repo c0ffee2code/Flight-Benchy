@@ -53,9 +53,9 @@ class SdSink:
         with open(self._run_dir + "/config.json", "wb") as dst:
             dst.write(cfg_bytes)
 
-        with open("criteria.json", "rb") as src:
+        with open("specification.json", "rb") as src:
             crit_bytes = src.read()
-        with open(self._run_dir + "/criteria.json", "wb") as dst:
+        with open(self._run_dir + "/specification.json", "wb") as dst:
             dst.write(crit_bytes)
 
         self._f = open(self._run_dir + "/log.csv", "w")

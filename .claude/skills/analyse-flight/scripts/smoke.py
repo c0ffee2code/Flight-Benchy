@@ -44,7 +44,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from score_flight import load_criteria  # noqa: E402
+from score_flight import load_specification  # noqa: E402
 
 # Start-angle thresholds
 _STANDARD_START_DEG      = 58.0  # expected first encoder reading (M1-end on restrictor)
@@ -161,7 +161,7 @@ def main():
     missing = [name for name, path in [
         ("log.csv",        csv_path),
         ("config.json",    cfg_path),
-        ("criteria.json",  run_dir / "criteria.json"),
+        ("specification.json",  run_dir / "specification.json"),
     ] if not path.exists()]
     if missing:
         sys.exit(f"[FAIL] missing       - {', '.join(missing)} not found in {run_dir}")
@@ -173,7 +173,7 @@ def main():
     except (KeyError, TypeError) as e:
         sys.exit(f"config.json missing bench.session.setpoint.roll_deg: {e}")
 
-    criteria = load_criteria(run_dir)
+    spec = load_specification(run_dir)
 
     rows = _load(csv_path)
     if len(rows) < 5:
@@ -181,7 +181,7 @@ def main():
 
     for name, detail in [
         ("start-angle",   check_start_angle(rows)),
-        ("power-cut",     check_power_cut(rows, setpoint, criteria.tolerance_deg)),
+        ("power-cut",     check_power_cut(rows, setpoint, spec.tolerance_deg)),
         ("loop-meltdown", check_loop_meltdown(rows)),
         ("sample-rate",   check_sample_rate(rows)),
     ]:

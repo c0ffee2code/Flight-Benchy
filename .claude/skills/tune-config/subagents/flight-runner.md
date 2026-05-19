@@ -31,7 +31,7 @@ Two possible shapes. The parent dispatches on `status`.
 {
   "status": "completed",
   "run_id": "2026-05-14_14-26-21",
-  "analysis_md_path": "runs/2026-05-14_14-26-21/analysis.md",
+  "analysis_md_path": "test_runs/flights/2026-05-14_14-26-21/analysis.md",
   "headline_kpis": {
     "reached": true,
     "oscillation_hz": 0.009,
@@ -69,7 +69,7 @@ Two possible shapes. The parent dispatches on `status`.
   "status": "failed",
   "stage": "smoke" | "deploy" | "run" | "fetch" | "analyse",
   "run_id": "2026-05-14_14-26-21" | null,
-  "partial_analysis_path": "runs/2026-05-14_14-26-21/analysis.md" | null,
+  "partial_analysis_path": "test_runs/flights/2026-05-14_14-26-21/analysis.md" | null,
   "error_summary": "<one-line description of what went wrong>",
   "rig_state": "ok" | "needs_human"
 }
@@ -83,6 +83,8 @@ Stage semantics:
 - **`fetch`** — flight completed but telemetry pull failed. `run_id` assigned, telemetry may be partial on-board. `rig_state` is `ok`. Recovery is possible later; partial analysis may exist.
 - **`analyse`** — telemetry pulled but analyse-flight errored or produced an invalid analysis.md. `partial_analysis_path` may exist. `rig_state` is `ok`.
 
+Run folders live at `test_runs/flights/<run_id>/` on the desktop.
+
 `error_summary` is one short line — what the parent should put in the session record. Not a stack trace, not a paragraph. Examples: "mpremote disconnected after 47s", "smoke check: encoder reads 0 across 10 samples", "analyse-flight exited 1 — see runs/.../analyse.log".
 
 `rig_state` is a coarse signal to the parent for the user-facing message:
@@ -94,16 +96,17 @@ Stage semantics:
 1. **Smoke check.** Run the smoke check script. If it fails, return `{status: failed, stage: smoke, ...}` immediately. Do not deploy config to a rig that isn't healthy.
 2. **Deploy config.** Push `proposed_config` to the board via mpremote. On error, return `{status: failed, stage: deploy, ...}`.
 3. **Run flight.** Invoke `/run-flight` (the existing skill/command). Assign a `run_id` based on UTC timestamp. Monitor for normal completion vs premature termination. On any non-normal exit, return `{status: failed, stage: run, run_id, ...}`.
-4. **Fetch telemetry.** Pull the run's telemetry files into `runs/<run_id>/`. On error, return `{status: failed, stage: fetch, run_id, ...}`.
-5. **Invoke analyse-flight.** Run `analyse-flight` on the run folder. It should produce `analysis.md` and emit a structured KPI dict (or write it to a known path). On error, return `{status: failed, stage: analyse, run_id, ...}` — include `partial_analysis_path` if any analysis.md was produced even partially.
-6. **Return success.** Return `{status: completed, run_id, analysis_md_path, headline_kpis}`.
+4. **Fetch telemetry.** Pull the run's telemetry files into `test_runs/flights/<run_id>/`. On error, return `{status: failed, stage: fetch, run_id, ...}`.
+5. **Invoke analyse-flight.** Run `analyse-flight` on the run folder. It should produce `analysis.md` and write `kpis.json`. On error, return `{status: failed, stage: analyse, run_id, ...}` — include `partial_analysis_path` if any analysis.md was produced even partially.
+6. **Build headline_kpis from kpis.json.** Use the Read tool to open `test_runs/flights/<run_id>/kpis.json`. Parse the JSON and embed it verbatim as the `headline_kpis` field. Do not parse or scrape the stdout of `score_flight.py` — the file is the source of truth. If the file is absent or unreadable, return `{status: failed, stage: analyse, ...}`.
+7. **Return success.** Return `{status: completed, run_id, analysis_md_path, headline_kpis}`.
 
 ## Guarantees the parent depends on
 
 - You do not retry. The skill's Exit 3 logic explicitly requires no auto-recovery. If a stage fails, you return failed. The human decides what to do.
 - You do not modify configs. The parent stages the config; you only deploy it.
-- You do not write to the session file. The parent owns the session file. You write to `runs/<run_id>/` only.
-- `headline_kpis` is read from `kpis.json` in the run folder (written by `score_flight.py`). Do not recompute or reinterpret fields — surface them as-is. `oscillation_hz` and `run_duration_s` come from `analysis.md`. If `kpis.json` is absent or malformed, return `{status: failed, stage: analyse, ...}`.
+- You do not write to the session file. The parent owns the session file. You write to `test_runs/flights/<run_id>/` only.
+- `headline_kpis` is populated by reading `test_runs/flights/<run_id>/kpis.json` with the Read tool after `score_flight.py` exits. Do not parse the stdout of `score_flight.py` to construct this field — that is the failure mode that produced BL-001. Do not recompute or reinterpret fields; surface them verbatim. `oscillation_hz` and `run_duration_s` come from `analysis.md`. If `kpis.json` is absent or malformed, return `{status: failed, stage: analyse, ...}`.
 - `rig_state` is your honest read. If you genuinely don't know whether the rig needs human attention, default to `needs_human` — false positives are cheap (the human looks at the rig and confirms), false negatives are expensive (the next run damages something).
 
 ## What you do NOT do

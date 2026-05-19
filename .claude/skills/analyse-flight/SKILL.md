@@ -21,13 +21,13 @@ A flight is one stabilisation session stored in `test_runs/flights/YYYY-MM-DD_hh
 
 - `log.csv` — 22-column telemetry, typically ~50 ms / 20 Hz (inner loop runs faster; `TELEMETRY_SAMPLE_EVERY` decimates).
 - `config.json` — full system snapshot at run time. Structure: `vehicle` (imu, angle_pid, rate_pid, motor, feedforward), `bench` (encoder; session with duration_s and setpoint.roll_deg/pitch_deg/yaw_deg), `telemetry` (sample_every).
-- `criteria.json` — acceptance spec in effect at the time of this run. Copied from the project root by `SdSink` at session start. **Mandatory** — all pipeline scripts exit immediately if absent.
+- `specification.json` — acceptance spec in effect at the time of this run. Copied from the project root by `SdSink` at session start. **Mandatory** — all pipeline scripts exit immediately if absent.
 
-Standard test convention: M1-end resting on the restrictor at ≈ **+58°**, algorithm lifts the lever to within `±tolerance_deg` of horizontal (0°) and holds (tolerance read from `criteria.json`). Non-standard starts are analysed for the paper trail but are **discarded** — their KPIs cannot be compared to standard runs and must not inform tuning decisions.
+Standard test convention: M1-end resting on the restrictor at ≈ **+58°**, algorithm lifts the lever to within `±tolerance_deg` of horizontal (0°) and holds (tolerance read from `specification.json`). Non-standard starts are analysed for the paper trail but are **discarded** — their KPIs cannot be compared to standard runs and must not inform tuning decisions.
 
 ## KPI reference
 
-| `criteria.json` key | KPI name | Definition | Direction |
+| `specification.json` key | KPI name | Definition | Direction |
 |---------------------|----------|------------|-----------|
 | `hold_mae_deg` | HoldMAE | Mean absolute encoder error during the settled hold phase (T_s onward) | lower is better |
 | `time_to_sp_s` | T→SP | Seconds from run start to first entry into the tolerance band | lower is better |
@@ -35,7 +35,7 @@ Standard test convention: M1-end resting on the restrictor at ≈ **+58°**, alg
 | `hold_duration_s` | Hold Duration | Seconds of confirmed settled hold from T_s to end of run | higher is better |
 | `overshoot_pct` | Overshoot | Peak excursion past setpoint after first crossing, as % of initial step | lower is better |
 
-Scoring levels: **excellent → good → pass → below_pass**. Level is `null` when the value cannot be computed (run did not reach setpoint). Thresholds and descriptions live in `criteria.json` — the table above is the lookup key between code field names and human-readable KPI names.
+Scoring levels: **excellent → good → pass → below_pass**. Level is `null` when the value cannot be computed (run did not reach setpoint). Thresholds and descriptions live in `specification.json` — the table above is the lookup key between code field names and human-readable KPI names.
 
 ## Hard rules — apply to report AND conversation
 
@@ -101,7 +101,7 @@ The plot docstrings have the full per-subplot guide.
 python .claude/skills/analyse-flight/scripts/score_flight.py test_runs/flights/<flight_id>
 ```
 
-Computes the transient KPIs, scores them against `criteria.json`, prints the results to stdout, and writes `kpis.json` to the run folder. KPI definitions live in the script's docstring. The headline number is **HoldMAE_s** — encoder MAE from settling time onward, excluding the overshoot phase. The transient quartet (T→SP, rise time 10-90%, overshoot %, settling time T_s) characterises the approach; HoldMAE_s characterises the hold.
+Computes the transient KPIs, scores them against `specification.json`, prints the results to stdout, and writes `kpis.json` to the run folder. KPI definitions live in the script's docstring. The headline number is **HoldMAE_s** — encoder MAE from settling time onward, excluding the overshoot phase. The transient quartet (T→SP, rise time 10-90%, overshoot %, settling time T_s) characterises the approach; HoldMAE_s characterises the hold.
 
 `kpis.json` is the machine-readable result consumed by `flight-runner`. Each KPI entry is self-contained: value, level (`excellent`/`good`/`pass`/`below_pass`/`null`), and the thresholds that produced that level. Level is `null` when the value could not be computed (e.g. run did not reach setpoint).
 

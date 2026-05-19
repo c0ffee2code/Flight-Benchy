@@ -6,8 +6,7 @@ the card. Decoupled from analysis — use `/analyse-flight` on any fetched run.
 
 ## When to use
 
-Trigger phrases: "fetch flights", "pull runs from Pico", "get flights off the
-SD card", "sync flights". Does NOT analyse runs — that is `/analyse-flight`.
+Trigger phrases: "fetch flights". Does NOT analyse runs — that is `/analyse-flight`.
 
 ## Prerequisites
 
