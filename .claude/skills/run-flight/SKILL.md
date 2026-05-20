@@ -58,7 +58,7 @@ If mpremote exits with a non-zero code or prints a traceback, report the error v
 ## Step 4 — Pull
 
 ```
-python .claude/commands/pull.py --yes
+python .claude/commands/pull_flights.py
 ```
 
 Identifies the new run (the one not yet in `test_runs/flights/`). If no new run appears, report it — the flight may have crashed before opening the SD session.

@@ -1,10 +1,11 @@
 """
-pull.py — move new flight runs from Pico SD card to test_runs/flights/
+pull_flights.py — move new flight runs from Pico SD card to test_runs/flights/
 
 Run from project root:
-  python .claude/commands/pull.py [--yes]
+  python .claude/commands/pull_flights.py
 
-  --yes   skip confirmation, move all new runs immediately
+Pulls all new runs from the SD card and deletes them from the card after
+a successful byte-exact transfer. No confirmation prompt.
 
 Pico must be connected on COM7. mpremote sends Ctrl+C before running any
 script — do not run this during a live stabilisation session.
@@ -202,8 +203,6 @@ def delete_from_sd(ok_ids):
 # -- Main ----------------------------------------------------------------------
 
 def main():
-    auto_yes = '--yes' in sys.argv
-
     print(f"Connecting to Pico on {COM_PORT} -- listing SD card...")
     remote = list_remote()
     local  = list_local()
@@ -218,10 +217,6 @@ def main():
     print(f"\nNew ({len(new_ids)}):")
     for fid in new_ids:
         print(f"  {fid}")
-
-    if not auto_yes and input("\nPull all? [Y/n]: ").strip().lower() == 'n':
-        print("Aborted.")
-        return
 
     ok_ids, failed_ids = fetch(new_ids)
 
