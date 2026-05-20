@@ -1,17 +1,16 @@
 ---
 name: run-flight
-description: Full autonomous flight pipeline — reset position, deploy config, run flight.py, fetch the new run from SD card, and analyse it. Use whenever the user wants to run a fully automated flight. Triggers on "run flight", "autonomous flight", "start flight", "fly".
+description: Flight pipeline — reset position, deploy config, run flight, pull  the new run from SD card. Returns the new run ID. Does NOT analyse. Use whenever the user wants to execute a flight. Triggers on "run flight".
 ---
 
 # Run Flight
 
-Executes the full autonomous flight pipeline end-to-end:
+Executes the flight pipeline end-to-end and returns the new run ID:
 
 1. Reset position
 2. Deploy config
 3. Run `flight.py` on the Pico — waits for it to complete naturally (duration governed by `session.duration_s` in config)
 4. Pull the new run from SD card
-5. Analyse the new run (`/analyse-flight`)
 
 ## Pre-conditions
 
@@ -63,10 +62,6 @@ python .claude/commands/pull_flights.py
 
 Identifies the new run (the one not yet in `test_runs/flights/`). If no new run appears, report it — the flight may have crashed before opening the SD session.
 
-## Step 5 — Analyse
+## Output
 
-Run the `/analyse-flight <new_run_id>` skill on the fetched run. The run ID is the timestamp folder name returned by the fetch step.
-
-## Anomaly detection
-
-After analysis, check for early termination: compare the run's actual duration (`last T_MS / 1000` seconds, visible in the profile output) against `session.duration_s` from `config.json`. If actual duration is less than 90% of configured duration, flag it prominently — likely a crash, battery cutoff, or SD write failure mid-run.
+Report the new run ID (the timestamp folder name, e.g. `2026-05-20_14-30-00`) as the result of this skill. The caller decides whether to invoke `/analyse-flight`.
