@@ -1,40 +1,56 @@
 """
-Step 1 of the analyse-flight pipeline. Run before plot and score to fail fast.
+Gate layer — run before plot/verdict/diagnose to fail fast.
+
+Answers: "Is this run valid?"
 
 Detects hardware/software failure modes that would invalidate KPI analysis.
-Exits 0 if all checks pass, 1 if any fail — callers can gate on the exit code.
+Exits 0 if all checks pass, 1 if any fail.
+Writes gate.json to the run folder.
+
+gate.json structure:
+  {
+    "passed":      bool,
+    "flight_id":   str,
+    "start_angle": float,
+    "start_ok":    bool,
+    "duration_s":  float,
+    "n_samples":   int,
+    "checks": [{"name": str, "passed": bool, "detail": str | null}]
+  }
+
+Identity fields (flight_id, start_angle, start_ok, duration_s, n_samples) are included
+only when at least the "truncated" check passes (i.e. log.csv has >= 5 rows).
 
 Checks (run in order):
 
-  missing       log.csv or config.json not present in the run folder.
+  files-missing log.csv or config.json not present in the run folder.
                 Exits immediately — remaining checks cannot run.
 
-  truncated     log.csv has fewer than 5 rows — SD write likely interrupted.
+  log-truncated log.csv has fewer than 5 rows — SD write likely interrupted.
                 Exits immediately — remaining checks cannot run.
 
-  start-angle   First encoder reading outside ±10° of +58°. Reset-position step
+  start-angle   First encoder reading outside +/-10deg of +58deg. Reset-position step
                 was missed; KPIs are not comparable to standard runs.
                 Exits immediately — pipeline stops.
 
   power-cut     Pico was alive and commanding but ESC power was lost.
                 Signature: lever never reached setpoint AND encoder is flat
-                (std < 3°) AND motor differential is active (mean |M2-M1| > 20).
+                (std < 3deg) AND motor differential is active (mean |M2-M1| > 20).
                 Exits immediately — pipeline stops.
 
-  loop-meltdown Inner rate loop running in positive feedback — lever hits both
-                mechanical stops continuously.
-                Signature: encoder traverses near-full mechanical range (>90°)
+  loop-meltdown Inner rate loop running in positive feedback.
+                Signature: encoder traverses near-full mechanical range (>90deg)
                 AND IMU persistently lags encoder direction (trail >40% of moving
                 samples). Both conditions must fire to avoid false-positives from
                 hard-slam startups that overshoot but then hold cleanly.
                 Exits immediately — pipeline stops.
 
-  sample-rate   Loop timing jitter is severe enough to degrade KPI accuracy.
-                Signature: dt_p99 > 5× median dt.
+  sample-rate-jitter Loop timing jitter is severe enough to degrade KPI accuracy.
+                Signature: dt_p99 > 5x median dt.
                 Exits immediately — pipeline stops.
 
 Run from project root:
-  python .claude/skills/analyse-flight/scripts/smoke.py test_runs/flights/<flight_id>
+  python .claude/skills/analyse-flight/scripts/gate.py test_runs/flights/<flight_id>
 """
 
 import csv
@@ -44,22 +60,23 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from score_flight import load_specification  # noqa: E402
+from specification_loader import load_specification      # noqa: E402
+from configuration_loader import load_configuration     # noqa: E402
 
 # Start-angle thresholds
-_STANDARD_START_DEG      = 58.0  # expected first encoder reading (M1-end on restrictor)
-_START_TOLERANCE_DEG     = 10.0  # ±band around standard start
+_STANDARD_START_DEG      = 58.0
+_START_TOLERANCE_DEG     = 10.0
 
 # Power-cut thresholds
-_POWER_CUT_FLAT_STD_DEG  = 3.0   # encoder std below this → lever stationary
-_POWER_CUT_ACTIVE_DIFF   = 20.0  # mean |M2-M1| above this → loop was commanding
+_POWER_CUT_FLAT_STD_DEG  = 3.0
+_POWER_CUT_ACTIVE_DIFF   = 20.0
 
 # Loop-meltdown thresholds — both must fire
-_LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0  # lever traversed near-full mechanical range
-_LOOP_MELTDOWN_IMU_TRAIL_PCT = 40.0  # IMU persistently lags encoder direction
+_LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0
+_LOOP_MELTDOWN_IMU_TRAIL_PCT = 40.0
 
 # Sample-rate jitter threshold
-_SAMPLE_RATE_JITTER_FACTOR   = 5.0   # dt_p99 > this × median → fail
+_SAMPLE_RATE_JITTER_FACTOR   = 5.0
 
 
 def _quat_to_angle(qr, qi):
@@ -78,17 +95,16 @@ def check_start_angle(rows):
         return (
             f"start angle={first:+.1f}deg is outside "
             f"{_STANDARD_START_DEG}deg +/- {_START_TOLERANCE_DEG}deg. "
-            f"Reset-position step was missed — KPIs are not comparable to standard runs."
+            f"Reset-position step was missed -- KPIs are not comparable to standard runs."
         )
     return None
 
 
 def check_power_cut(rows, setpoint, tolerance_deg):
     """Return detail string on detection, None if clean."""
-    enc  = [_quat_to_angle(r["ENC_QR"], r["ENC_QI"]) for r in rows]
+    enc   = [_quat_to_angle(r["ENC_QR"], r["ENC_QI"]) for r in rows]
     diffs = [abs(float(r["M2"]) - float(r["M1"])) for r in rows]
 
-    # If the lever reached the setpoint zone, ESCs were clearly working.
     if any(abs(a - setpoint) <= tolerance_deg for a in enc):
         return None
 
@@ -118,7 +134,6 @@ def check_loop_meltdown(rows):
         if abs(motion) <= 1.0:
             continue
         moving_total += 1
-        # IMU trails when it lags behind encoder direction
         if motion * (enc[i + 1] - imu[i + 1]) > 0:
             trailing += 1
     trail_pct = (trailing / moving_total * 100.0) if moving_total > 0 else 0.0
@@ -127,20 +142,20 @@ def check_loop_meltdown(rows):
         return (
             f"encoder range={enc_range:.1f}deg (>{_LOOP_MELTDOWN_ENC_RANGE_DEG:.0f}deg), "
             f"IMU trail={trail_pct:.1f}% (>{_LOOP_MELTDOWN_IMU_TRAIL_PCT:.0f}%). "
-            f"Rate loop in positive feedback — check sensor_orientation in config."
+            f"Rate loop in positive feedback -- check sensor_orientation in config."
         )
     return None
 
 
 def check_sample_rate(rows):
-    """Return detail string if timing jitter is excessive (dt_p99 > 5× median)."""
+    """Return detail string if timing jitter is excessive (dt_p99 > 5x median)."""
     if len(rows) < 10:
         return None
     times = [float(r["T_MS"]) for r in rows]
     dts   = sorted(times[i + 1] - times[i] for i in range(len(times) - 1))
     median_dt = dts[len(dts) // 2]
     p99_idx   = max(0, int(len(dts) * 0.99) - 1)
-    dt_p99  = dts[p99_idx]
+    dt_p99    = dts[p99_idx]
     threshold = _SAMPLE_RATE_JITTER_FACTOR * median_dt
     if dt_p99 > threshold:
         return (
@@ -150,46 +165,75 @@ def check_sample_rate(rows):
     return None
 
 
+def _emit(run_dir, result):
+    """Write gate.json to the analysis subfolder; print a one-line status to stdout."""
+    analysis_dir = run_dir / "analysis"
+    analysis_dir.mkdir(exist_ok=True)
+    out_path = analysis_dir / "gate.json"
+    out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    status = "PASS" if result["passed"] else "FAIL"
+    print(f"{status} -- wrote {out_path}")
+
+
 def main():
     if len(sys.argv) != 2:
-        sys.exit("Usage: smoke.py test_runs/flights/<flight_id>")
+        sys.exit("Usage: gate.py test_runs/flights/<flight_id>")
 
     run_dir  = Path(sys.argv[1])
     csv_path = run_dir / "log.csv"
     cfg_path = run_dir / "config.json"
 
+    checks = []
+    result = {"passed": True, "checks": checks}
+
+    def _fail(name, detail):
+        checks.append({"name": name, "passed": False, "detail": detail})
+        result["passed"] = False
+        _emit(run_dir, result)
+        sys.exit(1)
+
+    def _pass(name):
+        checks.append({"name": name, "passed": True, "detail": None})
+
     missing = [name for name, path in [
-        ("log.csv",        csv_path),
-        ("config.json",    cfg_path),
-        ("specification.json",  run_dir / "specification.json"),
+        ("log.csv",            csv_path),
+        ("config.json",        cfg_path),
+        ("specification.json", run_dir / "specification.json"),
     ] if not path.exists()]
     if missing:
-        sys.exit(f"[FAIL] missing       - {', '.join(missing)} not found in {run_dir}")
+        _fail("files-missing", f"{', '.join(missing)} not found in {run_dir}")
+    _pass("files-missing")
 
-    with open(cfg_path) as f:
-        cfg = json.load(f)
-    try:
-        setpoint = float(cfg["bench"]["session"]["setpoint"]["roll_deg"])
-    except (KeyError, TypeError) as e:
-        sys.exit(f"config.json missing bench.session.setpoint.roll_deg: {e}")
-
-    spec = load_specification(run_dir)
+    cfg      = load_configuration(run_dir)
+    spec     = load_specification(run_dir)
+    setpoint = cfg.setpoint_roll_deg
 
     rows = _load(csv_path)
     if len(rows) < 5:
-        sys.exit(f"[FAIL] truncated     - {len(rows)} rows in log.csv; SD write likely interrupted")
+        _fail("log-truncated", f"{len(rows)} rows in log.csv; SD write likely interrupted")
+    _pass("log-truncated")
 
-    for name, detail in [
-        ("start-angle",   check_start_angle(rows)),
-        ("power-cut",     check_power_cut(rows, setpoint, spec.tolerance_deg)),
-        ("loop-meltdown", check_loop_meltdown(rows)),
-        ("sample-rate",   check_sample_rate(rows)),
+    # Identity fields — only reachable when rows >= 5
+    times       = [float(r["T_MS"]) for r in rows]
+    start_angle = _quat_to_angle(rows[0]["ENC_QR"], rows[0]["ENC_QI"])
+    result["flight_id"]   = run_dir.name
+    result["start_angle"] = round(start_angle, 2)
+    result["start_ok"]    = abs(start_angle - _STANDARD_START_DEG) <= _START_TOLERANCE_DEG
+    result["duration_s"]  = round((times[-1] - times[0]) / 1000.0, 2)
+    result["n_samples"]   = len(rows)
+
+    for name, detail_fn in [
+        ("start-angle",   lambda: check_start_angle(rows)),
+        ("power-cut",     lambda: check_power_cut(rows, setpoint, spec.tolerance_deg)),
+        ("loop-meltdown", lambda: check_loop_meltdown(rows)),
+        ("sample-rate-jitter", lambda: check_sample_rate(rows)),
     ]:
+        detail = detail_fn()
         if detail:
-            print(f"[FAIL] {name:<13} - {detail}")
-            sys.exit(1)
-        print(f"[PASS] {name}")
+            _fail(name, detail)
+        _pass(name)
 
+    _emit(run_dir, result)
     sys.exit(0)
 
 

@@ -54,7 +54,7 @@ def _transfer_script(flight_ids):
 import ubinascii
 try:
     for fid in {flight_ids!r}:
-        for fname in ('config.json', 'log.csv'):
+        for fname in ('config.json', 'specification.json', 'log.csv'):
             path = '/sd/flights/' + fid + '/' + fname
             try:
                 size = os.stat(path)[6]
@@ -78,7 +78,7 @@ def _delete_script(flight_ids):
 try:
     for fid in {flight_ids!r}:
         base = '/sd/flights/' + fid
-        for fname in ('config.json', 'log.csv'):
+        for fname in ('config.json', 'specification.json', 'log.csv'):
             try:
                 os.remove(base + '/' + fname)
             except OSError:
@@ -166,7 +166,7 @@ def fetch(new_ids):
     ok, failed = [], []
     for fid in new_ids:
         success = True
-        for fname in ('config.json', 'log.csv'):
+        for fname in ('config.json', 'specification.json', 'log.csv'):
             key = f"{fid}/{fname}"
             data = files.get(key)
             if data is None:

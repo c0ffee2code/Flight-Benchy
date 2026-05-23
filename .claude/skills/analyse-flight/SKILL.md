@@ -50,35 +50,49 @@ The user is the domain expert on physical changes. They will volunteer that info
 
 ## Pipeline contract
 
-Following scripts are designed to be run in order:
+Scripts are run in order. Each writes a structured JSON file; stdout is a one-line confirmation.
+Read the JSON files (not stdout) to understand the results.
 
 ```
-smoke.py          → stdout ([PASS]/[FAIL] per check); exits 1 on any failure
-plots.py          → 01_timeseries.png, 02_step_response.png, 03_spectrum.png, 04_hold_error_distribution.png, 05_phase_portrait.png
-score_flight.py   → stdout (KPI pass/fail table);  compute_kpis() importable by profile_flight.py
-profile_flight.py → imports compute_kpis directly;  prints canonical KPIs then grouped diagnostics
+Layer       Script       Output          Question answered
+──────────────────────────────────────────────────────────────────────────
+gate        gate.py      gate.json       "Is this run valid?"
+verdict     verdict.py   verdict.json    "What did it achieve?"
+diagnosis   diagnose.py  diagnose.json   "Why did it perform that way?"
+            plots.py      PNGs            (visual reference, no JSON)
+            report.py    summary.md      (human-readable view, no extra information)
 ```
 
-Run all of them in order. If smoke exits 1, stop — do not run next steps.
+gate.json     {passed, flight_id, start_angle, start_ok, duration_s, n_samples,
+               checks:[{name, passed, detail}]}; exits 1 on any failure
 
-## Step 1 — Smoke checks
+verdict.json  {reached, time_to_sp_s, rise_time_s, overshoot_pct, damping_ratio,
+               settling_time_s, hold_duration_s, hold_mae_deg}
+              Raw measured values only. Field names match specification.json KPI keys exactly.
+              Acceptance levels are not stored here -- compare against specification.json directly.
+
+diagnose.json {sample_rate, sensor_health, hold_tracking, control_effort, inner_loop, windup}
+
+Run all of them in order. If gate exits 1, stop -- read gate.json to see which check failed.
+
+## Step 1 — Gate checks
 
 ```
-python .claude/skills/analyse-flight/scripts/smoke.py test_runs/flights/<flight_id>
+python .claude/skills/analyse-flight/scripts/gate.py test_runs/flights/<flight_id>
 ```
 
-Run first. Validates the run folder and detects failure modes that would invalidate KPI analysis. Exits 0 if all checks pass, 1 if any fail. Thresholds are in the script's module-level constants.
+Run first. Validates the run folder and detects failure modes that would invalidate KPI analysis. Exits 0 if all checks pass, 1 if any fail. Writes gate.json. Thresholds are in the script's module-level constants.
 
 | Check | Signature |
 |-------|-----------|
-| **missing** | `log.csv` or `config.json` not present. Exits immediately. |
-| **truncated** | `log.csv` has fewer than 5 rows — SD write interrupted. Exits immediately. |
+| **files-missing** | `log.csv` or `config.json` not present. Exits immediately. |
+| **log-truncated** | `log.csv` has fewer than 5 rows — SD write interrupted. Exits immediately. |
 | **start-angle** | First encoder reading outside 58° ± 10°. Reset-position step was missed. Exits immediately. |
 | **power-cut** | Lever never reached setpoint + flat encoder (std < 3°) + active motor differential. Exits immediately. |
 | **loop-meltdown** | Encoder range > 90° AND IMU trail > 40%. Rate loop in positive feedback. Exits immediately. |
-| **sample-rate** | dt_p99 > 5× median dt. Loop jitter severe enough to degrade KPI accuracy. Exits immediately. |
+| **sample-rate-jitter** | dt_p99 > 5× median dt. Loop jitter severe enough to degrade KPI accuracy. Exits immediately. |
 
-If smoke exits 1, **stop**. Do not run Steps 2–4. Report the check name and detail to the user. A `postmortem` skill is planned for investigating these failures (not yet available).
+If gate exits 1, **stop**. Do not run Steps 2–5. Report the check name and detail to the user. A `postmortem` skill is planned for investigating these failures (not yet available).
 
 ## Step 2 — Plot
 
@@ -95,22 +109,22 @@ Produces the following numbered PNGs, ordered by diagnostic importance:
 
 The plot docstrings have the full per-subplot guide.
 
-## Step 3 — Score
+## Step 3 — Verdict
 
 ```
-python .claude/skills/analyse-flight/scripts/score_flight.py test_runs/flights/<flight_id>
+python .claude/skills/analyse-flight/scripts/verdict.py test_runs/flights/<flight_id>
 ```
 
-Computes the transient KPIs, scores them against `specification.json`, prints the results to stdout, and writes `kpis.json` to the run folder. KPI definitions live in the script's docstring. The headline number is **HoldMAE_s** — encoder MAE from settling time onward, excluding the overshoot phase. The transient quartet (T→SP, rise time 10-90%, overshoot %, settling time T_s) characterises the approach; HoldMAE_s characterises the hold.
+Computes the transient KPIs and writes `verdict.json` to the run folder. KPI definitions live in the script's docstring. The headline number is **HoldMAE_s** — encoder MAE from settling time onward, excluding the overshoot phase. The transient quartet (T->SP, rise time 10-90%, overshoot %, settling time T_s) characterises the approach; HoldMAE_s characterises the hold.
 
-`kpis.json` is the machine-readable result consumed by `flight-runner`. Each KPI entry is self-contained: value, level (`excellent`/`good`/`pass`/`below_pass`/`null`), and the thresholds that produced that level. Level is `null` when the value could not be computed (e.g. run did not reach setpoint).
+`verdict.json` contains raw measured values only — flat floats, null when not computable. Field names match `specification.json` KPI keys exactly. Acceptance levels are not stored in verdict.json; compare against specification.json directly when needed.
 
 If `Reached = NO`, skip steps 4 and the hold sections of the report. State the fact plainly: "Did not reach setpoint." The plot and KPI table show what happened — no further interpretation needed in Observations.
 
-## Step 4 — Deep-dive stats
+## Step 4 — Diagnose
 
 ```
-python .claude/skills/analyse-flight/scripts/profile_flight.py test_runs/flights/<flight_id>
+python .claude/skills/analyse-flight/scripts/diagnose.py test_runs/flights/<flight_id>
 ```
 
 Prints grouped diagnostics across six sections: sample rate, sensor health (IMU vs ENC, whole-run), hold-window tracking (bias/std/P95/Pearson r/FFT frequency), control effort (throttle mean/RMS/saturation/dM·dt), inner-loop tracking RMS, and windup events. Group meanings are in the script's docstring.
@@ -120,21 +134,14 @@ Two things to watch for in the output:
 - The "Whole-run ENC MAE includes the rise" note in the hold-window section. It is shown for reference only — use HoldMAE_s (post-settle) as the headline hold-accuracy number.
 - Windup event counts are computed against the `iterm_limit` values from `config.json`. They cover the whole run, not just the hold window.
 
-## Writing the report
+## Step 5 — Report
 
-1. Read the template at `.claude/skills/analyse-flight/templates/flight_analysis.md`.
-2. Fill each placeholder from `score_flight.py` stdout, the `profile_flight.py` stdout, and `config.json`. The profile output echoes canonical KPIs at the top — use that for the KPI Scorecard section. Placeholder names are unique — if the same value appears twice, fill both. The template covers decision-quality headline numbers; the Raw Output section is the complete archive. Not every profile metric appears in a template table — that is intentional.
-3. Save the completed report to `test_runs/flights/<flight_id>/analysis.md`, overwriting any existing file.
-4. Tell the user where the file was saved.
+```
+python .claude/skills/analyse-flight/scripts/report.py test_runs/flights/<flight_id>
+```
 
-The Raw Output section must contain script stdout verbatim — that's the ground-truth record. Don't paraphrase, don't reformat tables, don't drop columns. Future-you will rerun a script and compare against this; tampering breaks that.
+Reads gate.json, verdict.json, diagnose.json, and config.json. Computes acceptance levels
+on-the-fly from specification.json and writes `test_runs/flights/<flight_id>/analysis/summary.md`.
 
-The Observations section is the part that earns its keep. Aim for a short paragraph (3–6 sentences) that says what *this specific run* is doing. Useful patterns:
-
-- Tie a KPI to a profile stat ("HoldMAE_s of 1.2° with oscillation frequency 0.8 Hz suggests a low-frequency wobble rather than noise").
-- Note when numbers disagree with each other ("whole-run MAE is high but HoldMAE_s is low — long rise or significant overshoot").
-- Flag sensor or control signals ("M1/M2 asymmetric by ~50 throttle units during hold — angle I-term is compensating for a steady disturbance").
-- Call out anything unexpected: gaps in the timeline, a spike, an unexpected mode change.
-- Apply the same lens to absences: no I-term buildup despite a persistent offset, symmetric motors when asymmetry is expected — missing signals are as diagnostic as unexpected ones.
-
-Avoid: tuning recommendations ("try lowering ki"), comparisons to other runs (out of scope for this skill), restating numbers that are already in the tables above, and hypothesising causes that involve mechanical state, battery/power-supply condition, or IMU tare quality — the user will always explicitly flag those if they apply. Describe what the telemetry shows; do not append an unconfirmed cause.
+`summary.md` is a human-readable view only — it contains no information beyond what the JSON
+files already hold. The main model reads the JSON files directly when reasoning about a flight.
