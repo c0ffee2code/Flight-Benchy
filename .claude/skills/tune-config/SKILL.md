@@ -100,15 +100,28 @@ This is the engineering loop the skill enforces: *propose a tighter bar → prov
 
 - **Strategic communication is the auditability mechanism.** Every iteration's Context field must do three things: summarise the relevant data, name what stands out about it, and justify why the proposed change follows from that reading. Vague or data-free Context is grounds for the human to reject the proposal and ask for re-reasoning. The standard is: *the human can follow the reasoning and verify it against their own mental model.* See `.claude/skills/tune-config/context-standard.md` for principles and worked examples — load that file when drafting any iteration's Context.
 
-## Subagents this skill uses
+## Tools this skill uses
 
-Two subagents do scoped work the parent doesn't need full context for:
+Two Python scripts do the mechanical work. The parent calls them via Bash and parses their
+stdout as JSON. Context stays clean — script progress goes to stderr only.
 
-- **`prior-session-finder`** — at session open, scans `tuning/` for prior sessions matching the current objective. Returns either a structured prior-session summary or null. The parent never needs the full content of other sessions in context; only the synthesis. Invoked once per session in step 4 of Session open.
+- **`flight-runner`** (`python .claude/agents/flight-runner/run.py`) — at each iteration,
+  executes the hardware pipeline: check_config → reset → deploy → run → pull. Stdout JSON:
+  `completed` (with run_id) or `failed` (with stage, run_id if assigned, rig_state,
+  error_summary). Contract documented in `.claude/agents/flight-runner/flight-runner.md`.
 
-- **`flight-runner`** — at each iteration, executes the mechanical pipeline of smoke check / deploy / run / fetch / analyse. Returns either `completed` (with run_id, analysis_md_path, headline_kpis) or `failed` (with stage, run_id if assigned, rig_state). The parent's per-iteration context stays clean of mpremote output, fetch logs, and analyse-flight progress. On `completed`, the parent reads `analysis.md` directly — the subagent surfaces the result, not the chatter.
+- **`flight-analyser`** (`python .claude/agents/flight-analyser/run.py <run_id>`) — after
+  flight-runner completes, runs the analysis pipeline: gate → plots → verdict → diagnose →
+  report. Stdout JSON: `completed` (with run_id, summary_md_path, headline_kpis) or `failed`
+  (with stage, partial_summary_path, error_summary). On `completed`, the parent reads
+  `summary.md` directly. Contract documented in `.claude/agents/flight-analyser/flight-analyser.md`.
 
-Subagent contracts are documented in `.claude/skills/tune-config/subagents/`. If a subagent returns an unexpected shape, treat it as a failed contract: do not paper over with assumptions, surface the discrepancy to the human.
+- **`prior-session-finder`** (model: Haiku — pure file scan, no reasoning) — at session open,
+  scans `tuning/` for prior sessions matching the current objective. Returns either a structured
+  prior-session summary or null. Invoked once per session in step 4 of Session open.
+
+If a script returns an unexpected JSON shape or exits unexpectedly, treat it as a failed
+contract: do not paper over with assumptions, surface the discrepancy to the human.
 
 ## The session lifecycle
 
@@ -161,10 +174,13 @@ The agent presents the draft in chat, labeled `**Iteration N, pre-run review:**`
 On approval, the agent:
 
 1. Writes the iteration's pre-run fields to the session file — this must happen before the run starts. The file write is the enforcement mechanism for the predict-before-observing rule: predictions exist on disk before the result does.
-2. Invokes the **`flight-runner` subagent** with the proposed config. The subagent handles smoke check / deploy / run / fetch / analyse mechanics and returns a structured result:
-   - **On `completed`:** `{status, run_id, analysis_md_path, headline_kpis}`.
-   - **On `failed`:** `{status, stage, run_id, partial_analysis_path, error_summary, rig_state}`.
-3. The parent does not see mpremote output, fetch logs, or analyse-flight progress. Only the structured result reaches the parent's context.
+2. Runs `python .claude/agents/flight-runner/run.py` via Bash. Parses stdout as JSON:
+   - **On `completed`:** `{status, run_id}`.
+   - **On `failed`:** `{status, stage, run_id, error_summary, rig_state}`. → Session enters Failed state; see below.
+3. Runs `python .claude/agents/flight-analyser/run.py <run_id>` via Bash. Parses stdout as JSON:
+   - **On `completed`:** `{status, run_id, summary_md_path, headline_kpis}`.
+   - **On `failed`:** `{status, stage, partial_summary_path, error_summary, rig_state}`. → Session enters Failed state; see below.
+4. The parent does not see mpremote output, pull logs, or script progress (all on stderr). Only the parsed JSON from each script reaches the parent's context.
 
 **Post-run draft (on `completed`).** The agent reads `analysis.md` directly from `analysis_md_path` — the headline KPI dict is for triage, but the analysis prose is the evidence base. The agent then re-invokes the history reader for updated context and fills:
 
@@ -183,7 +199,7 @@ Presented in chat as `**Iteration N, post-run review:**`. Same approval mechanic
 
 On approval, the agent writes the post-run fields to the session file and (if no exit condition triggered) drafts iteration N+1.
 
-**On `failed` from flight-runner.** Session immediately enters Failed state per Exit 3 — see below. The structured failure info (stage, run_id, rig_state, error_summary) goes verbatim into the iteration's incomplete record and the Outcome section. The agent does not attempt to recover or rerun; rig_state from the subagent informs whether to tell the user "rig needs human attention" vs "rig is in a safe state, postmortem can proceed."
+**On `failed` from either agent.** Session immediately enters Failed state per Exit 3 — see below. The structured failure info (stage, run_id, rig_state, error_summary) goes verbatim into the iteration's incomplete record and the Outcome section. The agent does not attempt to recover or rerun; rig_state from the agent informs whether to tell the user "rig needs human attention" vs "rig is in a safe state, postmortem can proceed." A failure from `flight-analyser` carries `rig_state: ok` — hardware completed normally; only the analysis failed.
 
 ### Exit conditions
 
