@@ -1,0 +1,10 @@
+{
+  "reached": false,
+  "time_to_sp_s": null,
+  "rise_time_s": null,
+  "overshoot_pct": null,
+  "damping_ratio": null,
+  "settling_time_s": null,
+  "hold_duration_s": null,
+  "hold_mae_deg": null
+}

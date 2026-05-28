@@ -2,8 +2,8 @@
 history_reader.py — history reader for the tune-config skill.
 
 Reads the last N run folders from test_runs/flights/, extracts config and KPIs
-from each run's config.json / analysis.md / postmortem.md, then emits a structured
-Markdown summary to stdout.
+from each run's config.json / analysis/verdict.json / analysis/diagnose.json /
+postmortem.md, then emits a structured Markdown summary to stdout.
 
 The tune-config agent uses this output to:
   - Identify which runs share the current config (baseline candidates).
@@ -94,60 +94,55 @@ def configs_match(a, b):
 
 
 # ---------------------------------------------------------------------------
-# analysis.md parsing
+# analysis JSON parsing
 # ---------------------------------------------------------------------------
 
-def parse_analysis(path, run_id):
+def _safe_get(d, *keys):
+    """Navigate a nested dict safely; return None on any missing key."""
+    for k in keys:
+        if not isinstance(d, dict) or k not in d:
+            return None
+        d = d[k]
+    return d
+
+
+def parse_analysis(verdict_path, diagnose_path, run_id):
     """
-    Parse KPIs from analysis.md. Returns a dict with keys:
+    Parse KPIs from analysis/verdict.json and analysis/diagnose.json.
+    Returns a dict with keys:
       reached (bool), t_to_s (float), holdmae (float),
-      t_at_s (float, derived), osc_hz (float or None), duration_s (float)
-    Returns None if the file cannot be meaningfully parsed; logs to stderr.
+      t_at_s (float), osc_hz (float or None), duration_s (float)
+    Any missing field is None. Returns None if neither file is readable.
     """
+    verdict = None
+    diagnose = None
+
     try:
-        text = path.read_text(encoding='utf-8')
-    except OSError as e:
-        print(f"WARNING: {run_id}: cannot read analysis.md: {e}", file=sys.stderr)
+        with open(verdict_path, encoding='utf-8') as f:
+            verdict = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"WARNING: {run_id}: cannot read verdict.json: {e}", file=sys.stderr)
+
+    try:
+        with open(diagnose_path, encoding='utf-8') as f:
+            diagnose = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        print(f"WARNING: {run_id}: cannot read diagnose.json: {e}", file=sys.stderr)
+
+    if verdict is None and diagnose is None:
         return None
 
-    kpis = {}
+    kpis = {
+        'reached':    _safe_get(verdict,  'reached'),
+        't_to_s':     _safe_get(verdict,  'time_to_sp_s'),
+        'holdmae':    _safe_get(verdict,  'hold_mae_deg'),
+        't_at_s':     _safe_get(verdict,  'hold_duration_s'),
+        'osc_hz':     _safe_get(diagnose, 'hold_tracking', 'fft_freq_hz'),
+        'duration_s': _safe_get(diagnose, 'sample_rate', 'duration_s'),
+    }
 
-    # Duration from Run Identity table: | Duration | 119.9 s |
-    m = re.search(r'\|\s*Duration\s*\|\s*([\d.]+)\s*s', text)
-    if m:
-        kpis['duration_s'] = float(m.group(1))
-
-    # KPI Scorecard section — search within it to avoid false matches elsewhere
-    sc_match = re.search(r'## KPI Scorecard\s*\n(.*?)(?=\n##|\Z)', text, re.DOTALL)
-    sc = sc_match.group(1) if sc_match else text  # fall back to full text if section missing
-
-    # Reached setpoint: | Reached setpoint | Yes |
-    m = re.search(r'\|\s*Reached setpoint\s*\|\s*(\w+)', sc, re.IGNORECASE)
-    if m:
-        kpis['reached'] = m.group(1).lower() in ('yes', 'true')
-
-    # T→SP: | T→SP (s) | 2.3 |  (arrow may be unicode → or ASCII ->)
-    m = re.search(r'\|\s*T[^\|]*SP\s*\(s\)\s*\|\s*([\d.]+)', sc)
-    if m:
-        kpis['t_to_s'] = float(m.group(1))
-
-    # HoldMAE_s: | HoldMAE_s (°), post-settle | 3.93 |
-    m = re.search(r'\|\s*HoldMAE_s[^\|]*\|\s*([\d.]+)', sc)
-    if m:
-        kpis['holdmae'] = float(m.group(1))
-
-    # Oscillation freq from Hold-Window Tracking section (may appear anywhere)
-    m = re.search(r'\|\s*FFT dominant freq \(Hz\)\s*\|\s*([\d.]+)', text)
-    if m:
-        kpis['osc_hz'] = float(m.group(1))
-
-    # T@SP derived: time spent at setpoint ≈ total duration minus time-to-reach
-    if 'duration_s' in kpis and 't_to_s' in kpis:
-        kpis['t_at_s'] = round(kpis['duration_s'] - kpis['t_to_s'], 1)
-
-    # Require at least one KPI to count as a successful parse
-    if not any(k in kpis for k in ('reached', 't_to_s', 'holdmae')):
-        print(f"WARNING: {run_id}: analysis.md present but no KPIs parsed", file=sys.stderr)
+    if not any(kpis.get(k) is not None for k in ('reached', 't_to_s', 'holdmae')):
+        print(f"WARNING: {run_id}: analysis JSON present but no KPIs extracted", file=sys.stderr)
         return None
 
     return kpis
@@ -209,11 +204,12 @@ def load_run(run_dir):
         print(f"WARNING: {run_id}: config.json unreadable ({e}) — skipping", file=sys.stderr)
         return None
 
-    analysis_path = run_dir / 'analysis.md'
+    verdict_path  = run_dir / 'analysis' / 'verdict.json'
+    diagnose_path = run_dir / 'analysis' / 'diagnose.json'
     postmortem_path = run_dir / 'postmortem.md'
 
-    if analysis_path.exists():
-        kpis = parse_analysis(analysis_path, run_id)
+    if verdict_path.exists():
+        kpis = parse_analysis(verdict_path, diagnose_path, run_id)
         status = 'analysed' if kpis is not None else 'unanalysed'
         cause = None
     elif postmortem_path.exists():

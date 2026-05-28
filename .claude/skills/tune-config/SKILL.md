@@ -116,7 +116,7 @@ stdout as JSON. Context stays clean — script progress goes to stderr only.
   (with stage, partial_summary_path, error_summary). On `completed`, the parent reads
   `summary.md` directly. Contract documented in `.claude/agents/flight-analyser/flight-analyser.md`.
 
-- **`prior-session-finder`** (model: Haiku — pure file scan, no reasoning) — at session open,
+- **`prior-session-finder`** (model: Haiku — reads tuning session files via Read/Glob tools, scores KPI match by relevance, synthesises `key_lesson` from the Lessons fields) — at session open,
   scans `tuning/` for prior sessions matching the current objective. Returns either a structured
   prior-session summary or null. Invoked once per session in step 4 of Session open.
 

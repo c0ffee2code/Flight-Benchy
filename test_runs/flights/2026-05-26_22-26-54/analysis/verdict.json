@@ -1,0 +1,10 @@
+{
+  "reached": true,
+  "time_to_sp_s": 3.882,
+  "rise_time_s": 4.174,
+  "overshoot_pct": 28.403155343188036,
+  "damping_ratio": 0.371908438017191,
+  "settling_time_s": null,
+  "hold_duration_s": null,
+  "hold_mae_deg": null
+}
