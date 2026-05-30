@@ -6,37 +6,42 @@ Answers: "What do the sensors, control loop, and timing diagnostics tell us?"
 Writes diagnose.json to the run folder. Reads config.json alongside log.csv; both are mandatory.
 Run after gate.py and verdict.py.
 
-All hold-window stats are computed from first reach (HoldWindow.start_idx) onward, so they
-exclude the pre-spin and rise phases. Whole-run sensor health (IMU vs ENC) is still
-computed over the full run -- it measures sensor quality, not control quality.
+All confirmed-hold stats (hold_tracking, control_effort, inner_loop) are computed from
+HoldWindow.start_idx (T_s) onward -- the confirmed continuous in-band phase. The pre-hold
+approach phase (T->SP to T_s) is captured separately in approach_tracking. Whole-run sensor
+health (IMU vs ENC) is still computed over the full run.
 
-Metric groups in profile.json:
-  sample_rate    -- n_samples, duration_s, actual_hz, dt mean/median/p99/max
-  sensor_health  -- IMU vs ENC: MAE (overall/fast/slow), bias, rms_error, trail_pct, ranges
-  hold_tracking  -- ENC vs setpoint from first reach: bias, std, p95, max_ae,
-                    pearson_r (hold window), fft_freq_hz (null if no dominant peak),
-                    fft_freq_resolution_hz, whole_run_enc_mae
-  control_effort -- mean/rms throttle, saturation upper/lower %, rms dM1/dt, rms dM2/dt,
-                    ang_i_mean, m2_m1_mean, iterm_sign_ok (null if P-term dominant)
-  inner_loop     -- rate_tracking_rms
-  windup         -- ang/rate windup event counts and thresholds (whole-run)
+Metric groups in diagnose.json:
+  sample_rate       -- n_samples, duration_s, actual_hz, dt mean/median/p99/max
+  sensor_health     -- IMU vs ENC: MAE (overall/fast/slow), bias, rms_error, trail_pct, ranges
+  hold_tracking     -- ENC vs setpoint from T_s (confirmed hold): bias, std, p95, max_ae,
+                       fft_freq_hz (null if no dominant peak), fft_freq_resolution_hz,
+                       whole_run_enc_mae
+  approach_tracking -- ENC vs setpoint from T->SP to T_s: bias, std, p95, max_ae, pearson_r,
+                       duration_s. Null when reach_idx == hold_idx (immediate settle) or no
+                       confirmed hold.
+  control_effort    -- mean/rms throttle, saturation upper/lower %, rms dM1/dt, rms dM2/dt,
+                       ang_i_mean, m2_m1_mean, iterm_sign_ok (null if P-term dominant)
+  inner_loop        -- rate_tracking_rms
+  windup            -- ang/rate windup event counts and thresholds (whole-run)
 
 Run from project root:
-  python .claude/skills/analyse-flight/scripts/diagnose.py test_runs/flights/<flight_id>
+  python pipelines/flight-analyser/scripts/diagnose.py test_runs/flights/<flight_id>
 """
 
 
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from specification_loader import load_specification                            # noqa: E402
-from configuration_loader import load_configuration, Configuration             # noqa: E402
-from flight_data_loader import load_flight, detect_reach_event, detect_hold_window, FlightData, ReachEvent  # noqa: E402
+from specification_loader import load_specification                                          # noqa: E402
+from configuration_loader import load_configuration, Configuration                          # noqa: E402
+from flight_data_loader import load_flight, detect_reach_event, detect_hold_window, \
+    FlightData, ReachEvent, HoldWindow                                                       # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +105,8 @@ class SensorHealthStats:
 @dataclass
 class HoldTrackingStats:
     """
-    Encoder tracking statistics over the hold window (from first reach), computed by _hold_tracking_stats().
+    Encoder tracking statistics over the confirmed hold window (from T_s),
+    computed by _hold_tracking_stats().
 
     Fields
     ------
@@ -108,7 +114,6 @@ class HoldTrackingStats:
     std                    : Standard deviation of hold error, degrees.
     p95                    : 95th percentile of |hold error|, degrees.
     max_ae                 : Maximum |hold error|, degrees.
-    pearson_r              : Pearson r between enc_roll and imu_roll over the hold window.
     fft_freq_hz            : Dominant FFT frequency of hold error above 3x noise floor; None if
                              no peak clears that threshold.
     fft_freq_resolution_hz : Width of one FFT bin = 1 / hold_duration_s; None if window too short.
@@ -118,16 +123,40 @@ class HoldTrackingStats:
     std:                    float
     p95:                    float
     max_ae:                 float
-    pearson_r:              float
     fft_freq_hz:            float | None
     fft_freq_resolution_hz: float | None
     whole_run_enc_mae:      float
 
 
 @dataclass
+class ApproachTrackingStats:
+    """
+    Encoder tracking statistics over the approach phase (T->SP to T_s),
+    computed by _approach_tracking_stats(). Present only when the encoder
+    bounced in and out of the band before confirming a stable hold.
+
+    Fields
+    ------
+    bias       : Mean signed error enc_roll - setpoint, degrees.
+    std        : Standard deviation of approach error, degrees.
+    p95        : 95th percentile of |approach error|, degrees.
+    max_ae     : Maximum |approach error|, degrees.
+    pearson_r  : Pearson r between enc_roll and imu_roll (meaningful: real motion present).
+    duration_s : Length of the approach phase, seconds.
+    """
+    bias:       float
+    std:        float
+    p95:        float
+    max_ae:     float
+    pearson_r:  float
+    duration_s: float
+
+
+@dataclass
 class ControlEffortStats:
     """
-    Motor output statistics over the hold window, computed by _control_effort_stats().
+    Motor output statistics over the confirmed hold window (from T_s),
+    computed by _control_effort_stats().
 
     Fields
     ------
@@ -159,7 +188,8 @@ class ControlEffortStats:
 @dataclass
 class InnerLoopStats:
     """
-    Inner rate-loop tracking quality over the hold window, computed by _inner_loop_stats().
+    Inner rate-loop tracking quality over the confirmed hold window (from T_s),
+    computed by _inner_loop_stats().
 
     Fields
     ------
@@ -184,6 +214,21 @@ class WindupStats:
     ang_windup_threshold:  float
     rate_windup_events:    int
     rate_windup_threshold: float
+
+
+@dataclass
+class DiagnoseOutput:
+    """
+    Full diagnose.json output. Serialised via dataclasses.asdict() -- field names
+    become JSON keys, no magic strings in the producer.
+    """
+    sample_rate:       SampleRateStats
+    sensor_health:     SensorHealthStats
+    hold_tracking:     HoldTrackingStats
+    approach_tracking: ApproachTrackingStats | None
+    control_effort:    ControlEffortStats
+    inner_loop:        InnerLoopStats
+    windup:            WindupStats
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +289,6 @@ def _sensor_health_stats(fd: FlightData) -> SensorHealthStats:
 
 def _hold_tracking_stats(fd: FlightData, setpoint: float, hi: int) -> HoldTrackingStats:
     hold_enc  = fd.enc_roll[hi:]
-    hold_imu  = fd.imu_roll[hi:]
     hold_t_ms = fd.t_ms[hi:]
     hold_err  = hold_enc - setpoint
 
@@ -263,19 +307,39 @@ def _hold_tracking_stats(fd: FlightData, setpoint: float, hi: int) -> HoldTracki
         if median_nondc > 0 and float(mag[peak_idx]) >= 3.0 * median_nondc:
             fft_freq = float(freqs[peak_idx])
 
-    pearson_r = 0.0
-    if len(hold_enc) > 1 and np.std(hold_enc) > 0 and np.std(hold_imu) > 0:
-        pearson_r = float(np.corrcoef(hold_enc, hold_imu)[0, 1])
-
     return HoldTrackingStats(
         bias=float(np.mean(hold_err)),
         std=float(np.std(hold_err)),
         p95=float(np.percentile(np.abs(hold_err), 95)),
         max_ae=float(np.max(np.abs(hold_err))),
-        pearson_r=pearson_r,
         fft_freq_hz=fft_freq,
         fft_freq_resolution_hz=fft_freq_resolution,
         whole_run_enc_mae=float(np.mean(np.abs(fd.enc_roll - setpoint))),
+    )
+
+
+def _approach_tracking_stats(
+    fd: FlightData,
+    setpoint: float,
+    h_idx: int,
+    sw_idx: int,
+) -> ApproachTrackingStats:
+    enc  = fd.enc_roll[h_idx:sw_idx]
+    imu  = fd.imu_roll[h_idx:sw_idx]
+    t_ms = fd.t_ms[h_idx:sw_idx]
+    err  = enc - setpoint
+
+    pearson_r = 0.0
+    if len(enc) > 1 and np.std(enc) > 0 and np.std(imu) > 0:
+        pearson_r = float(np.corrcoef(enc, imu)[0, 1])
+
+    return ApproachTrackingStats(
+        bias=float(np.mean(err)),
+        std=float(np.std(err)),
+        p95=float(np.percentile(np.abs(err), 95)),
+        max_ae=float(np.max(np.abs(err))),
+        pearson_r=pearson_r,
+        duration_s=float((t_ms[-1] - t_ms[0]) / 1000.0) if len(t_ms) > 1 else 0.0,
     )
 
 
@@ -340,77 +404,40 @@ def _windup_stats(fd: FlightData, cfg: Configuration) -> WindupStats:
     )
 
 
-def compute_stats(fd: FlightData, cfg: Configuration, reach_event: ReachEvent | None = None):
-    hi = reach_event.start_idx if reach_event is not None else 0
-    return (
-        _sample_rate_stats(fd),
-        _sensor_health_stats(fd),
-        _hold_tracking_stats(fd, cfg.setpoint_roll_deg, hi),
-        _control_effort_stats(fd, cfg, hi),
-        _inner_loop_stats(fd, hi),
-        _windup_stats(fd, cfg),
+def compute_stats(
+    fd: FlightData,
+    cfg: Configuration,
+    reach_event: ReachEvent | None = None,
+    hold_window: HoldWindow | None = None,
+) -> DiagnoseOutput:
+    # All confirmed-hold groups use hold_window.start_idx; fall back to reach_event
+    # if hold was never confirmed (e.g. run ended before 5s continuous in-band).
+    if hold_window is not None:
+        hi = hold_window.start_idx
+    elif reach_event is not None:
+        hi = reach_event.start_idx
+    else:
+        hi = 0
+
+    # approach_tracking: present only when there is a gap between first reach and
+    # confirmed hold (encoder bounced in/out of band before settling).
+    approach = None
+    if reach_event is not None and hold_window is not None:
+        if hold_window.start_idx > reach_event.start_idx:
+            approach = _approach_tracking_stats(
+                fd, cfg.setpoint_roll_deg,
+                reach_event.start_idx, hold_window.start_idx,
+            )
+
+    return DiagnoseOutput(
+        sample_rate=_sample_rate_stats(fd),
+        sensor_health=_sensor_health_stats(fd),
+        hold_tracking=_hold_tracking_stats(fd, cfg.setpoint_roll_deg, hi),
+        approach_tracking=approach,
+        control_effort=_control_effort_stats(fd, cfg, hi),
+        inner_loop=_inner_loop_stats(fd, hi),
+        windup=_windup_stats(fd, cfg),
     )
-
-
-# ---------------------------------------------------------------------------
-# Serialisation
-# ---------------------------------------------------------------------------
-
-def stats_to_dict(rate, sensor, hold, effort, inner, windup):
-    """Serialise all stat groups to a JSON-compatible dict."""
-    return {
-        "sample_rate": {
-            "n_samples":    rate.n_samples,
-            "duration_s":   rate.duration_s,
-            "actual_hz":    rate.actual_hz,
-            "dt_mean_ms":   rate.dt_mean_ms,
-            "dt_median_ms": rate.dt_median_ms,
-            "dt_p99_ms":    rate.dt_p99_ms,
-            "dt_max_ms":    rate.dt_max_ms,
-        },
-        "sensor_health": {
-            "mae":         sensor.mae,
-            "rms_error":   sensor.rms_error,
-            "max_ae":      sensor.max_ae,
-            "bias":        sensor.bias,
-            "mae_fast":    sensor.mae_fast,
-            "mae_slow":    sensor.mae_slow,
-            "correlation": sensor.correlation,
-            "trail_pct":   sensor.trail_pct,
-            "enc_range":   sensor.enc_range,
-            "imu_range":   sensor.imu_range,
-        },
-        "hold_tracking": {
-            "bias":                   hold.bias,
-            "std":                    hold.std,
-            "p95":                    hold.p95,
-            "max_ae":                 hold.max_ae,
-            "pearson_r":              hold.pearson_r,
-            "fft_freq_hz":            hold.fft_freq_hz,
-            "fft_freq_resolution_hz": hold.fft_freq_resolution_hz,
-            "whole_run_enc_mae":      hold.whole_run_enc_mae,
-        },
-        "control_effort": {
-            "mean_throttle":         effort.mean_throttle,
-            "rms_throttle":          effort.rms_throttle,
-            "saturation_upper_pct":  effort.saturation_upper_pct,
-            "saturation_lower_pct":  effort.saturation_lower_pct,
-            "rms_dm1_dt":            effort.rms_dm1_dt,
-            "rms_dm2_dt":            effort.rms_dm2_dt,
-            "ang_i_mean":            effort.ang_i_mean,
-            "m2_m1_mean":            effort.m2_m1_mean,
-            "iterm_sign_ok":         effort.iterm_sign_ok,
-        },
-        "inner_loop": {
-            "rate_tracking_rms": inner.rate_tracking_rms,
-        },
-        "windup": {
-            "ang_windup_events":     windup.ang_windup_events,
-            "ang_windup_threshold":  windup.ang_windup_threshold,
-            "rate_windup_events":    windup.rate_windup_events,
-            "rate_windup_threshold": windup.rate_windup_threshold,
-        },
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -427,13 +454,14 @@ def main():
 
     fd      = load_flight(run_dir / "log.csv")
     reach_w = detect_reach_event(fd, cfg.setpoint_roll_deg, spec.tolerance_deg)
+    hold_w  = detect_hold_window(fd, reach_w, cfg.setpoint_roll_deg, spec.tolerance_deg)
 
-    rate, sensor, hold, effort, inner, windup = compute_stats(fd, cfg, reach_event=reach_w)
+    output = compute_stats(fd, cfg, reach_event=reach_w, hold_window=hold_w)
 
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(exist_ok=True)
     out_path = analysis_dir / "diagnose.json"
-    out_path.write_text(json.dumps(stats_to_dict(rate, sensor, hold, effort, inner, windup), indent=2), encoding="utf-8")
+    out_path.write_text(json.dumps(asdict(output), indent=2), encoding="utf-8")
     print(f"Wrote {out_path}")
 
 

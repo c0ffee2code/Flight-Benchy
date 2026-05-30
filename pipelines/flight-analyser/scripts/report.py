@@ -103,6 +103,7 @@ def build_report(run_folder_str):
     sr = profile["sample_rate"]
     sh = profile["sensor_health"]
     ht = profile["hold_tracking"]
+    at = profile.get("approach_tracking") or {}
     ce = profile["control_effort"]
     il = profile["inner_loop"]
     wu = profile["windup"]
@@ -161,8 +162,14 @@ def build_report(run_folder_str):
         ht_std       = _fmt(ht["std"]),
         ht_p95       = _fmt(ht["p95"]),
         ht_max_ae    = _fmt(ht["max_ae"]),
-        ht_pearson_r = f"{ht['pearson_r']:.4f}",
         ht_fft_freq  = _fft_str(ht),
+
+        at_bias      = _fmt(at.get("bias"), "+.2f") if at.get("bias") is not None else "-",
+        at_std       = _fmt(at.get("std")),
+        at_p95       = _fmt(at.get("p95")),
+        at_max_ae    = _fmt(at.get("max_ae")),
+        at_pearson_r = _fmt(at.get("pearson_r"), ".4f"),
+        at_duration  = _fmt(at.get("duration_s"), ".1f"),
 
         ce_mean_throttle = _fmt(ce["mean_throttle"], ".1f"),
         ce_sat_upper     = _fmt(ce["saturation_upper_pct"], ".1f"),
