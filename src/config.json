@@ -2,14 +2,14 @@
   "vehicle": {
     "imu": {
       "angle_report": "game_rotation_vector",
-      "angle_report_hz": 50,
+      "angle_report_hz": 100,
       "rate_report": "calibrated_gyroscope",
       "rate_report_hz": 200
     },
     "angle_pid": {
-      "kp": 3.0,
-      "ki": 0.05,
-      "kd": 0.4,
+      "kp": 3.5,
+      "ki": 0.10,
+      "kd": 0.5,
       "iterm_limit": 5.0,
       "output_limit": 130
     },
@@ -22,7 +22,7 @@
     },
     "motor": {
       "base_throttle": 500,
-      "throttle_min": 100,
+      "throttle_min": 80,
       "throttle_max": 900,
       "expo": 0.0
     },
