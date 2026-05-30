@@ -39,8 +39,8 @@ PIN_SD_MOSI    = const(19)
 # =====================================================
 # Constants
 # =====================================================
-PRESPIN_SETTLE_MS = const(2000)  # wait at throttle_min after arming — lets both ESCs finish their start sequence before the ramp begins
-PRESPIN_STEP_MS   = const(50)   # delay between throttle increments during pre-spin ramp
+PRESPIN_SETTLE_MS = const(5000)  # wait at throttle_min after arming — lets both ESCs finish their start sequence before the ramp begins
+PRESPIN_STEP_MS   = const(100)   # delay between throttle increments during pre-spin ramp
 PRESPIN_DWELL_MS  = const(1000)  # wait after reaching base_throttle before starting the control loop
 
 # =====================================================
