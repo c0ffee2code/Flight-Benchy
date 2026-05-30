@@ -2,10 +2,13 @@
 pull_flights.py — move new flight runs from Pico SD card to test_runs/flights/
 
 Run from project root:
-  python .claude/commands/pull_flights.py
+  python pipelines/flight-runner/scripts/pull_flights.py [--erase]
 
 Pulls all new runs from the SD card and deletes them from the card after
 a successful byte-exact transfer. No confirmation prompt.
+
+  --erase  Also delete failed/ghost runs that remain on the SD card
+                     after a failed transfer (e.g. empty folders, missing files).
 
 Pico must be connected on COM7. mpremote sends Ctrl+C before running any
 script — do not run this during a live stabilisation session.
@@ -78,11 +81,14 @@ def _delete_script(flight_ids):
 try:
     for fid in {flight_ids!r}:
         base = '/sd/flights/' + fid
-        for fname in ('config.json', 'specification.json', 'log.csv'):
-            try:
-                os.remove(base + '/' + fname)
-            except OSError:
-                pass
+        try:
+            for fname in os.listdir(base):
+                try:
+                    os.remove(base + '/' + fname)
+                except OSError:
+                    pass
+        except OSError:
+            pass
         try:
             os.rmdir(base)
             print('DELETED ' + fid)
@@ -203,6 +209,8 @@ def delete_from_sd(ok_ids):
 # -- Main ----------------------------------------------------------------------
 
 def main():
+    erase_leftovers = '--erase' in sys.argv
+
     print(f"Connecting to Pico on {COM_PORT} -- listing SD card...")
     remote = list_remote()
     local  = list_local()
@@ -225,9 +233,14 @@ def main():
 
     print(f"\nDone: {len(ok_ids)} pulled, {len(failed_ids)} failed.")
     if failed_ids:
-        print("Failed runs remain on SD card:")
-        for fid in failed_ids:
-            print(f"  {fid}")
+        if erase_leftovers:
+            print(f"\nErasing {len(failed_ids)} leftover(s) from SD card...")
+            delete_from_sd(failed_ids)
+        else:
+            print("Failed runs remain on SD card:")
+            for fid in failed_ids:
+                print(f"  {fid}")
+            print("  (re-run with --erase to delete them)")
 
 
 if __name__ == '__main__':

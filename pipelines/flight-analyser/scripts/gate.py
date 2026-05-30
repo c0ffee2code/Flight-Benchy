@@ -64,12 +64,13 @@ from specification_loader import load_specification      # noqa: E402
 from configuration_loader import load_configuration     # noqa: E402
 
 # Start-angle thresholds
-_STANDARD_START_DEG      = 58.0
+_STANDARD_START_DEG      = 51.0
 _START_TOLERANCE_DEG     = 10.0
 
 # Power-cut thresholds
 _POWER_CUT_FLAT_STD_DEG  = 3.0
 _POWER_CUT_ACTIVE_DIFF   = 20.0
+_POWER_CUT_GRAVITY_MARGIN_DEG = 5.0   # if lever is held this far below gravity resting pos, ESCs have authority
 
 # Loop-meltdown thresholds — both must fire
 _LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0
@@ -111,6 +112,9 @@ def check_power_cut(rows, setpoint, tolerance_deg):
     mean_a    = sum(enc) / len(enc)
     enc_std   = math.sqrt(sum((a - mean_a) ** 2 for a in enc) / len(enc))
     mean_diff = sum(diffs) / len(diffs)
+
+    if mean_a < _STANDARD_START_DEG - _POWER_CUT_GRAVITY_MARGIN_DEG:
+        return None
 
     if enc_std < _POWER_CUT_FLAT_STD_DEG and mean_diff > _POWER_CUT_ACTIVE_DIFF:
         return (
