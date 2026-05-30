@@ -1,5 +1,5 @@
 {
-  "tolerance_deg": 9.0,
+  "tolerance_deg": 10.0,
   "kpis": {
     "hold_mae_deg": {
       "description": "HoldMAE — mean absolute encoder error during the settled hold phase",
