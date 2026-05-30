@@ -892,3 +892,16 @@ any iterm_limit.
 5. **The hold I-term was always negligible.** ANG_I mean during hold averaged near zero at
    all iterm_limit values tested. The P-term handles disturbance rejection; ki and iterm_limit
    affect the approach phase more than the hold phase.
+
+---
+
+## Amendment — 2026-05-30: Terminology note
+
+References to "hold window" and "settle window" in this log use those terms as plain
+English descriptions of observed behaviour. On 2026-05-30 the analysis pipeline's internal
+Python objects were renamed to align with servo/robotics engineering convention:
+- What was called `HoldWindow` (first band entry) is now `ReachEvent`
+- What was called `SettleWindow` (confirmed continuous hold) is now `HoldWindow`
+
+The recorded numbers and conclusions are unaffected. See DR-015 Amendment 2026-05-30 for
+the full rename table and rationale.

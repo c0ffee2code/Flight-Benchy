@@ -49,7 +49,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from specification_loader import load_specification                          # noqa: E402
 from configuration_loader import load_configuration                         # noqa: E402
-from flight_data_loader import load_flight, detect_hold_window, detect_settle_window  # noqa: E402
+from flight_data_loader import load_flight, detect_reach_event, detect_hold_window  # noqa: E402
 
 
 def main():
@@ -64,9 +64,9 @@ def main():
     spec     = load_specification(run_dir)
     setpoint = cfg.setpoint_roll_deg
 
-    fd       = load_flight(run_dir / "log.csv")
-    hold_w   = detect_hold_window(fd, setpoint, spec.tolerance_deg)
-    settle_w = detect_settle_window(fd, hold_w, setpoint, spec.tolerance_deg)
+    fd      = load_flight(run_dir / "log.csv")
+    reach_w = detect_reach_event(fd, setpoint, spec.tolerance_deg)
+    hold_w  = detect_hold_window(fd, reach_w, setpoint, spec.tolerance_deg)
 
     enc              = fd.enc_roll
     t_ms             = fd.t_ms
@@ -95,7 +95,7 @@ def main():
 
     # --- Overshoot (max excursion past setpoint after first crossing) ---
     overshoot_pct = None
-    if hold_w is not None and initial_step_abs > 1e-6:
+    if reach_w is not None and initial_step_abs > 1e-6:
         crossed_idx = None
         for i in range(len(enc)):
             a = float(enc[i])
@@ -117,20 +117,20 @@ def main():
         ln_os = math.log(overshoot_pct / 100.0)
         damping_ratio = -ln_os / math.sqrt(math.pi ** 2 + ln_os ** 2)
 
-    # --- Hold MAE from confirmed settle onward ---
+    # --- Hold MAE from confirmed hold onward ---
     hold_mae_deg = None
-    if settle_w is not None:
-        post         = enc[settle_w.start_idx:]
+    if hold_w is not None:
+        post         = enc[hold_w.start_idx:]
         hold_mae_deg = float(np.mean(np.abs(post - setpoint)))
 
     result = {
-        "reached":         hold_w   is not None,
-        "time_to_sp_s":    hold_w.start_time_s   if hold_w   is not None else None,
+        "reached":         reach_w is not None,
+        "time_to_sp_s":    reach_w.start_time_s  if reach_w is not None else None,
         "rise_time_s":     rise_time_s,
         "overshoot_pct":   overshoot_pct,
         "damping_ratio":   damping_ratio,
-        "settling_time_s": settle_w.start_time_s if settle_w is not None else None,
-        "hold_duration_s": settle_w.duration_s   if settle_w is not None else None,
+        "settling_time_s": hold_w.start_time_s   if hold_w  is not None else None,
+        "hold_duration_s": hold_w.duration_s      if hold_w  is not None else None,
         "hold_mae_deg":    hold_mae_deg,
     }
 

@@ -56,7 +56,7 @@
 | Bias IMU-ENC (deg) | $sh_bias |
 | IMU trails motion (%) | $sh_trail_pct |
 
-## Hold-Window Tracking (post-reach)
+## Hold Tracking (post-reach, from T->SP)
 
 | Metric | Value |
 |--------|-------|
@@ -64,10 +64,10 @@
 | Hold std (deg) | $ht_std |
 | Hold P95 error (deg) | $ht_p95 |
 | Hold max error (deg) | $ht_max_ae |
-| Pearson r (hold window) | $ht_pearson_r |
+| Pearson r (post-reach) | $ht_pearson_r |
 | FFT dominant freq (Hz) | $ht_fft_freq |
 
-## Control Effort (hold window)
+## Control Effort (post-reach, from T->SP)
 
 | Metric | Value |
 |--------|-------|
@@ -80,7 +80,7 @@
 | M2-M1 mean (hold, throttle) | $ce_m2_m1_mean |
 | I-term sign vs dM | $ce_iterm_sign |
 
-## Inner Loop (hold window)
+## Inner Loop (post-reach, from T->SP)
 
 | Metric | Value |
 |--------|-------|

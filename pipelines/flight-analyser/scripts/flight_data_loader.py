@@ -2,16 +2,18 @@
 Flight telemetry loader for the analyse-flight pipeline.
 
 Provides:
-  load_flight(csv_path)                            -> FlightData
-  detect_windows(flight, setpoint, tolerance_deg)  -> (HoldWindow | None, SettleWindow | None)
+  load_flight(csv_path)                              -> FlightData
+  detect_reach_event(flight, setpoint, tolerance_deg) -> ReachEvent | None
+  detect_hold_window(flight, reach_event, setpoint, tolerance_deg) -> HoldWindow | None
 
 FlightData holds all CSV columns converted to numpy arrays; quaternions are
 converted to roll angles in degrees inline.  No config or spec fields are mixed
 in -- those come from configuration_loader / specification_loader.
 
-HoldWindow is present when the encoder entered the tolerance band at least once.
-SettleWindow is present when the encoder remained in the band continuously for
-at least SETTLING_MIN_HOLD_S seconds through to the end of the run.
+ReachEvent is present when the encoder entered the tolerance band at least once
+(the T->SP reach event -- first entry into the settling window band).
+HoldWindow is present when the encoder remained in the band continuously for
+at least HOLD_WINDOW_S seconds through to the end of the run (in-position confirmed).
 Absence of either object means the respective event did not occur.
 """
 
@@ -23,13 +25,13 @@ from pathlib import Path
 import numpy as np
 
 
-SETTLING_MIN_HOLD_S = 5.0
+HOLD_WINDOW_S = 5.0
 
 
 @dataclass
-class HoldWindow:
+class ReachEvent:
     """
-    First entry into the +-tolerance band (T->SP event).
+    First entry into the +-tolerance band (T->SP reach event).
 
     Fields
     ------
@@ -41,16 +43,16 @@ class HoldWindow:
 
 
 @dataclass
-class SettleWindow:
+class HoldWindow:
     """
     Confirmed stable hold: encoder remained in band from start_idx to end of run
-    for at least SETTLING_MIN_HOLD_S seconds.
+    for at least HOLD_WINDOW_S seconds (in-position confirmed).
 
     Fields
     ------
-    start_idx    : Index into FlightData arrays where the settled hold begins.
-    start_time_s : Elapsed time from run start to settle start, seconds.
-    duration_s   : Length of the settled hold (settle start to end of run), seconds.
+    start_idx    : Index into FlightData arrays where the confirmed hold begins.
+    start_time_s : Elapsed time from run start to hold start, seconds.
+    duration_s   : Length of the confirmed hold (hold start to end of run), seconds.
     """
     start_idx:    int
     start_time_s: float
@@ -146,11 +148,11 @@ def load_flight(csv_path: Path) -> FlightData:
     )
 
 
-def detect_hold_window(
+def detect_reach_event(
     flight: FlightData,
     setpoint: float,
     tolerance_deg: float,
-) -> HoldWindow | None:
+) -> ReachEvent | None:
     """
     Return the first entry into the +-tolerance_deg band, or None if never reached.
     """
@@ -160,29 +162,29 @@ def detect_hold_window(
 
     for i in range(len(enc)):
         if abs(float(enc[i]) - setpoint) <= tolerance_deg:
-            return HoldWindow(
+            return ReachEvent(
                 start_idx=i,
                 start_time_s=float((t_ms[i] - t0) / 1000.0),
             )
     return None
 
 
-def detect_settle_window(
+def detect_hold_window(
     flight: FlightData,
-    hold_window: HoldWindow | None,
+    reach_event: ReachEvent | None,
     setpoint: float,
     tolerance_deg: float,
-) -> SettleWindow | None:
+) -> HoldWindow | None:
     """
     Return the confirmed stable hold, or None if not settled.
 
-    Searches for the last sample that exits the band after first reach; the settle
+    Searches for the last sample that exits the band after first reach; the hold
     starts at the sample immediately after it.  Requires the hold to extend
-    continuously to the end of the run for at least SETTLING_MIN_HOLD_S seconds.
+    continuously to the end of the run for at least HOLD_WINDOW_S seconds.
 
-    Returns None immediately if hold_window is None (never reached the band).
+    Returns None immediately if reach_event is None (never reached the band).
     """
-    if hold_window is None:
+    if reach_event is None:
         return None
 
     enc  = flight.enc_roll
@@ -191,24 +193,24 @@ def detect_settle_window(
     n    = len(enc)
 
     last_out = None
-    for i in range(n - 1, hold_window.start_idx - 1, -1):
+    for i in range(n - 1, reach_event.start_idx - 1, -1):
         if abs(float(enc[i]) - setpoint) > tolerance_deg:
             last_out = i
             break
 
     if last_out is None:
-        settle_idx = hold_window.start_idx
+        hold_idx = reach_event.start_idx
     elif last_out + 1 < n:
-        settle_idx = last_out + 1
+        hold_idx = last_out + 1
     else:
         return None
 
-    settled_dur = float((t_ms[-1] - t_ms[settle_idx]) / 1000.0)
-    if settled_dur < SETTLING_MIN_HOLD_S:
+    hold_dur = float((t_ms[-1] - t_ms[hold_idx]) / 1000.0)
+    if hold_dur < HOLD_WINDOW_S:
         return None
 
-    return SettleWindow(
-        start_idx=settle_idx,
-        start_time_s=float((t_ms[settle_idx] - t0) / 1000.0),
-        duration_s=settled_dur,
+    return HoldWindow(
+        start_idx=hold_idx,
+        start_time_s=float((t_ms[hold_idx] - t0) / 1000.0),
+        duration_s=hold_dur,
     )

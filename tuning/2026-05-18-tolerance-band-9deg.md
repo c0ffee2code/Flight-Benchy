@@ -769,3 +769,16 @@ Revert `specification.json` `tolerance_deg` from 9.0 back to 10.0 before the nex
 3. **Wire management** — Develop a repeatable harness positioning protocol, or route wires through the rotation axis, to reduce mechanical state variability between runs.
 
 Until IDEA-003 is complete, further PID tuning aimed at +-9 deg is operating against an unknown and uncontrolled variable.
+
+---
+
+## Amendment — 2026-05-30: Terminology note
+
+References to "hold window" and "settle window" in this log use those terms as plain
+English descriptions of observed behaviour. On 2026-05-30 the analysis pipeline's internal
+Python objects were renamed to align with servo/robotics engineering convention:
+- What was called `HoldWindow` (first band entry) is now `ReachEvent`
+- What was called `SettleWindow` (confirmed continuous hold) is now `HoldWindow`
+
+The recorded numbers and conclusions are unaffected. See DR-015 Amendment 2026-05-30 for
+the full rename table and rationale.

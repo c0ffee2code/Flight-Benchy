@@ -16,7 +16,7 @@ Run from project root:
 
 Architecture: three-layer pipeline.
   Loading  -- load_flight() reads log.csv and produces a FlightData with pre-computed signals.
-              detect_windows() derives HoldWindow and SettleWindow from the encoder trace.
+              detect_reach_event() and detect_hold_window() derive ReachEvent and HoldWindow.
   Compute  -- compute_*() functions are pure (numpy in, dataclass out) and own all data
              transformation. They are independent of matplotlib and can be called
              without generating any figures.
@@ -39,7 +39,7 @@ from matplotlib.lines import Line2D
 sys.path.insert(0, str(Path(__file__).parent))
 from specification_loader import load_specification                                           # noqa: E402
 from configuration_loader import load_configuration                                          # noqa: E402
-from flight_data_loader import load_flight, detect_hold_window, detect_settle_window, FlightData, HoldWindow, SettleWindow  # noqa: E402
+from flight_data_loader import load_flight, detect_reach_event, detect_hold_window, FlightData, ReachEvent, HoldWindow  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -170,10 +170,10 @@ def _welch_psd(x, fs, nperseg):
     return freqs, np.mean(psds, axis=0)
 
 
-def compute_hold_window(fd: FlightData, settle_window: SettleWindow | None, setpoint: float):
+def compute_hold_window(fd: FlightData, hold_window: HoldWindow | None, setpoint: float):
     """
-    Statistics over the confirmed settled-hold window (SettleWindow.start_idx onward).
-    Returns None if settling was never confirmed or the window is too short.
+    Statistics over the confirmed hold window (HoldWindow.start_idx onward).
+    Returns None if hold was never confirmed or the window is too short.
 
     Bin count rationale: the bare FD estimator can return too few bins on tightly-
     clustered distributions (making internal structure invisible) or too many on
@@ -181,10 +181,10 @@ def compute_hold_window(fd: FlightData, settle_window: SettleWindow | None, setp
     interpretable across the sample sizes and error spreads typical of hold windows
     (~50-500 samples at 20 Hz).
     """
-    if settle_window is None:
+    if hold_window is None:
         return None
 
-    si        = settle_window.start_idx
+    si        = hold_window.start_idx
     hold_err  = fd.enc_roll[si:] - setpoint
     hold_t_ms = fd.t_ms[si:]
 
@@ -261,8 +261,8 @@ def compute_spectrum(hold_data: HoldData | None):
 
 def compute_step_response(
     fd: FlightData,
+    reach_event: ReachEvent | None,
     hold_window: HoldWindow | None,
-    settle_window: SettleWindow | None,
     setpoint: float,
 ) -> StepData:
     """
@@ -304,7 +304,7 @@ def compute_step_response(
     # --- Overshoot: global extremum past setpoint after first crossing ---
     overshoot_pct = None
     peak_t = peak_angle = None
-    if hold_window is not None and abs(initial_step) > 1e-6:
+    if reach_event is not None and abs(initial_step) > 1e-6:
         crossed_idx = None
         for i, angle in enumerate(enc_roll):
             if (initial_step < 0 and angle <= setpoint) or \
@@ -327,9 +327,9 @@ def compute_step_response(
 
     # --- Zoom window for the transient subplot ---
     t_zoom = max(
-        t_90 + 3.0               if t_90          is not None else 0.0,
-        peak_t + 1.5             if peak_t         is not None else 0.0,
-        hold_window.start_time_s + 2.0 if hold_window is not None else 0.0,
+        t_90 + 3.0                    if t_90         is not None else 0.0,
+        peak_t + 1.5                  if peak_t        is not None else 0.0,
+        reach_event.start_time_s + 2.0 if reach_event is not None else 0.0,
         6.0)
     t_zoom = min(t_zoom, 15.0, float(t_s[-1]))
 
@@ -356,8 +356,8 @@ def render_timeseries(
     fd: FlightData,
     label: str,
     setpoint: float,
+    reach_event: ReachEvent | None,
     hold_window: HoldWindow | None,
-    settle_window: SettleWindow | None,
     throttle_min: float,
     throttle_max: float,
     tolerance_deg: float,
@@ -413,22 +413,22 @@ def render_timeseries(
     ax5.set_title("Motor Output")
     ax5.grid(True, alpha=0.3)
 
+    if reach_event is not None:
+        for ax in (ax1, ax2, ax3, ax4, ax5):
+            ax.axvline(reach_event.start_time_s, color="tab:green", linewidth=0.6,
+                       linestyle="--", alpha=0.5, zorder=0)
     if hold_window is not None:
         for ax in (ax1, ax2, ax3, ax4, ax5):
-            ax.axvline(hold_window.start_time_s, color="tab:green", linewidth=0.6,
-                       linestyle="--", alpha=0.5, zorder=0)
-    if settle_window is not None:
-        for ax in (ax1, ax2, ax3, ax4, ax5):
-            ax.axvspan(settle_window.start_time_s, t_s[-1],
+            ax.axvspan(hold_window.start_time_s, t_s[-1],
                        color="tab:green", alpha=0.06, zorder=0)
 
     h1, _ = ax1.get_legend_handles_labels()
     h1 += [Patch(facecolor='gray', alpha=0.5, edgecolor='none',
                  label=f'+-{tolerance_deg:.0f} deg band')]
-    if hold_window is not None:
+    if reach_event is not None:
         h1 += [Line2D([0], [0], color='tab:green', linewidth=0.8,
                       linestyle='--', alpha=0.7, label='T->SP')]
-    if settle_window is not None:
+    if hold_window is not None:
         h1 += [Patch(facecolor='tab:green', alpha=0.4, edgecolor='none',
                      label='Settled hold')]
     ax1.legend(handles=h1, loc='center left', bbox_to_anchor=(1.01, 0.5), fontsize=8)
@@ -451,7 +451,7 @@ def render_phase_portrait(
     fd: FlightData,
     label: str,
     setpoint: float,
-    hold_window: HoldWindow | None,
+    reach_event: ReachEvent | None,
     tolerance_deg: float,
 ):
     """
@@ -490,8 +490,8 @@ def render_phase_portrait(
     ax.plot(setpoint, 0, "k+", markersize=10, markeredgewidth=1.5, zorder=2,
             label=f"Target state ({setpoint:+.0f} deg, 0 deg/s)")
 
-    if hold_window is not None:
-        idx = hold_window.start_idx
+    if reach_event is not None:
+        idx = reach_event.start_idx
         ax.plot(enc_roll[idx], gyro_x[idx], "o", color="tab:green",
                 markersize=6, zorder=3, label="T->SP")
 
@@ -594,8 +594,8 @@ def render_step_response(
     label: str,
     step_data: StepData,
     setpoint: float,
+    reach_event: ReachEvent | None,
     hold_window: HoldWindow | None,
-    settle_window: SettleWindow | None,
     tolerance_deg: float,
 ):
     """
@@ -640,15 +640,15 @@ def render_step_response(
     ax_top.axhline(setpoint, color="gray", linewidth=0.8, linestyle="--", alpha=0.6)
     ax_top.plot(t_s, enc_roll, color="tab:blue", linewidth=0.9, label="Encoder")
 
-    if hold_window is not None:
-        ax_top.axvline(hold_window.start_time_s, color="tab:green", linewidth=0.9,
+    if reach_event is not None:
+        ax_top.axvline(reach_event.start_time_s, color="tab:green", linewidth=0.9,
                        linestyle="--", alpha=0.8,
-                       label=f"T->SP = {hold_window.start_time_s:.1f}s")
+                       label=f"T->SP = {reach_event.start_time_s:.1f}s")
 
-    if settle_window is not None:
-        ax_top.axvline(settle_window.start_time_s, color="tab:orange", linewidth=0.9,
+    if hold_window is not None:
+        ax_top.axvline(hold_window.start_time_s, color="tab:orange", linewidth=0.9,
                        linestyle="--", alpha=0.8,
-                       label=f"T_s = {settle_window.start_time_s:.1f}s")
+                       label=f"T_s = {hold_window.start_time_s:.1f}s")
 
     if peak_t is not None and overshoot_pct is not None:
         marker = "v" if initial_step < 0 else "^"
@@ -672,8 +672,8 @@ def render_step_response(
     ax_bot.plot(t_s[zoom_mask], enc_roll[zoom_mask],
                 color="tab:blue", linewidth=1.0)
 
-    if hold_window is not None and hold_window.start_time_s <= t_zoom:
-        ax_bot.axvline(hold_window.start_time_s, color="tab:green", linewidth=0.9,
+    if reach_event is not None and reach_event.start_time_s <= t_zoom:
+        ax_bot.axvline(reach_event.start_time_s, color="tab:green", linewidth=0.9,
                        linestyle="--", alpha=0.8)
 
     rise_legend_label = None
@@ -740,29 +740,29 @@ def main():
     throttle_min = cfg.motor.throttle_min
     throttle_max = cfg.motor.throttle_max
 
-    tol              = spec.tolerance_deg
-    fd               = load_flight(run_dir / "log.csv")
-    hold_w   = detect_hold_window(fd, sp, tol)
-    settle_w = detect_settle_window(fd, hold_w, sp, tol)
+    tol     = spec.tolerance_deg
+    fd      = load_flight(run_dir / "log.csv")
+    reach_w = detect_reach_event(fd, sp, tol)
+    hold_w  = detect_hold_window(fd, reach_w, sp, tol)
     print(f"Loaded {label}: {len(fd.t_ms)} samples")
 
-    hold_data = compute_hold_window(fd, settle_w, sp)
+    hold_data = compute_hold_window(fd, hold_w, sp)
     spec_data = compute_spectrum(hold_data)
-    step_data = compute_step_response(fd, hold_w, settle_w, sp)
+    step_data = compute_step_response(fd, reach_w, hold_w, sp)
 
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(exist_ok=True)
     do_all = args.plot_type == "all"
 
     if do_all or args.plot_type == "timeseries":
-        fig = render_timeseries(fd, label, sp, hold_w, settle_w, throttle_min, throttle_max, tol)
+        fig = render_timeseries(fd, label, sp, reach_w, hold_w, throttle_min, throttle_max, tol)
         out = analysis_dir / "01_timeseries.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved: {out}")
 
     if do_all or args.plot_type == "step_response":
-        fig = render_step_response(fd, label, step_data, sp, hold_w, settle_w, tol)
+        fig = render_step_response(fd, label, step_data, sp, reach_w, hold_w, tol)
         out = analysis_dir / "02_step_response.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)
@@ -789,7 +789,7 @@ def main():
             print("Skipped 04_hold_error_distribution.png -- no confirmed settled hold.")
 
     if do_all or args.plot_type == "phase":
-        fig = render_phase_portrait(fd, label, sp, hold_w, tol)
+        fig = render_phase_portrait(fd, label, sp, reach_w, tol)
         out = analysis_dir / "05_phase_portrait.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)

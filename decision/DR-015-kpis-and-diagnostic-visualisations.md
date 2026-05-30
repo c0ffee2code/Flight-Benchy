@@ -51,14 +51,16 @@ All times are measured from the start of the run (first telemetry row).
 ### Analysis pipeline
 
 ```
-smoke.py          → validates run folder; exits 1 on any structural failure
-plots.py          → all diagnostic figures (see below)
-score_flight.py   → KPI pass/fail table; compute_kpis() importable by profile_flight.py
-profile_flight.py → canonical KPIs + grouped diagnostics (sample rate, sensor health,
-                    hold tracking, control effort, inner loop, windup)
+gate.py     → validates run folder; exits 1 on any structural failure
+plots.py    → all diagnostic figures (see below)
+verdict.py  → KPI values (time_to_sp_s, overshoot_pct, settling_time_s,
+              hold_duration_s, hold_mae_deg); writes verdict.json
+diagnose.py → grouped diagnostics (sample rate, sensor health, hold tracking,
+              control effort, inner loop, windup); writes diagnose.json
+report.py   → renders summary.md from gate.json + verdict.json + diagnose.json
 ```
 
-`smoke.py` runs first and gates the rest. It rejects runs with: missing files, fewer than 5 rows, non-standard start angle, power-cut signature, loop meltdown, or severe loop jitter. A run that passes smoke is structurally valid for KPI analysis.
+`gate.py` runs first and gates the rest. It rejects runs with: missing files, fewer than 5 rows, non-standard start angle, power-cut signature, loop meltdown, or severe loop jitter. A run that passes gate is structurally valid for KPI analysis.
 
 ### Diagnostic figures and their lenses
 
@@ -79,5 +81,45 @@ Each figure answers a different question. They are numbered by diagnostic priori
 - All tuning decisions reference HoldMAE_s as the headline hold metric, not whole-run MAE.
 - Non-standard starts are retained in the folder and get a full paper trail, but are explicitly excluded from tuning comparisons.
 - The analysis pipeline is deterministic and version-controlled alongside the flight control source — re-running it on any archived run produces the same numbers.
-- Adding a new KPI requires updating `score_flight.py` or `profile_flight.py` and this record.
-- Adding a new figure requires updating `plots.py`, this record, and the `flight_analysis.md` template.
+- Adding a new KPI requires updating `verdict.py` or `diagnose.py` and this record.
+- Adding a new figure requires updating `plots.py`, this record, and the `summary.md` template.
+
+---
+
+## Amendment — 2026-05-30: Pipeline rename and terminology alignment
+
+### Pipeline script renames
+
+The analysis pipeline scripts were reorganised from `.claude/skills/analyse-flight/scripts/`
+to `pipelines/flight-analyser/scripts/` and renamed to reflect their roles more clearly:
+
+| Old name | New name | Role |
+|----------|----------|------|
+| `smoke.py` | `gate.py` | Run validation (structural integrity gate) |
+| `score_flight.py` | `verdict.py` | KPI computation; writes `verdict.json` |
+| `profile_flight.py` | `diagnose.py` | Grouped diagnostics; writes `diagnose.json` |
+| `flight_analysis.md` template | `summary.md` | Human-readable report template |
+
+`report.py` was added as a separate rendering stage that assembles `summary.md` from
+`gate.json`, `verdict.json`, and `diagnose.json`.
+
+### Terminology alignment with industry standard
+
+The internal Python event objects were renamed to align with servo/robotics engineering
+convention (reference: settling window / hold window as defined in servo-drive literature):
+
+| Old name | New name | Meaning |
+|----------|----------|---------|
+| `HoldWindow` | `ReachEvent` | First entry into the ±tolerance band (T->SP event) |
+| `SettleWindow` | `HoldWindow` | Confirmed continuous hold for ≥ `HOLD_WINDOW_S` seconds (in-position) |
+| `detect_hold_window()` | `detect_reach_event()` | Detects the reach event |
+| `detect_settle_window()` | `detect_hold_window()` | Detects the confirmed hold window |
+| `SETTLING_MIN_HOLD_S` | `HOLD_WINDOW_S` | The hold window duration parameter (5.0 s) |
+
+The **Settling Window** (the ±`tolerance_deg` band) and the **Hold Window** duration
+(`HOLD_WINDOW_S`) were already correctly named as scalar parameters. Only the event
+dataclasses were misaligned.
+
+KPI names in `verdict.json`, `diagnose.json`, and `specification.json` are unchanged —
+`settling_time_s`, `hold_duration_s`, `hold_mae_deg` remain valid and consistent with
+the renamed objects.

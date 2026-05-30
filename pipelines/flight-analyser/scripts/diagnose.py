@@ -36,7 +36,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from specification_loader import load_specification                            # noqa: E402
 from configuration_loader import load_configuration, Configuration             # noqa: E402
-from flight_data_loader import load_flight, detect_hold_window, detect_settle_window, FlightData, HoldWindow  # noqa: E402
+from flight_data_loader import load_flight, detect_reach_event, detect_hold_window, FlightData, ReachEvent  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -340,8 +340,8 @@ def _windup_stats(fd: FlightData, cfg: Configuration) -> WindupStats:
     )
 
 
-def compute_stats(fd: FlightData, cfg: Configuration, hold_window: HoldWindow | None = None):
-    hi = hold_window.start_idx if hold_window is not None else 0
+def compute_stats(fd: FlightData, cfg: Configuration, reach_event: ReachEvent | None = None):
+    hi = reach_event.start_idx if reach_event is not None else 0
     return (
         _sample_rate_stats(fd),
         _sensor_health_stats(fd),
@@ -425,10 +425,10 @@ def main():
     cfg     = load_configuration(run_dir)
     spec    = load_specification(run_dir)
 
-    fd     = load_flight(run_dir / "log.csv")
-    hold_w = detect_hold_window(fd, cfg.setpoint_roll_deg, spec.tolerance_deg)
+    fd      = load_flight(run_dir / "log.csv")
+    reach_w = detect_reach_event(fd, cfg.setpoint_roll_deg, spec.tolerance_deg)
 
-    rate, sensor, hold, effort, inner, windup = compute_stats(fd, cfg, hold_window=hold_w)
+    rate, sensor, hold, effort, inner, windup = compute_stats(fd, cfg, reach_event=reach_w)
 
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(exist_ok=True)
