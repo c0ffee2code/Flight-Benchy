@@ -32,7 +32,7 @@
   },
   "bench": {
     "encoder": {
-      "axis_center": 2378
+      "axis_center": 2374
     },
     "sensor_orientation": {
       "encoder_invert": true,
