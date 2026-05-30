@@ -16,7 +16,7 @@ from pathlib import Path
 
 PYTHON   = sys.executable
 COM_PORT = "COM7"
-ROOT     = Path(__file__).resolve().parents[2]
+ROOT     = Path(__file__).resolve().parents[3]
 
 SOURCE_FILES = [
     ("src/main.py",                          "main.py"),
