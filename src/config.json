@@ -52,6 +52,7 @@
     }
   },
   "telemetry": {
-    "sample_every": 60
+    "sample_every": 60,
+    "preallocate_bytes": 0
   }
 }

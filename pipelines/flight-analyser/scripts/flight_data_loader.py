@@ -18,6 +18,7 @@ Absence of either object means the respective event did not occur.
 """
 
 import csv
+import io
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -104,6 +105,16 @@ class FlightData:
     m2:       np.ndarray
 
 
+def load_raw_rows(csv_path: Path) -> list:
+    """Load log.csv as a list of raw string dicts, stripping pre-allocation null padding."""
+    with open(csv_path, "rb") as f:
+        data = f.read()
+    null_pos = data.find(b'\x00')
+    if null_pos != -1:
+        data = data[:null_pos]
+    return list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+
+
 def _quat_to_roll(qr: np.ndarray, qi: np.ndarray) -> np.ndarray:
     return np.degrees(2.0 * np.arctan2(qi, qr))
 
@@ -117,10 +128,7 @@ def load_flight(csv_path: Path) -> FlightData:
     if not csv_path.exists():
         sys.exit(f"log.csv not found: {csv_path}")
 
-    rows = []
-    with open(csv_path, newline="") as f:
-        for row in csv.DictReader(f):
-            rows.append(row)
+    rows = load_raw_rows(csv_path)
 
     if not rows:
         sys.exit(f"Empty CSV: {csv_path}")

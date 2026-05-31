@@ -53,15 +53,15 @@ Run from project root:
   python .claude/skills/analyse-flight/scripts/gate.py test_runs/flights/<flight_id>
 """
 
-import csv
 import json
 import math
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from specification_loader import load_specification      # noqa: E402
 from configuration_loader import load_configuration     # noqa: E402
+from flight_data_loader import load_raw_rows            # noqa: E402
+from specification_loader import load_specification      # noqa: E402
 
 # Start-angle thresholds
 _STANDARD_START_DEG      = 51.0
@@ -82,10 +82,6 @@ _SAMPLE_RATE_JITTER_FACTOR   = 5.0
 def _quat_to_angle(qr, qi):
     return math.degrees(2.0 * math.atan2(float(qi), float(qr)))
 
-
-def _load(csv_path):
-    with open(csv_path, newline="") as f:
-        return list(csv.DictReader(f))
 
 
 def check_start_angle(rows):
@@ -199,7 +195,7 @@ def main():
     spec     = load_specification(run_dir)
     setpoint = cfg.setpoint_roll_deg
 
-    rows = _load(csv_path)
+    rows = load_raw_rows(csv_path)
     if len(rows) < 5:
         _fail("log-truncated", f"{len(rows)} rows in log.csv; SD write likely interrupted")
     _pass("log-truncated")
