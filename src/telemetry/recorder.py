@@ -109,7 +109,9 @@ class SdSink:
             self._f.write("\n")
 
     def flush(self):
-        """Flush buffered data to the SD card."""
+        """Flush FatFs sector buffer to SD card.  Note: in prealloc mode the
+        Python-level write buffer (_write_buf) is NOT flushed here; call
+        close() for full durability."""
         self._f.flush()
 
     def write_crash_log(self, exc):

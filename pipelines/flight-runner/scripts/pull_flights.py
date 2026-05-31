@@ -234,7 +234,7 @@ def main():
     except Exception:
         pass
     bytes_per_run = max(200_000, preallocate_bytes)
-    transfer_timeout = max(120, len(new_ids) * bytes_per_run // 5_000)
+    transfer_timeout = max(120, len(new_ids) * bytes_per_run // 10_000)  # ~10 KB/s conservative serial transfer
     ok_ids, failed_ids = fetch(new_ids, transfer_timeout=transfer_timeout)
 
     if ok_ids:

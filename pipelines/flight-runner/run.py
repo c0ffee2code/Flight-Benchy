@@ -48,7 +48,7 @@ def main():
         config = json.load(f)
     duration_s = _require(config, "bench", "session", "duration_s")
     preallocate_bytes = config.get("telemetry", {}).get("preallocate_bytes", 0)
-    fill_overhead_s = preallocate_bytes // 30_000  # ~30 KB/s conservative SD write estimate
+    fill_overhead_s = preallocate_bytes // 150_000  # measured ~218 KB/s at 25MHz SPI; 150 KB/s is conservative floor
     flight_timeout = int(duration_s) + 30 + fill_overhead_s
 
     # Step 1: check config
