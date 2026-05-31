@@ -1,4 +1,4 @@
-# IDEA-005: Fix diagnose.py hold_tracking window to match verdict hold_mae window
+# IDEA-005: Fix diagnose.py hold_tracking window to match verdict hold_mae window — DONE 2026-05-31
 
 ## Problem
 
@@ -28,3 +28,10 @@ After the fix, for any run where verdict reports PASS:
 ## Priority
 
 Backlog — address after the 2026-05-18 tolerance-band-9deg tuning session closes.
+
+## Implementation — 2026-05-31
+
+Implemented in commit `9dd5857`. Additional improvements beyond original scope:
+- `control_effort` and `inner_loop` also shifted to `HoldWindow` for full consistency
+- `pearson_r` dropped from `hold_tracking` (degenerate on tight hold), moved to `approach_tracking`
+- `stats_to_dict` replaced with `DiagnoseOutput` dataclass + `dataclasses.asdict()`
