@@ -13,7 +13,7 @@
         }
       },
       "rate": {
-        "frequency_hz": 300,
+        "frequency_hz": 200,
         "imu_report": "calibrated_gyroscope",
         "pid": {
           "kp": 0.5,

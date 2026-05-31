@@ -122,15 +122,15 @@ def build_report(run_folder_str):
         start_angle    = _fmt(gate.get("start_angle"), ".1f", " deg"),
         standard_start = "YES" if gate.get("start_ok") else "NO",
 
-        angle_pid_row  = (f"kp={config.angle_pid.kp}, ki={config.angle_pid.ki}, "
-                          f"kd={config.angle_pid.kd}, iterm_limit={config.angle_pid.iterm_limit}"),
-        rate_pid_row   = (f"kp={config.rate_pid.kp}, ki={config.rate_pid.ki}, "
-                          f"kd={config.rate_pid.kd}, iterm_limit={config.rate_pid.iterm_limit}"),
+        angle_pid_row  = (f"kp={config.loops.angle.pid.kp}, ki={config.loops.angle.pid.ki}, "
+                          f"kd={config.loops.angle.pid.kd}, iterm_limit={config.loops.angle.pid.iterm_limit}"),
+        rate_pid_row   = (f"kp={config.loops.rate.pid.kp}, ki={config.loops.rate.pid.ki}, "
+                          f"kd={config.loops.rate.pid.kd}, iterm_limit={config.loops.rate.pid.iterm_limit}"),
         motor_row      = (f"base={config.motor.base_throttle}, "
                           f"min={config.motor.throttle_min}, max={config.motor.throttle_max}"),
         ff_lead_ms     = ff_lead,
-        angle_report   = f"{config.imu.angle_report} @ {config.imu.angle_report_hz} Hz",
-        rate_report    = f"{config.imu.rate_report} @ {config.imu.rate_report_hz} Hz",
+        angle_report   = f"{config.loops.angle.imu_report} @ {config.loops.angle.frequency_hz} Hz",
+        rate_report    = f"{config.loops.rate.imu_report} @ {config.loops.rate.frequency_hz} Hz",
 
         reached              = "YES" if kpis.get("reached") else "NO",
         t_to_sp              = _fmt(t_to_sp,  ".1f"),

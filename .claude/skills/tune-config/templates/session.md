@@ -14,8 +14,8 @@
 
 ### Current configuration
 
-- **angle_pid:** kp=<value>, ki=<value>, kd=<value>, iterm_limit=<value>
-- **rate_pid:** kp=<value>, ki=<value>, kd=<value>, iterm_limit=<value>
+- **loops.angle.pid:** kp=<value>, ki=<value>, kd=<value>, iterm_limit=<value>
+- **loops.rate.pid:** kp=<value>, ki=<value>, kd=<value>, iterm_limit=<value>
 - **motor.base:** <value>
 - **feedforward.lead_ms:** <value or "absent">
 - **setpoint:** roll=<value>, pitch=<value>, yaw=<value>

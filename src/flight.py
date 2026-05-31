@@ -103,12 +103,14 @@ def init_session(cfg, sink, dt):
 def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_ms=None):
     """Run cascaded PID control loop until B+Y disarm combo or duration_ms elapses.
 
-    Inner (rate) loop runs every cycle at ~200 Hz.
-    Outer (angle) loop runs every outer_ticks cycles (~50 Hz).
+    Inner (rate) loop runs every cycle at the rate loop frequency_hz.
+    Outer (angle) loop runs every outer_ticks inner cycles at the angle loop frequency_hz.
     duration_ms=None means no time constraint — manual stop only.
     """
-    inner_ms = 1000 // cfg["vehicle"]["imu"]["rate_report_hz"]
-    outer_ticks = cfg["vehicle"]["imu"]["rate_report_hz"] // cfg["vehicle"]["imu"]["angle_report_hz"]
+    rate_loop_hz  = cfg["vehicle"]["loops"]["rate"]["frequency_hz"]
+    angle_loop_hz = cfg["vehicle"]["loops"]["angle"]["frequency_hz"]
+    inner_ms    = 1000 // rate_loop_hz
+    outer_ticks = rate_loop_hz // angle_loop_hz
     outer_dt = (inner_ms * outer_ticks) / 1000.0  # fixed nominal dt — avoids I2C-jitter noise in D term
     axis_center = cfg["bench"]["encoder"]["axis_center"]
     feedforward_lead_s = cfg["vehicle"]["feedforward"]["lead_ms"] / 1000.0
@@ -218,19 +220,21 @@ def run():
         # angle_kp=2.2: rate_sp=129 -> saturates at 130 -> PID_OUT=65 -> diff=130 -> ~19g (OK).
         # rate_kp=0.5 confirmed stable at BASE=600 with kd=0.003. kp=0.7 caused 5.88Hz oscillation.
         # rate_kd raised 0.003->0.006 to add damping near setpoint without affecting DC gain (DR-012).
+        apid = cfg["vehicle"]["loops"]["angle"]["pid"]
+        rpid = cfg["vehicle"]["loops"]["rate"]["pid"]
         angle_pid = PID(
-            kp=cfg["vehicle"]["angle_pid"]["kp"],
-            ki=cfg["vehicle"]["angle_pid"]["ki"],
-            kd=cfg["vehicle"]["angle_pid"]["kd"],
-            iterm_limit=cfg["vehicle"]["angle_pid"]["iterm_limit"],
-            output_limit=cfg["vehicle"]["angle_pid"]["output_limit"],
+            kp=apid["kp"],
+            ki=apid["ki"],
+            kd=apid["kd"],
+            iterm_limit=apid["iterm_limit"],
+            output_limit=apid["output_limit"],
         )
         rate_pid = PID(
-            kp=cfg["vehicle"]["rate_pid"]["kp"],
-            ki=cfg["vehicle"]["rate_pid"]["ki"],
-            kd=cfg["vehicle"]["rate_pid"]["kd"],
-            iterm_limit=cfg["vehicle"]["rate_pid"]["iterm_limit"],
-            output_limit=cfg["vehicle"]["rate_pid"]["output_limit"],
+            kp=rpid["kp"],
+            ki=rpid["ki"],
+            kd=rpid["kd"],
+            iterm_limit=rpid["iterm_limit"],
+            output_limit=rpid["output_limit"],
         )
         mixer = LeverMixer(
             throttle_base=cfg["vehicle"]["motor"]["base_throttle"],
@@ -246,7 +250,7 @@ def run():
             reset_pin=Pin(PIN_IMU_RST, Pin.OUT),
             int_pin=Pin(PIN_IMU_INT, Pin.IN, Pin.PULL_UP),
         )
-        enable_imu_reports(imu, cfg["vehicle"]["imu"]["angle_report_hz"], cfg["vehicle"]["imu"]["rate_report_hz"])
+        enable_imu_reports(imu, cfg["vehicle"]["loops"]["angle"]["frequency_hz"], cfg["vehicle"]["loops"]["rate"]["frequency_hz"])
         arm_motors(motors, cfg["vehicle"]["motor"]["throttle_min"])
         prespin_motors(motors, cfg["vehicle"]["motor"]["throttle_min"], cfg["vehicle"]["motor"]["base_throttle"])
 

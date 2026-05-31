@@ -29,11 +29,16 @@ class MotorConfig:
 
 
 @dataclass
-class ImuConfig:
-    angle_report:    str
-    angle_report_hz: int
-    rate_report:     str
-    rate_report_hz:  int
+class LoopConfig:
+    frequency_hz: int
+    imu_report:   str
+    pid:          PidConfig
+
+
+@dataclass
+class LoopsConfig:
+    angle: LoopConfig
+    rate:  LoopConfig
 
 
 @dataclass
@@ -44,10 +49,8 @@ class TelemetryConfig:
 @dataclass
 class Configuration:
     setpoint_roll_deg:   float
-    angle_pid:           PidConfig
-    rate_pid:            PidConfig
+    loops:               LoopsConfig
     motor:               MotorConfig
-    imu:                 ImuConfig
     telemetry:           TelemetryConfig
     feedforward_lead_ms: float | None
 
@@ -63,6 +66,21 @@ def _req(obj, *path):
     return cur
 
 
+def _load_pid(pid_raw) -> PidConfig:
+    return PidConfig(
+        kp=float(_req(pid_raw, "kp")),
+        ki=float(_req(pid_raw, "ki")),
+        kd=float(_req(pid_raw, "kd")),
+        iterm_limit=float(_req(pid_raw, "iterm_limit")),
+    )
+
+def _load_loop(loop_raw) -> LoopConfig:
+    return LoopConfig(
+        frequency_hz=int(_req(loop_raw, "frequency_hz")),
+        imu_report=str(_req(loop_raw, "imu_report")),
+        pid=_load_pid(_req(loop_raw, "pid")),
+    )
+
 def load_configuration(run_dir) -> Configuration:
     """Load and parse config.json from run_dir. Exits immediately if absent or malformed."""
     path = Path(run_dir) / "config.json"
@@ -72,37 +90,21 @@ def load_configuration(run_dir) -> Configuration:
         raw = json.load(f)
 
     vehicle   = _req(raw, "vehicle")
-    apid      = _req(vehicle, "angle_pid")
-    rpid      = _req(vehicle, "rate_pid")
+    loops_raw = _req(vehicle, "loops")
     motor     = _req(vehicle, "motor")
-    imu       = _req(vehicle, "imu")
     ff        = vehicle.get("feedforward", {})
     telemetry = _req(raw, "telemetry")
 
     return Configuration(
         setpoint_roll_deg=float(_req(raw, "bench", "session", "setpoint", "roll_deg")),
-        angle_pid=PidConfig(
-            kp=float(_req(apid, "kp")),
-            ki=float(_req(apid, "ki")),
-            kd=float(_req(apid, "kd")),
-            iterm_limit=float(_req(apid, "iterm_limit")),
-        ),
-        rate_pid=PidConfig(
-            kp=float(_req(rpid, "kp")),
-            ki=float(_req(rpid, "ki")),
-            kd=float(_req(rpid, "kd")),
-            iterm_limit=float(_req(rpid, "iterm_limit")),
+        loops=LoopsConfig(
+            angle=_load_loop(_req(loops_raw, "angle")),
+            rate=_load_loop(_req(loops_raw, "rate")),
         ),
         motor=MotorConfig(
             throttle_min=float(_req(motor, "throttle_min")),
             throttle_max=float(_req(motor, "throttle_max")),
             base_throttle=float(motor.get("base_throttle", 0)),
-        ),
-        imu=ImuConfig(
-            angle_report=str(_req(imu, "angle_report")),
-            angle_report_hz=int(_req(imu, "angle_report_hz")),
-            rate_report=str(_req(imu, "rate_report")),
-            rate_report_hz=int(_req(imu, "rate_report_hz")),
         ),
         telemetry=TelemetryConfig(
             sample_every=int(_req(telemetry, "sample_every")),

@@ -18,7 +18,7 @@
 
 <Exact config diff. One variable.>
 <Format: field-path: old → new>
-<Example: vehicle.angle_pid.iterm_limit: 100 → 200>
+<Example: vehicle.loops.angle.pid.iterm_limit: 100 → 200>
 
 ### Prediction
 

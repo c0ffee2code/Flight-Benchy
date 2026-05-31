@@ -26,7 +26,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 **Tolerance-band tightening (2026-05-18 to 2026-05-30)** — Session `2026-05-18-tolerance-band-9deg.md` (Abandoned). Objective: demonstrate all KPIs pass at ±9° band. Config improved: `angle_kp` 3.0→3.5, `angle_ki` 0.05→0.10 — produced 3 clean passes (T->SP 3.7–4.6s, hold 101–117s, HoldMAE 1.0–2.7°). Confirmation abandoned after 9 consecutive failures revealed root cause: wire harness state (no slip ring) shifts mechanical equilibrium each reset, changing IMU-ENC bias. Passes require IMU-ENC bias < −1.45°; failures occur above this threshold. ±9° is achievable but not reliably demonstrable until wire management or IDEA-003 (fixed-frame IMU noise measurement) resolves the mechanical variability. GRV@100Hz showed promising enc_range consistency but experiment was confounded. `specification.json tolerance_deg` reverted to 10.0.
 
-**Current focus:** IDEA-003 (fixed-frame IMU vs encoder measurement across re-mounts) to determine whether IMU-ENC bias variation is mechanical or sensor-driven. **Current config: angle_pid kp=3.5, ki=0.10, kd=0.5, iterm_limit=5; rate_pid kp=0.5, ki=0.0, kd=0.009.** Best confirmed baseline (at ±10°): T_s 17–26s, overshoot 11–14%, HoldMAE_s 1.9–3.3°. New config not yet confirmed at ±10° (session focused on ±9°).
+**Current focus:** IDEA-003 (fixed-frame IMU vs encoder measurement across re-mounts) to determine whether IMU-ENC bias variation is mechanical or sensor-driven. **Current config: loops.angle.pid kp=3.5, ki=0.10, kd=0.5, iterm_limit=5; loops.rate.pid kp=0.5, ki=0.0, kd=0.009.** Best confirmed baseline (at ±10°): T_s 17–26s, overshoot 11–14%, HoldMAE_s 1.9–3.3°. New config not yet confirmed at ±10° (session focused on ±9°).
 
 **Roadmap (see README.md for full details):**
 - M5: Multi-axis control (depends on hardware evolution)
@@ -46,14 +46,27 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 ```
 ├── src/                 # Authored flight control source (deployed to Pico)
-│   ├── main.py          # Entry point - upload to Pico, runs on boot
+│   ├── main.py          # Entry point — calls flight.run()
+│   ├── flight.py        # Control loop, hardware init, config loading
 │   ├── pid.py           # PID controller with anti-windup and term introspection
 │   ├── mixer.py         # LeverMixer — differential thrust for 2-motor lever
 │   ├── ui.py            # Operator interface — Pimoroni Display Pack buttons + RGB LED
+│   ├── config.json      # Active configuration (deployed to Pico)
+│   ├── specification.json  # KPI acceptance thresholds (deployed to Pico)
 │   └── telemetry/
 │       ├── recorder.py  # TelemetryRecorder, SdSink
 │       ├── time_source.py  # TimeSource, read_rtc — PCF8523 RTC facade
 │       └── sdcard.py    # SD card SPI driver (micropython-lib, with stop bit fix)
+├── pipelines/
+│   ├── flight-runner/   # Deploy and run scripts (COM7)
+│   │   ├── run.py
+│   │   └── scripts/     # deploy.py, pull_flights.py, reset_position.py, check_config.py
+│   └── flight-analyser/ # Post-flight analysis pipeline
+│       ├── run.py       # Orchestrator: gate -> plots -> verdict -> diagnose -> report
+│       ├── scripts/     # gate.py, plots.py, verdict.py, diagnose.py, report.py,
+│       │                #   configuration_loader.py, specification_loader.py,
+│       │                #   flight_data_loader.py
+│       └── templates/   # Report templates
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 │   └── driver/as5600.py
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
@@ -65,30 +78,30 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │       ├── dshot_pio.py
 │       └── motor_throttle_group.py
 ├── .claude/
+│   ├── commands/        # Skill trigger files (analyse-flight, deploy, run-flight, etc.)
 │   └── skills/
-│       └── analyse-flight/  # Skill: full analysis pipeline for a single flight
-│           ├── SKILL.md
-│           ├── scripts/
-│           │   ├── plots.py           # Step 1: diagnostic figures dispatcher
-│           │   ├── score_flight.py    # Step 2: pass/fail KPI gate
-│           │   └── profile_flight.py  # Step 3: detailed statistical profile
-│           └── templates/
-│               └── flight_analysis.md  # Structured report template
+│       └── tune-config/ # Skill: structured PID tuning sessions with iteration tracking
 ├── tools/               # Pico utilities (upload to Pico, not used on desktop)
-│   ├── set_rtc.py           # Set PCF8523 RTC clock
-│   └── tare_and_measure.py  # IMU tare calibration with before/after comparison
+│   ├── set_rtc.py       # Set PCF8523 RTC clock
+│   └── tare.py          # IMU tare calibration with before/after comparison
 ├── test_runs/           # Copied run folders from SD card for analysis
 │   └── flights/
 │       └── YYYY-MM-DD_hh-mm-ss/  # One folder per run
-│           ├── config.json  # System settings snapshot (PID gains, motor limits, etc.)
-│           └── log.csv      # Telemetry CSV
-├── decision/            # Decision Records
-└── resources/           # Docs, datasheets
+│           ├── config.json        # Config snapshot for this run
+│           ├── specification.json # Spec snapshot for this run
+│           ├── log.csv            # Telemetry CSV
+│           └── analysis/          # Generated by flight-analyser pipeline
+├── tuning/              # Structured tuning session logs (produced by tune-config skill)
+├── ideas/               # IDEA-NNN improvement proposals
+├── decision/            # Decision Records (DR-001 through DR-015+)
+└── specification/       # Hardware datasheets and reference docs
 ```
 
 **Deployment:** Upload the following files to Pico root (flat structure). Use the deploy skill (`--full` for source changes, no flag for config-only):
 - `src/config.json`
+- `src/specification.json`
 - `src/main.py`
+- `src/flight.py`
 - `src/pid.py`
 - `src/mixer.py`
 - `src/ui.py`
@@ -147,7 +160,7 @@ Each stabilisation session creates a timestamped directory on the SD card:
     log.csv        # Telemetry CSV
 ```
 
-`config.json` is uploaded to the Pico before a run (via the deploy skill) and copied as-is to the run folder by `SdSink.init_session()`. It is the single source of truth — no serialisation from Python objects. Top-level structure: `vehicle` (imu, angle_pid, rate_pid, motor, feedforward — algorithm parameters that stay fixed across sessions), `bench` (encoder, session — rig-specific; session contains duration_s and setpoint.{roll_deg, pitch_deg, yaw_deg}), `telemetry` (sample_every). Parsed with `json` on desktop.
+`config.json` is uploaded to the Pico before a run (via the deploy skill) and copied as-is to the run folder by `SdSink.init_session()`. It is the single source of truth — no serialisation from Python objects. Top-level structure: `vehicle` (loops.{angle|rate}.{frequency_hz, imu_report, pid}, motor, feedforward — algorithm parameters that stay fixed across sessions), `bench` (encoder, sensor_orientation with encoder_invert/imu_invert; session contains duration_s and setpoint.{roll_deg, pitch_deg, yaw_deg}), `telemetry` (sample_every). Parsed with `json` on desktop.
 
 ## Motor and Encoder Sign Convention
 

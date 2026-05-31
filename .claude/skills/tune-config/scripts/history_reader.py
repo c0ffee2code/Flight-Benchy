@@ -48,8 +48,8 @@ def extract_config(cfg):
     Missing fields are represented as None; absent feedforward block is flagged
     with ff_absent=True.
     """
-    ap = _get(cfg, 'vehicle', 'angle_pid') or {}
-    rp = _get(cfg, 'vehicle', 'rate_pid') or {}
+    ap = _get(cfg, 'vehicle', 'loops', 'angle', 'pid') or {}
+    rp = _get(cfg, 'vehicle', 'loops', 'rate', 'pid') or {}
     mo = _get(cfg, 'vehicle', 'motor') or {}
     ff = _get(cfg, 'vehicle', 'feedforward')
     sp = _get(cfg, 'bench', 'session', 'setpoint') or {}

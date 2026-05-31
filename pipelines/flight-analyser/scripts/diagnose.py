@@ -57,7 +57,7 @@ class SampleRateStats:
     ------
     n_samples    : Total number of CSV rows.
     duration_s   : Elapsed time from first to last sample, seconds.
-    nominal_hz   : Configured sample rate = imu.rate_report_hz / telemetry.sample_every.
+    nominal_hz   : Configured sample rate = loops.rate.frequency_hz / telemetry.sample_every.
     actual_hz    : Achieved sample rate = (n_samples - 1) / duration_s.
     dt_mean_ms   : Mean inter-sample interval, milliseconds.
     dt_median_ms : Median inter-sample interval, milliseconds.
@@ -244,7 +244,7 @@ def _sample_rate_stats(fd: FlightData, cfg: Configuration) -> SampleRateStats:
     return SampleRateStats(
         n_samples=n,
         duration_s=duration,
-        nominal_hz=cfg.imu.rate_report_hz / cfg.telemetry.sample_every,
+        nominal_hz=cfg.loops.rate.frequency_hz / cfg.telemetry.sample_every,
         actual_hz=(n - 1) / duration if duration > 0 else 0.0,
         dt_mean_ms=float(np.mean(dts)),
         dt_median_ms=float(np.median(dts)),
@@ -371,7 +371,7 @@ def _control_effort_stats(fd: FlightData, cfg: Configuration, hi: int) -> Contro
     ang_i_mean = float(np.mean(fd.ang_i[hi:]))
     m2_m1_mean = float(np.mean(hold_m2 - hold_m1))
     ang_p_mean = float(np.mean(
-        cfg.angle_pid.kp * (fd.imu_roll[hi:] - cfg.setpoint_roll_deg)
+        cfg.loops.angle.pid.kp * (fd.imu_roll[hi:] - cfg.setpoint_roll_deg)
     ))
     if abs(ang_i_mean) > abs(ang_p_mean):
         iterm_sign_ok: bool | None = ang_i_mean * m2_m1_mean >= 0
@@ -400,10 +400,10 @@ def _inner_loop_stats(fd: FlightData, hi: int) -> InnerLoopStats:
 
 def _windup_stats(fd: FlightData, cfg: Configuration) -> WindupStats:
     return WindupStats(
-        ang_windup_events=int(np.sum(np.abs(fd.ang_i)  >= cfg.angle_pid.iterm_limit * 0.5)),
-        ang_windup_threshold=cfg.angle_pid.iterm_limit * 0.5,
-        rate_windup_events=int(np.sum(np.abs(fd.rate_i) >= cfg.rate_pid.iterm_limit  * 0.5)),
-        rate_windup_threshold=cfg.rate_pid.iterm_limit  * 0.5,
+        ang_windup_events=int(np.sum(np.abs(fd.ang_i)  >= cfg.loops.angle.pid.iterm_limit * 0.5)),
+        ang_windup_threshold=cfg.loops.angle.pid.iterm_limit * 0.5,
+        rate_windup_events=int(np.sum(np.abs(fd.rate_i) >= cfg.loops.rate.pid.iterm_limit  * 0.5)),
+        rate_windup_threshold=cfg.loops.rate.pid.iterm_limit  * 0.5,
     )
 
 

@@ -87,3 +87,14 @@ Calibrated gyro latency is ~1–2ms (sensor sampling + I2C), same as the angular
 3. Config summary shows `angle=game_rotation_vector @ 50 Hz, rate=calibrated_gyroscope @ 200 Hz`
 4. Encoder-to-IMU divergence stays < 2° over the full run (vs 10.8° before)
 5. `config.yaml` in run folder contains `angle_report: game_rotation_vector`
+
+## Amendment 2026-05-31 — Restructure into `vehicle.loops.{angle|rate}`
+
+`vehicle.imu` (angle_report, angle_report_hz, rate_report, rate_report_hz),
+`vehicle.angle_pid`, and `vehicle.rate_pid` are replaced by a single
+`vehicle.loops` block with `angle` and `rate` sub-objects, each containing
+`frequency_hz`, `imu_report`, and `pid`. Rationale: these fields all belong
+to one loop; the flat layout obscured that relationship. The `_report_hz`
+suffix implied sensor configuration; `frequency_hz` under the loop makes
+the governing intent clear. Backwards compatibility for historical run
+folders is not maintained.
