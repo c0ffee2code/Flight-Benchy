@@ -430,7 +430,7 @@ def render_timeseries(
                       linestyle='--', alpha=0.7, label='T->SP')]
     if hold_window is not None:
         h1 += [Patch(facecolor='tab:green', alpha=0.4, edgecolor='none',
-                     label='Settled hold')]
+                     label='Hold window')]
     ax1.legend(handles=h1, loc='center left', bbox_to_anchor=(1.01, 0.5), fontsize=8)
 
     h5, _ = ax5.get_legend_handles_labels()
@@ -549,7 +549,7 @@ def render_hold_error_distribution(hold_data: HoldData, label: str, setpoint: fl
 
     ax.set_xlabel("Hold error -- enc_roll - setpoint (deg)")
     ax.set_ylabel("Density")
-    ax.set_title(f"Post-settle window: {n_samples} samples")
+    ax.set_title(f"Hold window: {n_samples} samples")
     ax.legend(loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
