@@ -424,7 +424,7 @@ def render_timeseries(
 
     h1, _ = ax1.get_legend_handles_labels()
     h1 += [Patch(facecolor='gray', alpha=0.5, edgecolor='none',
-                 label=f'+-{tolerance_deg:.0f} deg band')]
+                 label=f'Settling window (+-{tolerance_deg:.0f} deg)')]
     if reach_event is not None:
         h1 += [Line2D([0], [0], color='tab:green', linewidth=0.8,
                       linestyle='--', alpha=0.7, label='T->SP')]
@@ -540,7 +540,7 @@ def render_hold_error_distribution(hold_data: HoldData, label: str, setpoint: fl
                label=f"Bias ({mu:+.2f} deg)")
     ax.axvspan(-tolerance_deg, tolerance_deg,
                color="gray", alpha=0.08, zorder=0,
-               label=f"+-{tolerance_deg:.0f} deg band")
+               label=f"Settling window (+-{tolerance_deg:.0f} deg)")
 
     stats_text = f"n = {n_samples}\nbias = {mu:+.2f} deg\nstd = {sigma:.2f} deg\nP95 = {p95:.2f} deg"
     ax.text(0.97, 0.97, stats_text, transform=ax.transAxes, fontsize=8,
