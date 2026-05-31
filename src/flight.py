@@ -103,8 +103,9 @@ def init_session(cfg, sink, dt):
 def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_ms=None):
     """Run cascaded PID control loop until B+Y disarm combo or duration_ms elapses.
 
-    Inner (rate) loop runs every cycle at the rate loop frequency_hz.
-    Outer (angle) loop runs every outer_ticks inner cycles at the angle loop frequency_hz.
+    Inner (rate) loop runs on sensor data delivery: each iteration calls update_sensors()
+    first; if no new report is available the cycle is skipped (500us yield, continue).
+    Outer (angle) loop runs every outer_ticks confirmed inner cycles at angle_loop_hz.
     duration_ms=None means no time constraint — manual stop only.
     """
     rate_loop_hz  = cfg["vehicle"]["loops"]["rate"]["frequency_hz"]
@@ -133,18 +134,17 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
         if duration_ms is not None and utime.ticks_diff(utime.ticks_ms(), run_start_ms) >= duration_ms:
             break
 
-        # --- timing: wait for inner tick ---
+        # --- wait for new sensor data ---
+        if imu.update_sensors() == 0:
+            utime.sleep_us(500)
+            continue
+
         now_ms = utime.ticks_ms()
         dt_ms = utime.ticks_diff(now_ms, prev_ms)
-        if dt_ms < inner_ms:
-            utime.sleep_ms(inner_ms - dt_ms)
-            now_ms = utime.ticks_ms()
-            dt_ms = utime.ticks_diff(now_ms, prev_ms)
         prev_ms = now_ms
 
         dt = dt_ms / 1000.0
 
-        imu.update_sensors()
         gx, _gy, _gz = imu.gyro
         # Negate imu_sign: GRV reports position (positive = M1 lower), but the gyroscope
         # reports velocity (dA/dt < 0 when falling toward M2-down). The outer loop issues

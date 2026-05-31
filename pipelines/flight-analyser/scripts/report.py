@@ -157,7 +157,6 @@ def build_report(run_folder_str):
         sh_mae_fast  = _fmt(sh["mae_fast"]),
         sh_mae_slow  = _fmt(sh["mae_slow"]),
         sh_bias      = _fmt(sh["bias"]),
-        sh_trail_pct = _fmt(sh["trail_pct"], ".1f"),
 
         ht_bias      = f"{ht['bias']:+.2f}",
         ht_std       = _fmt(ht["std"]),

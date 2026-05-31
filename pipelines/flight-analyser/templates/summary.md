@@ -55,7 +55,6 @@
 | MAE fast motion (deg) | $sh_mae_fast |
 | MAE slow motion (deg) | $sh_mae_slow |
 | Bias IMU-ENC (deg) | $sh_bias |
-| IMU trails motion (%) | $sh_trail_pct |
 
 ## Hold Tracking (from T_s, confirmed hold)
 

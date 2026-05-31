@@ -74,7 +74,6 @@ _POWER_CUT_GRAVITY_MARGIN_DEG = 5.0   # if lever is held this far below gravity 
 
 # Loop-meltdown thresholds — both must fire
 _LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0
-_LOOP_MELTDOWN_IMU_TRAIL_PCT = 40.0
 
 # Sample-rate jitter threshold
 _SAMPLE_RATE_JITTER_FACTOR   = 5.0
@@ -128,24 +127,12 @@ def check_power_cut(rows, setpoint, tolerance_deg):
 def check_loop_meltdown(rows):
     """Return detail string on detection, None if clean."""
     enc = [_quat_to_angle(r["ENC_QR"], r["ENC_QI"]) for r in rows]
-    imu = [_quat_to_angle(r["IMU_QR"], r["IMU_QI"]) for r in rows]
 
     enc_range = max(enc) - min(enc)
 
-    moving_total = trailing = 0
-    for i in range(len(enc) - 1):
-        motion = enc[i + 1] - enc[i]
-        if abs(motion) <= 1.0:
-            continue
-        moving_total += 1
-        if motion * (enc[i + 1] - imu[i + 1]) > 0:
-            trailing += 1
-    trail_pct = (trailing / moving_total * 100.0) if moving_total > 0 else 0.0
-
-    if enc_range > _LOOP_MELTDOWN_ENC_RANGE_DEG and trail_pct > _LOOP_MELTDOWN_IMU_TRAIL_PCT:
+    if enc_range > _LOOP_MELTDOWN_ENC_RANGE_DEG:
         return (
-            f"encoder range={enc_range:.1f}deg (>{_LOOP_MELTDOWN_ENC_RANGE_DEG:.0f}deg), "
-            f"IMU trail={trail_pct:.1f}% (>{_LOOP_MELTDOWN_IMU_TRAIL_PCT:.0f}%). "
+            f"encoder range={enc_range:.1f}deg (>{_LOOP_MELTDOWN_ENC_RANGE_DEG:.0f}deg). "
             f"Rate loop in positive feedback -- check sensor_orientation in config."
         )
     return None

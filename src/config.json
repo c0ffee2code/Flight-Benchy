@@ -26,7 +26,7 @@
     },
     "motor": {
       "base_throttle": 500,
-      "throttle_min": 80,
+      "throttle_min": 90,
       "throttle_max": 900,
       "expo": 0.0
     },
@@ -43,7 +43,7 @@
       "imu_invert": false
     },
     "session": {
-      "duration_s": 120,
+      "duration_s": 240,
       "setpoint": {
         "roll_deg": 0.0,
         "pitch_deg": 0.0,
@@ -52,6 +52,6 @@
     }
   },
   "telemetry": {
-    "sample_every": 10
+    "sample_every": 20
   }
 }

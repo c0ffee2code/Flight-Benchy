@@ -13,7 +13,7 @@ health (IMU vs ENC) is still computed over the full run.
 
 Metric groups in diagnose.json:
   sample_rate       -- n_samples, duration_s, actual_hz, dt mean/median/p99/max
-  sensor_health     -- IMU vs ENC: MAE (overall/fast/slow), bias, rms_error, trail_pct, ranges
+  sensor_health     -- IMU vs ENC: MAE (overall/fast/slow), bias, rms_error, ranges
   hold_tracking     -- ENC vs setpoint from T_s (confirmed hold): bias, std, p95, max_ae,
                        fft_freq_hz (null if no dominant peak), fft_freq_resolution_hz,
                        whole_run_enc_mae
@@ -88,7 +88,6 @@ class SensorHealthStats:
     mae_fast    : MAE restricted to the top-quartile encoder velocity samples.
     mae_slow    : MAE restricted to the bottom-quartile encoder velocity samples.
     correlation : Pearson r between enc_roll and imu_roll over the full run.
-    trail_pct   : % of moving samples where IMU lags behind encoder direction.
     enc_range   : Peak-to-peak encoder range, degrees.
     imu_range   : Peak-to-peak IMU range, degrees.
     """
@@ -99,7 +98,6 @@ class SensorHealthStats:
     mae_fast:    float
     mae_slow:    float
     correlation: float
-    trail_pct:   float
     enc_range:   float
     imu_range:   float
 
@@ -267,14 +265,6 @@ def _sensor_health_stats(fd: FlightData) -> SensorHealthStats:
     slow_idx  = vel_order[:quarter] + 1
     fast_idx  = vel_order[-quarter:] + 1
 
-    motion_dir = np.diff(enc_roll)
-    imu_offset = enc_roll[1:] - imu_roll[1:]
-    moving     = np.abs(motion_dir) > 1.0
-    trail_pct  = 0.0
-    if np.sum(moving) > 0:
-        trailing  = (motion_dir[moving] * imu_offset[moving]) > 0
-        trail_pct = float(np.sum(trailing) / np.sum(moving) * 100)
-
     return SensorHealthStats(
         mae=float(np.mean(abs_errors)),
         rms_error=float(np.sqrt(np.mean(errors ** 2))),
@@ -284,7 +274,6 @@ def _sensor_health_stats(fd: FlightData) -> SensorHealthStats:
         mae_slow=float(np.mean(abs_errors[slow_idx])) if len(slow_idx) > 0 else 0.0,
         correlation=float(np.corrcoef(enc_roll, imu_roll)[0, 1])
                     if np.std(enc_roll) > 0 and np.std(imu_roll) > 0 else 0.0,
-        trail_pct=trail_pct,
         enc_range=float(np.ptp(enc_roll)),
         imu_range=float(np.ptp(imu_roll)),
     )

@@ -98,3 +98,22 @@ to one loop; the flat layout obscured that relationship. The `_report_hz`
 suffix implied sensor configuration; `frequency_hz` under the loop makes
 the governing intent clear. Backwards compatibility for historical run
 folders is not maintained.
+
+## Amendment 2026-05-31 — Data-driven inner loop (skip on no new reports)
+
+Inner loop timing switched from sleep_ms-driven to data-driven. Previously
+`stabilize()` slept for the remainder of each `inner_ms` window before calling
+`update_sensors()`. At 300 Hz (`inner_ms=3ms`) the BNO085 fires its INT every
+~3.33ms, so 39% of iterations woke before new data was available
+(`trail_pct=38.9%`) and ran the rate PID on stale gyro readings.
+
+Fix: `update_sensors()` is now called first in each iteration. If it returns 0
+(no new SHTP packet), the iteration sleeps 500us and continues — no PID update,
+no motor command, no telemetry row. The loop rate is now governed by sensor
+delivery, not a sleep timer.
+
+Note: the check confirms a new SHTP packet arrived, not specifically a gyro
+report. In practice this is never an issue — calibrated gyro fires at 300 Hz and
+GRV at 100 Hz; since 10ms / 3.33ms = 3 exactly, GRV always coincides with a gyro
+sample and the BNO085 bundles them in the same packet. A GRV-only interrupt is
+not possible under this timing configuration.
