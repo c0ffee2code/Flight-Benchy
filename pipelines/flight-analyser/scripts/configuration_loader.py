@@ -37,12 +37,18 @@ class ImuConfig:
 
 
 @dataclass
+class TelemetryConfig:
+    sample_every: int
+
+
+@dataclass
 class Configuration:
     setpoint_roll_deg:   float
     angle_pid:           PidConfig
     rate_pid:            PidConfig
     motor:               MotorConfig
     imu:                 ImuConfig
+    telemetry:           TelemetryConfig
     feedforward_lead_ms: float | None
 
 
@@ -65,12 +71,13 @@ def load_configuration(run_dir) -> Configuration:
     with open(path, encoding="utf-8") as f:
         raw = json.load(f)
 
-    vehicle = _req(raw, "vehicle")
-    apid    = _req(vehicle, "angle_pid")
-    rpid    = _req(vehicle, "rate_pid")
-    motor   = _req(vehicle, "motor")
-    imu     = _req(vehicle, "imu")
-    ff      = vehicle.get("feedforward", {})
+    vehicle   = _req(raw, "vehicle")
+    apid      = _req(vehicle, "angle_pid")
+    rpid      = _req(vehicle, "rate_pid")
+    motor     = _req(vehicle, "motor")
+    imu       = _req(vehicle, "imu")
+    ff        = vehicle.get("feedforward", {})
+    telemetry = _req(raw, "telemetry")
 
     return Configuration(
         setpoint_roll_deg=float(_req(raw, "bench", "session", "setpoint", "roll_deg")),
@@ -96,6 +103,9 @@ def load_configuration(run_dir) -> Configuration:
             angle_report_hz=int(_req(imu, "angle_report_hz")),
             rate_report=str(_req(imu, "rate_report")),
             rate_report_hz=int(_req(imu, "rate_report_hz")),
+        ),
+        telemetry=TelemetryConfig(
+            sample_every=int(_req(telemetry, "sample_every")),
         ),
         feedforward_lead_ms=float(ff["lead_ms"]) if "lead_ms" in ff else None,
     )

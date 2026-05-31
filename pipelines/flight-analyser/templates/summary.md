@@ -40,6 +40,7 @@
 
 | Metric | Value |
 |--------|-------|
+| Nominal Hz | $nominal_hz |
 | Achieved Hz | $actual_hz |
 | Mean dt (ms) | $dt_mean_ms |
 | Median dt (ms) | $dt_median_ms |

@@ -146,6 +146,7 @@ def build_report(run_folder_str):
         hold_mae             = _fmt(hold_mae,  ".2f"),
         hold_mae_level       = _score_level(hold_mae,   spec.hold_mae_deg),
 
+        nominal_hz   = _fmt(sr["nominal_hz"],   ".1f"),
         actual_hz    = _fmt(sr["actual_hz"],    ".1f"),
         dt_mean_ms   = _fmt(sr["dt_mean_ms"],   ".1f"),
         dt_median_ms = _fmt(sr["dt_median_ms"], ".1f"),

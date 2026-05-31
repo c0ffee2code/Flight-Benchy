@@ -57,6 +57,7 @@ class SampleRateStats:
     ------
     n_samples    : Total number of CSV rows.
     duration_s   : Elapsed time from first to last sample, seconds.
+    nominal_hz   : Configured sample rate = imu.rate_report_hz / telemetry.sample_every.
     actual_hz    : Achieved sample rate = (n_samples - 1) / duration_s.
     dt_mean_ms   : Mean inter-sample interval, milliseconds.
     dt_median_ms : Median inter-sample interval, milliseconds.
@@ -65,6 +66,7 @@ class SampleRateStats:
     """
     n_samples:    int
     duration_s:   float
+    nominal_hz:   float
     actual_hz:    float
     dt_mean_ms:   float
     dt_median_ms: float
@@ -235,13 +237,14 @@ class DiagnoseOutput:
 # Stat groups -- each owns one section of the output
 # ---------------------------------------------------------------------------
 
-def _sample_rate_stats(fd: FlightData) -> SampleRateStats:
+def _sample_rate_stats(fd: FlightData, cfg: Configuration) -> SampleRateStats:
     n        = len(fd.t_ms)
     dts      = np.diff(fd.t_ms)
     duration = float((fd.t_ms[-1] - fd.t_ms[0]) / 1000.0)
     return SampleRateStats(
         n_samples=n,
         duration_s=duration,
+        nominal_hz=cfg.imu.rate_report_hz / cfg.telemetry.sample_every,
         actual_hz=(n - 1) / duration if duration > 0 else 0.0,
         dt_mean_ms=float(np.mean(dts)),
         dt_median_ms=float(np.median(dts)),
@@ -430,7 +433,7 @@ def compute_stats(
             )
 
     return DiagnoseOutput(
-        sample_rate=_sample_rate_stats(fd),
+        sample_rate=_sample_rate_stats(fd, cfg),
         sensor_health=_sensor_health_stats(fd),
         hold_tracking=_hold_tracking_stats(fd, cfg.setpoint_roll_deg, hi),
         approach_tracking=approach,
