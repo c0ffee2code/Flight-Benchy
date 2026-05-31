@@ -25,13 +25,13 @@
       }
     },
     "motor": {
-      "base_throttle": 500,
+      "base_throttle": 600,
       "throttle_min": 90,
       "throttle_max": 900,
       "expo": 0.0
     },
     "feedforward": {
-      "lead_ms": 15
+      "lead_ms": 12
     }
   },
   "bench": {
@@ -43,7 +43,7 @@
       "imu_invert": false
     },
     "session": {
-      "duration_s": 240,
+      "duration_s": 180,
       "setpoint": {
         "roll_deg": 0.0,
         "pitch_deg": 0.0,
