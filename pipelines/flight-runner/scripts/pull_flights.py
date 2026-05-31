@@ -15,6 +15,7 @@ script — do not run this during a live stabilisation session.
 """
 
 import base64
+import json
 import os
 import subprocess
 import sys
@@ -163,10 +164,10 @@ def list_local():
     return {p.name for p in LOCAL_DIR.iterdir() if p.is_dir()}
 
 
-def fetch(new_ids):
+def fetch(new_ids, transfer_timeout=120):
     """Transfer files from SD to local. Returns (ok_ids, failed_ids)."""
     print(f"\nTransferring {len(new_ids)} run(s)...")
-    output = _run_on_pico(_transfer_script(new_ids))
+    output = _run_on_pico(_transfer_script(new_ids), timeout=transfer_timeout)
     files, expected = _parse_transfer(output)
 
     ok, failed = [], []
@@ -226,7 +227,15 @@ def main():
     for fid in new_ids:
         print(f"  {fid}")
 
-    ok_ids, failed_ids = fetch(new_ids)
+    preallocate_bytes = 0
+    try:
+        with open("src/config.json", encoding="utf-8") as f:
+            preallocate_bytes = json.load(f).get("telemetry", {}).get("preallocate_bytes", 0)
+    except Exception:
+        pass
+    bytes_per_run = max(200_000, preallocate_bytes)
+    transfer_timeout = max(120, len(new_ids) * bytes_per_run // 10_000)  # ~10 KB/s conservative serial transfer
+    ok_ids, failed_ids = fetch(new_ids, transfer_timeout=transfer_timeout)
 
     if ok_ids:
         delete_from_sd(ok_ids)

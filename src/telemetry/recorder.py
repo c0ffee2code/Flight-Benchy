@@ -4,8 +4,10 @@ from machine import Pin, SPI
 
 import sdcard
 
-_SD_MOUNT = "/sd"
-_LOG_DIR  = _SD_MOUNT + "/flights"
+_SD_MOUNT   = "/sd"
+_LOG_DIR    = _SD_MOUNT + "/flights"
+_SECTOR     = 512
+_FILL_CHUNK = b'\x00' * _SECTOR
 
 
 class SdSink:
@@ -16,7 +18,7 @@ class SdSink:
     mount early (fail-fast) and create the run directory later.
     """
 
-    def __init__(self, sck, mosi, miso, cs):
+    def __init__(self, sck, mosi, miso, cs, preallocate_bytes=0):
         """Mount SD card and validate it is accessible.
 
         Raises OSError immediately if the card is missing or unreadable,
@@ -26,10 +28,14 @@ class SdSink:
         spi = SPI(0, baudrate=400_000, polarity=0, phase=0,
                   sck=Pin(sck), mosi=Pin(mosi), miso=Pin(miso))
         time.sleep_ms(250)
-        self._sd = sdcard.SDCard(spi, cs_pin)
+        self._sd = sdcard.SDCard(spi, cs_pin, baudrate=25_000_000)
         self._vfs = os.VfsFat(self._sd)
         os.mount(self._vfs, _SD_MOUNT)
 
+        self._preallocate_bytes = preallocate_bytes
+        self._write_buf = bytearray(_SECTOR) if preallocate_bytes > 0 else None
+        self._buf_pos  = 0  # bytes used in _write_buf
+        self._file_pos = 0  # bytes written to file (full sectors only)
         self._run_dir = None
         self._f = None
 
@@ -58,7 +64,24 @@ class SdSink:
         with open(self._run_dir + "/specification.json", "wb") as dst:
             dst.write(crit_bytes)
 
-        self._f = open(self._run_dir + "/log.csv", "w")
+        log_path = self._run_dir + "/log.csv"
+        if self._preallocate_bytes > 0:
+            t0 = time.ticks_ms()
+            with open(log_path, "wb") as f:
+                remaining = self._preallocate_bytes
+                while remaining > 0:
+                    n = min(512, remaining)
+                    f.write(_FILL_CHUNK[:n])
+                    remaining -= n
+            print("prealloc: {}ms for {} bytes ({} KB/s)".format(
+                time.ticks_diff(time.ticks_ms(), t0),
+                self._preallocate_bytes,
+                self._preallocate_bytes // max(1, time.ticks_diff(time.ticks_ms(), t0)),
+            ))
+            self._f = open(log_path, "r+b")
+            self._f.seek(0)
+        else:
+            self._f = open(log_path, "w")
 
     @property
     def path(self):
@@ -67,11 +90,28 @@ class SdSink:
 
     def write(self, line):
         """Append a CSV line to the log file."""
-        self._f.write(line)
-        self._f.write("\n")
+        if self._preallocate_bytes > 0:
+            data = (line + "\n").encode()
+            if self._file_pos + self._buf_pos + len(data) > self._preallocate_bytes:
+                raise OSError("telemetry overflow: preallocate_bytes exceeded")
+            di = 0
+            while di < len(data):
+                take = min(_SECTOR - self._buf_pos, len(data) - di)
+                self._write_buf[self._buf_pos:self._buf_pos + take] = data[di:di + take]
+                self._buf_pos += take
+                di += take
+                if self._buf_pos == _SECTOR:
+                    self._f.write(self._write_buf)
+                    self._file_pos += _SECTOR
+                    self._buf_pos = 0
+        else:
+            self._f.write(line)
+            self._f.write("\n")
 
     def flush(self):
-        """Flush buffered data to the SD card."""
+        """Flush FatFs sector buffer to SD card.  Note: in prealloc mode the
+        Python-level write buffer (_write_buf) is NOT flushed here; call
+        close() for full durability."""
         self._f.flush()
 
     def write_crash_log(self, exc):
@@ -88,6 +128,10 @@ class SdSink:
     def close(self):
         """Flush and close the log file, then unmount the SD card."""
         if self._f:
+            if self._write_buf is not None and self._buf_pos > 0:
+                # Write remaining partial sector — one read-modify-write, only at close.
+                # The rest of the sector is already null (pre-fill stop marker).
+                self._f.write(memoryview(self._write_buf)[:self._buf_pos])
             self._f.flush()
             self._f.close()
         os.umount(_SD_MOUNT)

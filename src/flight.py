@@ -209,6 +209,7 @@ def run():
             mosi=PIN_SD_MOSI,
             miso=PIN_SD_MISO,
             cs=PIN_SD_CS,
+            preallocate_bytes=cfg["telemetry"].get("preallocate_bytes", 0),
         )
         telemetry = init_session(cfg, sd_sink, time_source.now())
 
