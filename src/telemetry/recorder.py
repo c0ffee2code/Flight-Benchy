@@ -1,17 +1,20 @@
 import os
+import struct
 import time
 from machine import Pin, SPI
 
 import sdcard
 
-_SD_MOUNT   = "/sd"
-_LOG_DIR    = _SD_MOUNT + "/flights"
-_SECTOR     = 512
-_FILL_CHUNK = b'\x00' * _SECTOR
+_SD_MOUNT    = "/sd"
+_LOG_DIR     = _SD_MOUNT + "/flights"
+_SECTOR      = 512
+_FILL_CHUNK  = b'\x00' * _SECTOR
+_RECORD_FMT  = "<I8f11fHHHH"
+_RECORD_SIZE = struct.calcsize(_RECORD_FMT)
 
 
 class SdSink:
-    """Output backend that writes CSV rows to a file on a mounted SD card.
+    """Output backend that writes binary telemetry records to a file on a mounted SD card.
 
     Owns the full SD lifecycle: mount on init, open run directory on
     ``init_session()``, unmount on ``close()``.  Two-phase design lets callers
@@ -64,10 +67,10 @@ class SdSink:
         with open(self._run_dir + "/specification.json", "wb") as dst:
             dst.write(crit_bytes)
 
-        log_path = self._run_dir + "/log.csv"
         if self._preallocate_bytes > 0:
+            tmp_path = self._run_dir + "/log.tmp"
             t0 = time.ticks_ms()
-            with open(log_path, "wb") as f:
+            with open(tmp_path, "wb") as f:
                 remaining = self._preallocate_bytes
                 while remaining > 0:
                     n = min(512, remaining)
@@ -78,20 +81,19 @@ class SdSink:
                 self._preallocate_bytes,
                 self._preallocate_bytes // max(1, time.ticks_diff(time.ticks_ms(), t0)),
             ))
-            self._f = open(log_path, "r+b")
+            self._f = open(tmp_path, "r+b")
             self._f.seek(0)
         else:
-            self._f = open(log_path, "w")
+            self._f = open(self._run_dir + "/log.bin", "wb")
 
     @property
     def path(self):
         """Return the run directory path (useful for diagnostics)."""
         return self._run_dir
 
-    def write(self, line):
-        """Append a CSV line to the log file."""
+    def write_bytes(self, data):
+        """Append a binary record to the log file."""
         if self._preallocate_bytes > 0:
-            data = (line + "\n").encode()
             if self._file_pos + self._buf_pos + len(data) > self._preallocate_bytes:
                 raise OSError("telemetry overflow: preallocate_bytes exceeded")
             di = 0
@@ -105,8 +107,7 @@ class SdSink:
                     self._file_pos += _SECTOR
                     self._buf_pos = 0
         else:
-            self._f.write(line)
-            self._f.write("\n")
+            self._f.write(data)
 
     def flush(self):
         """Flush FatFs sector buffer to SD card.  Note: in prealloc mode the
@@ -125,48 +126,75 @@ class SdSink:
         except Exception:
             pass
 
+    def _finalize_log(self, actual_bytes):
+        """Copy actual_bytes from log.tmp to log.bin, then remove log.tmp."""
+        tmp_path = self._run_dir + "/log.tmp"
+        log_path = self._run_dir + "/log.bin"
+        remaining = actual_bytes
+        with open(tmp_path, 'rb') as src, open(log_path, 'wb') as dst:
+            while remaining > 0:
+                n = min(_SECTOR, remaining)
+                dst.write(src.read(n))
+                remaining -= n
+        os.remove(tmp_path)
+
     def close(self):
         """Flush and close the log file, then unmount the SD card."""
         if self._f:
+            actual_bytes = self._file_pos
             if self._write_buf is not None and self._buf_pos > 0:
-                # Write remaining partial sector — one read-modify-write, only at close.
-                # The rest of the sector is already null (pre-fill stop marker).
                 self._f.write(memoryview(self._write_buf)[:self._buf_pos])
+                actual_bytes += self._buf_pos
             self._f.flush()
             self._f.close()
+            self._f = None
+            if self._preallocate_bytes > 0:
+                try:
+                    self._finalize_log(actual_bytes)
+                except Exception:
+                    pass  # leave log.tmp on SD rather than crashing close()
         os.umount(_SD_MOUNT)
 
 
 class TelemetryRecorder:
-    """Facade that decimates and formats telemetry rows, delegating I/O to a sink."""
+    """Facade that decimates and writes binary telemetry records, delegating I/O to a sink.
 
-    _HEADER = "T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2"
+    Records are packed via struct.pack_into into a pre-allocated bytearray with zero
+    heap allocation per record. pull_flights.py decodes log.bin -> log.csv on the PC.
+    Record format: _RECORD_FMT = "<I8f11fHHHH" (88 bytes per record).
+    """
 
     def __init__(self, sample_every, sink):
         self._sample_every = sample_every
         self._sink = sink
         self._counter = 0
+        self._max_dt_ms = 0
+        self._pack_buf = bytearray(_RECORD_SIZE)
 
     def begin_session(self):
-        """Reset counter and emit CSV header. Call when entering STABILIZING state."""
+        """Reset counters. Call when entering STABILIZING state."""
         self._counter = 0
-        self._sink.write(self._HEADER)
+        self._max_dt_ms = 0
 
-    def record(self, t_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
+    def record(self, t_ms, dt_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
                gyro_x, ang_err, ang_p, ang_i, ang_d, rate_sp,
                rate_err, rate_p, rate_i, rate_d, pid_out, m1, m2):
-        """Format and emit a CSV row every sample_every-th call. Others are silently dropped."""
+        """Pack and emit a binary record every sample_every-th call. Others are silently dropped."""
+        if dt_ms > self._max_dt_ms:
+            self._max_dt_ms = dt_ms
         self._counter += 1
         if self._counter < self._sample_every:
             return
         self._counter = 0
+        max_dt = self._max_dt_ms
+        self._max_dt_ms = 0
 
-        line = "{},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.5f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{},{}".format(
+        struct.pack_into(_RECORD_FMT, self._pack_buf, 0,
             t_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
             gyro_x, ang_err, ang_p, ang_i, ang_d, rate_sp,
-            rate_err, rate_p, rate_i, rate_d, pid_out, m1, m2
-        )
-        self._sink.write(line)
+            rate_err, rate_p, rate_i, rate_d, pid_out,
+            m1, m2, dt_ms, max_dt)
+        self._sink.write_bytes(self._pack_buf)
 
     def write_crash_log(self, exc):
         """Write exception traceback to the session folder via the sink."""

@@ -15,12 +15,21 @@ script — do not run this during a live stabilisation session.
 """
 
 import base64
-import json
 import os
+import struct
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+# Mirror of recorder.py _RECORD_FMT — must stay in sync if the Pico format changes.
+_LOG_RECORD_FMT  = "<I8f11fHHHH"
+_LOG_RECORD_SIZE = struct.calcsize(_LOG_RECORD_FMT)
+_LOG_CSV_HEADER  = (
+    "T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,"
+    "GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,"
+    "RATE_D,PID_OUT,M1,M2,DT_MS,MAX_DT_MS"
+)
 
 PYTHON = sys.executable  # use same interpreter that's running this script
 
@@ -58,7 +67,7 @@ def _transfer_script(flight_ids):
 import ubinascii
 try:
     for fid in {flight_ids!r}:
-        for fname in ('config.json', 'specification.json', 'log.csv'):
+        for fname in ('config.json', 'specification.json', 'log.bin'):
             path = '/sd/flights/' + fid + '/' + fname
             try:
                 size = os.stat(path)[6]
@@ -75,6 +84,25 @@ try:
 finally:
     os.umount('/sd')
 """
+
+
+def _decode_log_bin(raw):
+    """Decode a binary log.bin into a CSV string."""
+    n = len(raw) // _LOG_RECORD_SIZE
+    lines = [_LOG_CSV_HEADER]
+    for i in range(n):
+        (t_ms, eqr, eqi, eqj, eqk, iqr, iqi, iqj, iqk,
+         gyro_x, ang_err, ang_p, ang_i, ang_d, rate_sp,
+         rate_err, rate_p, rate_i, rate_d, pid_out,
+         m1, m2, dt_ms, max_dt) = struct.unpack_from(_LOG_RECORD_FMT, raw, i * _LOG_RECORD_SIZE)
+        lines.append(
+            f"{t_ms},{eqr:.5f},{eqi:.5f},{eqj:.5f},{eqk:.5f},"
+            f"{iqr:.5f},{iqi:.5f},{iqj:.5f},{iqk:.5f},"
+            f"{gyro_x:.2f},{ang_err:.2f},{ang_p:.2f},{ang_i:.2f},{ang_d:.2f},"
+            f"{rate_sp:.2f},{rate_err:.2f},{rate_p:.2f},{rate_i:.2f},{rate_d:.2f},"
+            f"{pid_out:.2f},{m1},{m2},{dt_ms},{max_dt}"
+        )
+    return "\n".join(lines) + "\n"
 
 
 def _delete_script(flight_ids):
@@ -173,7 +201,7 @@ def fetch(new_ids, transfer_timeout=120):
     ok, failed = [], []
     for fid in new_ids:
         success = True
-        for fname in ('config.json', 'specification.json', 'log.csv'):
+        for fname in ('config.json', 'specification.json', 'log.bin'):
             key = f"{fid}/{fname}"
             data = files.get(key)
             if data is None:
@@ -186,7 +214,10 @@ def fetch(new_ids, transfer_timeout=120):
                 continue
             dest = LOCAL_DIR / fid
             dest.mkdir(parents=True, exist_ok=True)
-            (dest / fname).write_bytes(data)
+            if fname == 'log.bin':
+                (dest / 'log.csv').write_text(_decode_log_bin(data), encoding='utf-8')
+            else:
+                (dest / fname).write_bytes(data)
         if success:
             ok.append(fid)
             print(f"  OK   {fid}")
@@ -227,14 +258,7 @@ def main():
     for fid in new_ids:
         print(f"  {fid}")
 
-    preallocate_bytes = 0
-    try:
-        with open("src/config.json", encoding="utf-8") as f:
-            preallocate_bytes = json.load(f).get("telemetry", {}).get("preallocate_bytes", 0)
-    except Exception:
-        pass
-    bytes_per_run = max(200_000, preallocate_bytes)
-    transfer_timeout = max(120, len(new_ids) * bytes_per_run // 10_000)  # ~10 KB/s conservative serial transfer
+    transfer_timeout = max(120, len(new_ids) * 30)  # 30s per run; SD now truncated to actual data
     ok_ids, failed_ids = fetch(new_ids, transfer_timeout=transfer_timeout)
 
     if ok_ids:

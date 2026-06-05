@@ -117,8 +117,8 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 ### Telemetry (`src/telemetry/`)
 
 - `recorder.py` — Telemetry pipeline:
-  - `TelemetryRecorder` — facade called from the main loop. Handles decimation and CSV formatting, delegates I/O to `SdSink`. `begin_session()` resets the counter and emits the CSV header. A session ends in one of two ways: `end_session()` on clean completion, or `write_crash_log(exc)` on failure (writes a traceback to `crash.log` in the session folder). CSV format: `T_MS,ENC_QR,ENC_QI,ENC_QJ,ENC_QK,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT,M1,M2`. Quaternion values at 5 decimal places.
-  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, directory create, write, unmount). `init_session(dt)` receives a `(year, month, day, hour, minute, second)` tuple from `TimeSource.now()` — no RTC access of its own. Creates `/sd/flights/YYYY-MM-DD_hh-mm-ss/` containing `log.csv`, a raw binary copy of `config.json`, and optionally `crash.log` on failure.
+  - `TelemetryRecorder` — facade called from the main loop. Handles decimation and binary struct encoding, delegates I/O to `SdSink`. A session ends in one of two ways: `end_session()` on clean completion, or `write_crash_log(exc)` on failure (writes a traceback to `crash.log` in the session folder). Binary record format `"<I8f11fHHHH"` (88 bytes): `T_MS` (uint32), `ENC_QR/QI/QJ/QK,IMU_QR/QI/QJ/QK` (8×float32), `GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT` (11×float32), `M1,M2,DT_MS,MAX_DT_MS` (4×uint16). Decoded to CSV by `pull_flights.py` on the PC side.
+  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, directory create, write, unmount). `init_session(dt)` receives a `(year, month, day, hour, minute, second)` tuple from `TimeSource.now()` — no RTC access of its own. Creates `/sd/flights/YYYY-MM-DD_hh-mm-ss/` and pre-allocates `log.tmp` to `telemetry.preallocate_bytes`; all writes go to `log.tmp` during the session. At `close()`, copies the actual bytes to `log.bin` and removes `log.tmp` (`_finalize_log()`). Also copies `config.json` and `specification.json` raw; writes `crash.log` on failure.
 - `time_source.py` — `TimeSource` facade over the PCF8523 RTC. `now()` returns `(year, month, day, hour, minute, second)`. Also contains `read_rtc(i2c, addr)` as the low-level implementation.
 - `sdcard.py` — SD card SPI driver from micropython-lib with a stop bit fix (`crc | 0x01`). The upstream driver omits the mandatory end bit in the SPI command frame, which causes some cards to reject all commands after CMD8.
 
@@ -156,9 +156,12 @@ Re-tare the IMU at the start of each session using the precision jig + bubble le
 Each stabilisation session creates a timestamped directory on the SD card:
 ```
 /sd/flights/YYYY-MM-DD_hh-mm-ss/
-    config.json    # Raw copy of config.json from Pico root (source of truth)
-    log.csv        # Telemetry CSV
+    config.json        # Raw copy of config.json from Pico root (source of truth)
+    specification.json # Raw copy of specification.json
+    log.tmp            # Binary telemetry — present during session, removed at close
+    log.bin            # Binary telemetry — exact size, present only after clean close
 ```
+`pull_flights.py` decodes `log.bin` to `log.csv` when copying to `test_runs/flights/` on the PC. Mid-session pulls find `log.tmp` (unsupported). The local `test_runs/flights/YYYY-MM-DD_hh-mm-ss/log.csv` is the PC representation.
 
 `config.json` is uploaded to the Pico before a run (via the deploy skill) and copied as-is to the run folder by `SdSink.init_session()`. It is the single source of truth — no serialisation from Python objects. Top-level structure: `vehicle` (loops.{angle|rate}.{frequency_hz, imu_report, pid}, motor, feedforward — algorithm parameters that stay fixed across sessions), `bench` (encoder, sensor_orientation with encoder_invert/imu_invert; session contains duration_s and setpoint.{roll_deg, pitch_deg, yaw_deg}), `telemetry` (sample_every). Parsed with `json` on desktop.
 

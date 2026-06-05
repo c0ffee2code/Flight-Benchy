@@ -18,7 +18,6 @@ Absence of either object means the respective event did not occur.
 """
 
 import csv
-import io
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,13 +105,8 @@ class FlightData:
 
 
 def load_raw_rows(csv_path: Path) -> list:
-    """Load log.csv as a list of raw string dicts, stripping pre-allocation null padding."""
-    with open(csv_path, "rb") as f:
-        data = f.read()
-    null_pos = data.find(b'\x00')
-    if null_pos != -1:
-        data = data[:null_pos]
-    return list(csv.DictReader(io.StringIO(data.decode("utf-8"))))
+    """Load log.csv as a list of raw string dicts."""
+    return list(csv.DictReader(csv_path.read_text(encoding="utf-8")))
 
 
 def _quat_to_roll(qr: np.ndarray, qi: np.ndarray) -> np.ndarray:

@@ -3,6 +3,7 @@ from machine import I2C, Pin
 from math import sin, cos, radians, degrees, atan2
 import utime
 import ujson
+import gc
 
 from as5600 import AS5600, to_degrees
 from bno08x import BNO08X
@@ -130,6 +131,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
     rate_setpoint = 0.0
     ang_err = 0.0  # holds last outer-loop angle error for telemetry
 
+    last_gc_ms = utime.ticks_ms()
     while True:
         if duration_ms is not None and utime.ticks_diff(utime.ticks_ms(), run_start_ms) >= duration_ms:
             break
@@ -155,7 +157,8 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
 
         # --- outer loop (every outer_ticks cycles) ---
         outer_counter += 1
-        if outer_counter >= outer_ticks:
+        is_outer_tick = outer_counter >= outer_ticks
+        if is_outer_tick:
             outer_counter = 0
 
             iqr, iqi, iqj, iqk = imu.game_quaternion
@@ -182,7 +185,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
         eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
 
         telemetry.record(
-            now_ms,
+            now_ms, dt_ms,
             eqr, eqi, eqj, eqk,
             iqr, iqi, iqj, iqk,
             gyro_x,
@@ -193,6 +196,9 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
             output, m1, m2
         )
 
+        if is_outer_tick and utime.ticks_diff(now_ms, last_gc_ms) >= 800:
+            gc.collect()
+            last_gc_ms = now_ms
 
 # =====================================================
 # Entry point
@@ -213,14 +219,6 @@ def run():
         )
         telemetry = init_session(cfg, sd_sink, time_source.now())
 
-        # --- Force budget (2026-04-07) ---
-        # Empirical thrust: BASE=600 -> 45g/motor, slope ~0.147 g/throttle_unit near BASE.
-        # Gravity imbalance at -59 deg: ~18g (single motor at BASE~300 just overcomes it).
-        # Need: angle_kp * 58deg >= angle_pid.output_limit to saturate at start position.
-        # angle_kp=1.0: rate_sp=58 -> never hits limit -> diff=8.7g (INSUFFICIENT).
-        # angle_kp=2.2: rate_sp=129 -> saturates at 130 -> PID_OUT=65 -> diff=130 -> ~19g (OK).
-        # rate_kp=0.5 confirmed stable at BASE=600 with kd=0.003. kp=0.7 caused 5.88Hz oscillation.
-        # rate_kd raised 0.003->0.006 to add damping near setpoint without affecting DC gain (DR-012).
         apid = cfg["vehicle"]["loops"]["angle"]["pid"]
         rpid = cfg["vehicle"]["loops"]["rate"]["pid"]
         angle_pid = PID(
