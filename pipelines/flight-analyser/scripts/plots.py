@@ -4,11 +4,12 @@ Step 2 of the analyse-flight pipeline.
 Dispatcher for all diagnostic figures. One flight folder in, one or more plot files out.
 
 Currently supported plot types (--type argument, default: all):
-  timeseries     -- 5-subplot time-series view              -> 01_timeseries.png
-  step_response  -- Annotated step response (control-theory) -> 02_step_response.png
-  spectrum       -- PSD of hold-window error                 -> 03_spectrum.png
-  histogram      -- Hold-error distribution (post-settle)    -> 04_hold_error_distribution.png
-  phase          -- Phase portrait (angle vs angular rate)   -> 05_phase_portrait.png
+  timeseries     -- 5-subplot time-series view                       -> 01_timeseries.png
+  step_response  -- Annotated step response (control-theory)         -> 02_step_response.png
+  spectrum       -- PSD of hold-window error                         -> 03_spectrum.png
+  histogram      -- Hold-error distribution (post-settle)            -> 04_hold_error_distribution.png
+  phase          -- Phase portrait (angle vs angular rate)           -> 05_phase_portrait.png
+  cycle_timing   -- Rate-loop (inner) cycle dt vs nominal period     -> 06_cycle_timing.png
 
 Run from project root:
   python .claude/skills/analyse-flight/scripts/plots.py test_runs/flights/<flight_id>
@@ -37,6 +38,11 @@ from matplotlib.patches import Patch
 from matplotlib.lines import Line2D
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Must match diagnose.py._SPIKE_THRESHOLD_FACTOR -- both use the same spike boundary so
+# orange dots in the plot correspond exactly to the spike_count in diagnose.json.
+_SPIKE_THRESHOLD_FACTOR = 2.0
+
 from specification_loader import load_specification                                           # noqa: E402
 from configuration_loader import load_configuration                                          # noqa: E402
 from flight_data_loader import load_flight, detect_reach_event, detect_hold_window, FlightData, ReachEvent, HoldWindow  # noqa: E402
@@ -134,6 +140,29 @@ class StepData:
     t_zoom:        float
 
 
+@dataclass
+class CycleTimingPlotData:
+    """
+    Pre-computed data for the cycle timing plot, from compute_cycle_timing().
+
+    Fields
+    ------
+    t_s          : Elapsed time, seconds from run start. Shape (n,).
+    dt_ms        : DT_MS per row -- inner cycle period of the logged row. Shape (n,).
+    max_dt_ms    : MAX_DT_MS per row -- worst cycle across sample_every window. Shape (n,).
+    nominal_ms   : Expected cycle period = 1000 / loops.rate.frequency_hz.
+    threshold_ms : Spike boundary = _SPIKE_THRESHOLD_FACTOR * nominal_ms. Matches diagnose.json
+                   spike_count so highlighted samples correspond exactly to the counted spikes.
+    spike_mask   : Bool mask -- True where MAX_DT_MS > threshold_ms. Shape (n,).
+    """
+    t_s:          np.ndarray
+    dt_ms:        np.ndarray
+    max_dt_ms:    np.ndarray
+    nominal_ms:   float
+    threshold_ms: float
+    spike_mask:   np.ndarray
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -178,8 +207,7 @@ def compute_hold_window(fd: FlightData, hold_window: HoldWindow | None, setpoint
     Bin count rationale: the bare FD estimator can return too few bins on tightly-
     clustered distributions (making internal structure invisible) or too many on
     distributions with outliers (washing out the shape). The clip keeps the histogram
-    interpretable across the sample sizes and error spreads typical of hold windows
-    (~50-500 samples at 20 Hz).
+    interpretable regardless of hold duration or error spread.
     """
     if hold_window is None:
         return None
@@ -220,9 +248,9 @@ def compute_spectrum(hold_data: HoldData | None):
     Takes hold_data from compute_hold_window -- reuses hold_err and hold_t_ms to
     avoid recomputing the same slice.
 
-    nperseg is capped at min(len(hold_err), 64). The default of 256 would exceed the
-    sample count for short hold windows, causing Welch to silently degrade to a plain
-    FFT. The explicit cap keeps averaging behaviour consistent.
+    nperseg is capped at the available sample count to prevent Welch from silently
+    degrading to a plain FFT on short hold windows; the cap keeps averaging behaviour
+    consistent regardless of hold duration.
 
     The shaded 1-bin region in the rendered plot marks delta_f = freq_res -- any feature
     narrower than this cannot be resolved and should not be interpreted as a peak.
@@ -345,6 +373,22 @@ def compute_step_response(
         peak_t=peak_t,
         peak_angle=peak_angle,
         t_zoom=t_zoom,
+    )
+
+
+def compute_cycle_timing(fd: FlightData, rate_hz: float) -> CycleTimingPlotData:
+    """Pre-compute cycle timing data for render_cycle_timing()."""
+    nominal   = 1000.0 / rate_hz
+    threshold = _SPIKE_THRESHOLD_FACTOR * nominal
+    t_s       = (fd.t_ms - fd.t_ms[0]) / 1000.0
+    spike_mask = fd.max_dt_ms > threshold
+    return CycleTimingPlotData(
+        t_s=t_s,
+        dt_ms=fd.dt_ms,
+        max_dt_ms=fd.max_dt_ms,
+        nominal_ms=nominal,
+        threshold_ms=threshold,
+        spike_mask=spike_mask,
     )
 
 
@@ -714,6 +758,68 @@ def render_step_response(
     return fig
 
 
+def render_cycle_timing(data: CycleTimingPlotData, label: str) -> "plt.Figure":
+    """
+    Two-panel cycle timing figure.
+
+    Top -- MAX_DT_MS scatter over time.
+      Blue dots: normal cycles (MAX_DT <= 2x nominal).
+      Orange dots: spikes (MAX_DT > 2x nominal).
+      Dashed line at nominal period; solid red line at 2x nominal threshold.
+
+    Bottom -- DT_MS histogram.
+      Distribution of the logged-row cycle period with nominal marked.
+    """
+    t_s          = data.t_s
+    dt_ms        = data.dt_ms
+    max_dt_ms    = data.max_dt_ms
+    nominal_ms   = data.nominal_ms
+    threshold_ms = data.threshold_ms
+    spike_mask   = data.spike_mask
+    normal_mask  = ~spike_mask
+
+    fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(12, 7),
+                                          gridspec_kw={"height_ratios": [2, 1]})
+    fig.suptitle(f"Rate Loop (inner) Cycle Timing -- {label}", fontsize=13)
+
+    # Top: MAX_DT_MS scatter
+    if np.any(normal_mask):
+        ax_top.scatter(t_s[normal_mask], max_dt_ms[normal_mask],
+                       s=8, alpha=0.4, color="tab:blue", label="Normal")
+    if np.any(spike_mask):
+        ax_top.scatter(t_s[spike_mask], max_dt_ms[spike_mask],
+                       s=10, color="tab:orange", label=f"Spike (>{threshold_ms:.1f} ms)")
+    ax_top.axhline(nominal_ms, color="gray", linewidth=1.0, linestyle="--",
+                   label=f"Nominal {nominal_ms:.2f} ms")
+    ax_top.axhline(threshold_ms, color="tab:red", linewidth=1.0, linestyle="-",
+                   label=f"2x nominal {threshold_ms:.1f} ms")
+    ax_top.set_ylabel("ms")
+    ax_top.set_title("Worst-case rate-loop dt per sample_every window (MAX_DT_MS)")
+    ax_top.legend(loc="upper right", fontsize=8)
+    ax_top.grid(True, alpha=0.3)
+
+    fmt, xlabel = _time_formatter(float(t_s[-1]))
+    ax_top.set_xlabel(xlabel)
+    if fmt:
+        ax_top.xaxis.set_major_formatter(fmt)
+
+    # Bottom: DT_MS histogram
+    fd_edges = np.histogram_bin_edges(dt_ms, bins="fd")
+    n_bins   = int(np.clip(len(fd_edges) - 1, 10, 50))
+    ax_bot.hist(dt_ms, bins=n_bins, alpha=0.7, color="tab:blue",
+                label=f"DT_MS ({len(dt_ms)} rows)")
+    ax_bot.axvline(nominal_ms, color="gray", linewidth=1.2, linestyle="--",
+                   label=f"Nominal {nominal_ms:.2f} ms")
+    ax_bot.set_xlabel("ms")
+    ax_bot.set_ylabel("Count")
+    ax_bot.set_title("Rate-loop cycle dt of the logged row (DT_MS) distribution")
+    ax_bot.legend(loc="upper right", fontsize=8)
+    ax_bot.grid(True, alpha=0.3)
+
+    fig.tight_layout()
+    return fig
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -726,7 +832,7 @@ def main():
                         help="Path to the run folder (test_runs/flights/<id>)")
     parser.add_argument("--type", dest="plot_type",
                         choices=["timeseries", "phase", "histogram", "spectrum",
-                                 "step_response", "all"],
+                                 "step_response", "cycle_timing", "all"],
                         default="all",
                         help="Which figure(s) to generate (default: all)")
     args = parser.parse_args()
@@ -746,9 +852,10 @@ def main():
     hold_w  = detect_hold_window(fd, reach_w, sp, tol)
     print(f"Loaded {label}: {len(fd.t_ms)} samples")
 
-    hold_data = compute_hold_window(fd, hold_w, sp)
-    spec_data = compute_spectrum(hold_data)
-    step_data = compute_step_response(fd, reach_w, hold_w, sp)
+    hold_data   = compute_hold_window(fd, hold_w, sp)
+    spec_data   = compute_spectrum(hold_data)
+    step_data   = compute_step_response(fd, reach_w, hold_w, sp)
+    ct_data     = compute_cycle_timing(fd, cfg.loops.rate.frequency_hz)
 
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(exist_ok=True)
@@ -791,6 +898,13 @@ def main():
     if do_all or args.plot_type == "phase":
         fig = render_phase_portrait(fd, label, sp, reach_w, tol)
         out = analysis_dir / "05_phase_portrait.png"
+        fig.savefig(out, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Saved: {out}")
+
+    if do_all or args.plot_type == "cycle_timing":
+        fig = render_cycle_timing(ct_data, label)
+        out = analysis_dir / "06_cycle_timing.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"Saved: {out}")

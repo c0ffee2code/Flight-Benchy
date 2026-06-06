@@ -69,44 +69,49 @@ class FlightData:
 
     Fields
     ------
-    t_ms     : Sample timestamps, milliseconds. Shape (n,).
-    enc_roll : Encoder roll angle, degrees (+ve = M1 end lower). Shape (n,).
-    imu_roll : IMU roll angle, degrees (same sign convention). Shape (n,).
-    gyro_x   : Calibrated gyroscope rate, degrees/s. Shape (n,).
-    ang_err  : Outer PID angle error (ANG_ERR), degrees. Shape (n,).
-    ang_p    : Outer PID P-term (ANG_P), degrees/s. Shape (n,).
-    ang_i    : Outer PID I-term (ANG_I), degrees/s. Shape (n,).
-    ang_d    : Outer PID D-term (ANG_D), degrees/s. Shape (n,).
-    rate_sp  : Inner-loop rate setpoint (RATE_SP), degrees/s. Shape (n,).
-    rate_err : Inner PID rate error (RATE_ERR), degrees/s. Shape (n,).
-    rate_p   : Inner PID P-term (RATE_P), throttle units. Shape (n,).
-    rate_i   : Inner PID I-term (RATE_I), throttle units. Shape (n,).
-    rate_d   : Inner PID D-term (RATE_D), throttle units. Shape (n,).
-    pid_out  : Combined PID output (PID_OUT), throttle units. Shape (n,).
-    m1       : Motor 1 throttle command (M1), throttle units. Shape (n,).
-    m2       : Motor 2 throttle command (M2), throttle units. Shape (n,).
+    t_ms      : Sample timestamps, milliseconds. Shape (n,).
+    enc_roll  : Encoder roll angle, degrees (+ve = M1 end lower). Shape (n,).
+    imu_roll  : IMU roll angle, degrees (same sign convention). Shape (n,).
+    gyro_x    : Calibrated gyroscope rate, degrees/s. Shape (n,).
+    ang_err   : Outer PID angle error (ANG_ERR), degrees. Shape (n,).
+    ang_p     : Outer PID P-term (ANG_P), degrees/s. Shape (n,).
+    ang_i     : Outer PID I-term (ANG_I), degrees/s. Shape (n,).
+    ang_d     : Outer PID D-term (ANG_D), degrees/s. Shape (n,).
+    rate_sp   : Inner-loop rate setpoint (RATE_SP), degrees/s. Shape (n,).
+    rate_err  : Inner PID rate error (RATE_ERR), degrees/s. Shape (n,).
+    rate_p    : Inner PID P-term (RATE_P), throttle units. Shape (n,).
+    rate_i    : Inner PID I-term (RATE_I), throttle units. Shape (n,).
+    rate_d    : Inner PID D-term (RATE_D), throttle units. Shape (n,).
+    pid_out   : Combined PID output (PID_OUT), throttle units. Shape (n,).
+    m1        : Motor 1 throttle command (M1), throttle units. Shape (n,).
+    m2        : Motor 2 throttle command (M2), throttle units. Shape (n,).
+    dt_ms     : Inner cycle period of the logged row (DT_MS), milliseconds. Shape (n,).
+    max_dt_ms : Worst cycle period across sample_every window (MAX_DT_MS), ms. Shape (n,).
     """
-    t_ms:     np.ndarray
-    enc_roll: np.ndarray
-    imu_roll: np.ndarray
-    gyro_x:   np.ndarray
-    ang_err:  np.ndarray
-    ang_p:    np.ndarray
-    ang_i:    np.ndarray
-    ang_d:    np.ndarray
-    rate_sp:  np.ndarray
-    rate_err: np.ndarray
-    rate_p:   np.ndarray
-    rate_i:   np.ndarray
-    rate_d:   np.ndarray
-    pid_out:  np.ndarray
-    m1:       np.ndarray
-    m2:       np.ndarray
+    t_ms:      np.ndarray
+    enc_roll:  np.ndarray
+    imu_roll:  np.ndarray
+    gyro_x:    np.ndarray
+    ang_err:   np.ndarray
+    ang_p:     np.ndarray
+    ang_i:     np.ndarray
+    ang_d:     np.ndarray
+    rate_sp:   np.ndarray
+    rate_err:  np.ndarray
+    rate_p:    np.ndarray
+    rate_i:    np.ndarray
+    rate_d:    np.ndarray
+    pid_out:   np.ndarray
+    m1:        np.ndarray
+    m2:        np.ndarray
+    dt_ms:     np.ndarray
+    max_dt_ms: np.ndarray
 
 
 def load_raw_rows(csv_path: Path) -> list:
     """Load log.csv as a list of raw string dicts."""
-    return list(csv.DictReader(csv_path.read_text(encoding="utf-8")))
+    with open(csv_path, encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
 
 
 def _quat_to_roll(qr: np.ndarray, qi: np.ndarray) -> np.ndarray:
@@ -147,6 +152,8 @@ def load_flight(csv_path: Path) -> FlightData:
         pid_out=col("PID_OUT"),
         m1=col("M1"),
         m2=col("M2"),
+        dt_ms=col("DT_MS"),
+        max_dt_ms=col("MAX_DT_MS"),
     )
 
 

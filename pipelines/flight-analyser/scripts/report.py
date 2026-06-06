@@ -101,6 +101,7 @@ def build_report(run_folder_str):
     spec    = load_specification(run_dir)
 
     sr = profile["sample_rate"]
+    ct = profile.get("cycle_timing") or {}
     sh = profile["sensor_health"]
     ht = profile["hold_tracking"]
     at = profile.get("approach_tracking") or {}
@@ -152,6 +153,17 @@ def build_report(run_folder_str):
         dt_median_ms = _fmt(sr["dt_median_ms"], ".1f"),
         dt_p99_ms    = _fmt(sr["dt_p99_ms"],    ".1f"),
         dt_max_ms    = _fmt(sr["dt_max_ms"],    ".1f"),
+
+        ct_nominal_ms        = _fmt(ct.get("nominal_inner_ms"), ".2f"),
+        ct_dt_mean_ms        = _fmt(ct.get("dt_mean_ms"),       ".1f"),
+        ct_dt_p99_ms         = _fmt(ct.get("dt_p99_ms"),        ".1f"),
+        ct_dt_max_ms         = _fmt(ct.get("dt_max_ms"),        ".1f"),
+        ct_max_dt_mean_ms    = _fmt(ct.get("max_dt_mean_ms"),   ".1f"),
+        ct_max_dt_p99_ms     = _fmt(ct.get("max_dt_p99_ms"),    ".1f"),
+        ct_max_dt_max_ms     = _fmt(ct.get("max_dt_max_ms"),    ".1f"),
+        ct_spike_count       = str(ct.get("spike_count", "-")),
+        ct_spike_pct         = _fmt(ct.get("spike_pct"),        ".1f"),
+        ct_spike_interval_ms = _fmt(ct.get("spike_interval_ms"), ".0f"),
 
         sh_mae       = _fmt(sh["mae"]),
         sh_mae_fast  = _fmt(sh["mae_fast"]),

@@ -47,6 +47,16 @@
 | dt_p99 (ms) | $dt_p99_ms |
 | dt_max (ms) | $dt_max_ms |
 
+## Cycle Timing (inner loop)
+
+| Metric | Value |
+|--------|-------|
+| Nominal inner period (ms) | $ct_nominal_ms |
+| DT_MS mean / p99 / max (ms) | $ct_dt_mean_ms / $ct_dt_p99_ms / $ct_dt_max_ms |
+| MAX_DT_MS mean / p99 / max (ms) | $ct_max_dt_mean_ms / $ct_max_dt_p99_ms / $ct_max_dt_max_ms |
+| Spikes >2x nominal | $ct_spike_count ($ct_spike_pct%) |
+| Median spike interval (ms) | $ct_spike_interval_ms |
+
 ## Sensor Health (IMU vs ENC, whole-run)
 
 | Metric | Value |
@@ -110,3 +120,4 @@
 - `test_runs/flights/$flight_id/analysis/03_spectrum.png` -- PSD of hold-window error (omitted if no settled hold)
 - `test_runs/flights/$flight_id/analysis/04_hold_error_distribution.png` -- hold-error histogram (omitted if no settled hold)
 - `test_runs/flights/$flight_id/analysis/05_phase_portrait.png` -- phase portrait, time-coloured trajectory
+- `test_runs/flights/$flight_id/analysis/06_cycle_timing.png` -- cycle timing (MAX_DT_MS time series + DT_MS distribution)

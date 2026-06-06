@@ -12,7 +12,8 @@ approach phase (T->SP to T_s) is captured separately in approach_tracking. Whole
 health (IMU vs ENC) is still computed over the full run.
 
 Metric groups in diagnose.json:
-  sample_rate       -- n_samples, duration_s, actual_hz, dt mean/median/p99/max
+  sample_rate       -- n_samples, duration_s, actual_hz, dt mean/median/p99/max (inter-row gaps)
+  cycle_timing      -- DT_MS / MAX_DT_MS stats vs nominal inner period; spike count and interval
   sensor_health     -- IMU vs ENC: MAE (overall/fast/slow), bias, rms_error, ranges
   hold_tracking     -- ENC vs setpoint from T_s (confirmed hold): bias, std, p95, max_ae,
                        fft_freq_hz (null if no dominant peak), fft_freq_resolution_hz,
@@ -38,6 +39,10 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Iterations where MAX_DT_MS exceeds this multiple of the nominal period are counted as spikes --
+# cycles that ran significantly longer than intended and may have degraded closed-loop response.
+_SPIKE_THRESHOLD_FACTOR = 2.0
 from specification_loader import load_specification                                          # noqa: E402
 from configuration_loader import load_configuration, Configuration                          # noqa: E402
 from flight_data_loader import load_flight, detect_reach_event, detect_hold_window, \
@@ -72,6 +77,37 @@ class SampleRateStats:
     dt_median_ms: float
     dt_p99_ms:    float
     dt_max_ms:    float
+
+
+@dataclass
+class CycleTimingStats:
+    """
+    Inner-loop cycle timing from DT_MS and MAX_DT_MS telemetry columns,
+    computed by _cycle_timing_stats().
+
+    Fields
+    ------
+    nominal_inner_ms  : Expected cycle period = 1000 / loops.rate.frequency_hz.
+    dt_mean_ms        : Mean of DT_MS (logged-cycle period).
+    dt_p99_ms         : 99th-percentile of DT_MS.
+    dt_max_ms         : Maximum DT_MS.
+    max_dt_mean_ms    : Mean of MAX_DT_MS (worst cycle per sample_every window).
+    max_dt_p99_ms     : 99th-percentile of MAX_DT_MS.
+    max_dt_max_ms     : Maximum MAX_DT_MS -- absolute worst spike in run.
+    spike_count       : Rows where MAX_DT_MS > _SPIKE_THRESHOLD_FACTOR * nominal_inner_ms.
+    spike_pct         : spike_count / n_samples * 100.
+    spike_interval_ms : Median T_MS gap between consecutive spikes. None if fewer than 2 spikes.
+    """
+    nominal_inner_ms:  float
+    dt_mean_ms:        float
+    dt_p99_ms:         float
+    dt_max_ms:         float
+    max_dt_mean_ms:    float
+    max_dt_p99_ms:     float
+    max_dt_max_ms:     float
+    spike_count:       int
+    spike_pct:         float
+    spike_interval_ms: float | None
 
 
 @dataclass
@@ -223,6 +259,7 @@ class DiagnoseOutput:
     become JSON keys, no magic strings in the producer.
     """
     sample_rate:       SampleRateStats
+    cycle_timing:      CycleTimingStats
     sensor_health:     SensorHealthStats
     hold_tracking:     HoldTrackingStats
     approach_tracking: ApproachTrackingStats | None
@@ -248,6 +285,30 @@ def _sample_rate_stats(fd: FlightData, cfg: Configuration) -> SampleRateStats:
         dt_median_ms=float(np.median(dts)),
         dt_p99_ms=float(np.percentile(dts, 99)),
         dt_max_ms=float(np.max(dts)),
+    )
+
+
+def _cycle_timing_stats(fd: FlightData, cfg: Configuration) -> CycleTimingStats:
+    nominal   = 1000.0 / cfg.loops.rate.frequency_hz
+    threshold = _SPIKE_THRESHOLD_FACTOR * nominal
+    spike_mask  = fd.max_dt_ms > threshold
+    spike_count = int(np.sum(spike_mask))
+    spike_interval = None
+    if spike_count >= 2:
+        spike_times    = fd.t_ms[spike_mask]
+        spike_interval = float(np.median(np.diff(spike_times)))
+    n = len(fd.max_dt_ms)
+    return CycleTimingStats(
+        nominal_inner_ms  = round(nominal, 2),
+        dt_mean_ms        = round(float(np.mean(fd.dt_ms)), 2),
+        dt_p99_ms         = round(float(np.percentile(fd.dt_ms, 99)), 2),
+        dt_max_ms         = round(float(np.max(fd.dt_ms)), 2),
+        max_dt_mean_ms    = round(float(np.mean(fd.max_dt_ms)), 2),
+        max_dt_p99_ms     = round(float(np.percentile(fd.max_dt_ms, 99)), 2),
+        max_dt_max_ms     = round(float(np.max(fd.max_dt_ms)), 2),
+        spike_count       = spike_count,
+        spike_pct         = round(spike_count / max(1, n) * 100.0, 1),
+        spike_interval_ms = round(spike_interval, 0) if spike_interval is not None else None,
     )
 
 
@@ -423,6 +484,7 @@ def compute_stats(
 
     return DiagnoseOutput(
         sample_rate=_sample_rate_stats(fd, cfg),
+        cycle_timing=_cycle_timing_stats(fd, cfg),
         sensor_health=_sensor_health_stats(fd),
         hold_tracking=_hold_tracking_stats(fd, cfg.setpoint_roll_deg, hi),
         approach_tracking=approach,
