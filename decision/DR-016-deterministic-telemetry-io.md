@@ -19,7 +19,7 @@ Three changes applied together to make control loop timing smooth, deterministic
 
 ### 1. Binary struct encoding (zero-allocation hot path)
 
-Replace CSV row formatting with `struct.pack_into` into a pre-allocated 88-byte `bytearray`. Record format: `"<I8f11fHHHH"` — one `uint32` (`T_MS`), nineteen `float32` fields, four `uint16` fields (`M1`, `M2`, `DT_MS`, `MAX_DT_MS`). The pack buffer is allocated once at `TelemetryRecorder.__init__` and reused every record. Zero heap allocation per record. Decoding (binary → CSV) is moved to the PC side in `pull_flights.py` via `_decode_log_bin()`.
+Replace CSV row formatting with `struct.pack_into` into a pre-allocated 76-byte `bytearray`. Record format: `"<I16fHHHH"` — one `uint32` (`T_MS`), sixteen `float32` fields (`ENC_ROLL` scalar replaces the original four encoder quaternion floats; IMU quaternion retained), four `uint16` fields (`M1`, `M2`, `DT_MS`, `MAX_DT_MS`). (Original format was `"<I8f11fHHHH"`, 88 bytes; reduced by `refactor/encoder-direct-angle`, 2026-06-06.) The pack buffer is allocated once at `TelemetryRecorder.__init__` and reused every record. Zero heap allocation per record. Decoding (binary → CSV) is moved to the PC side in `pull_flights.py` via `_decode_log_bin()`.
 
 ### 2. SD pre-allocation + log.tmp session pattern
 

@@ -64,8 +64,8 @@ class FlightData:
     """
     All telemetry columns from one log.csv, loaded by load_flight().
 
-    Quaternion columns (ENC_QR/QI, IMU_QR/QI) are converted to roll angles in
-    degrees inline; the raw quaternion values are not stored.
+    ENC_ROLL is a direct degree value from the CSV. IMU_QR/QI quaternion columns
+    are converted to imu_roll in degrees inline; the raw quaternion values are not stored.
 
     Fields
     ------
@@ -137,7 +137,7 @@ def load_flight(csv_path: Path) -> FlightData:
 
     return FlightData(
         t_ms=col("T_MS"),
-        enc_roll=_quat_to_roll(col("ENC_QR"), col("ENC_QI")),
+        enc_roll=col("ENC_ROLL"),
         imu_roll=_quat_to_roll(col("IMU_QR"), col("IMU_QI")),
         gyro_x=col("GYRO_X"),
         ang_err=col("ANG_ERR"),

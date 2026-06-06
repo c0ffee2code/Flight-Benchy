@@ -1,6 +1,6 @@
 from micropython import const
 from machine import I2C, Pin
-from math import sin, cos, radians, degrees, atan2
+from math import degrees, atan2
 import utime
 import ujson
 import gc
@@ -53,11 +53,6 @@ encoder = AS5600(i2c=i2c)
 def load_config():
     with open("config.json") as f:
         return ujson.load(f)
-
-def angle_to_quat(deg):
-    """Convert single-axis (roll/X) angle in degrees to quaternion (qr, qi, qj, qk)."""
-    half = radians(deg) / 2
-    return (cos(half), sin(half), 0.0, 0.0)
 
 # =====================================================
 # State helpers
@@ -182,11 +177,10 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
 
         # --- encoder (read at inner rate for telemetry) ---
         enc_angle = enc_sign * to_degrees(encoder.read_raw_angle(), axis_center)
-        eqr, eqi, eqj, eqk = angle_to_quat(enc_angle)
 
         telemetry.record(
             now_ms, dt_ms,
-            eqr, eqi, eqj, eqk,
+            enc_angle,
             iqr, iqi, iqj, iqk,
             gyro_x,
             ang_err,

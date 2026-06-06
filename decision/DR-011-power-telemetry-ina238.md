@@ -91,7 +91,7 @@ Note: GPIO 4/5 (SoftI2C to Adalogger PiCowbell) are free since the PiCowbell was
 ## Implementation Plan (pending hardware)
 
 1. **Driver** — minimal MicroPython I2C driver for INA238: configure shunt value, set averaging and conversion time, read current/voltage/power registers. No external library dependency.
-2. **Telemetry** — add `AMPS` and `VOLTS` columns to the CSV schema (expanding from 22 to 24 columns). Update `TelemetryRecorder.record()` signature and `analyse_telemetry.py`.
+2. **Telemetry** — add `AMPS` and `VOLTS` columns to the CSV schema (expanding from 21 to 23 columns). Update `TelemetryRecorder.record()` signature and `analyse_telemetry.py`.
 3. **Soft throttle limiter** (future) — if `amps > CURRENT_LIMIT`, scale down `THROTTLE_MAX` in the mixer. Implemented after telemetry baseline is established.
 
 ## Consequences
@@ -108,7 +108,7 @@ Note: GPIO 4/5 (SoftI2C to Adalogger PiCowbell) are free since the PiCowbell was
 
 - Adds one I2C transaction per control cycle (if sampled at inner loop rate). At 400 kHz with ~3 bytes, this is <0.1ms — negligible.
 - Screw terminal must handle continuous motor current (up to 40A rated on ESC, though bench draws <4A). Standard breakout screw terminal ratings typically cover this at bench currents.
-- CSV schema changes from 22 to 24 columns — old run folders are superseded. This is acceptable; the bench re-establishes baseline after each hardware or sensor change.
+- CSV schema changes from 21 to 23 columns — old run folders are superseded. This is acceptable; the bench re-establishes baseline after each hardware or sensor change.
 
 ## Dependencies
 
