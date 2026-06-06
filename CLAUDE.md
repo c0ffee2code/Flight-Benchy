@@ -171,8 +171,8 @@ Motors are mounted such that **thrust pushes the motor end DOWN** (confirmed by 
 
 | Motor | GPIO | Encoder at lowest position |
 |-------|------|---------------------------|
-| M1    | 10   | +58°                      |
-| M2    | 11   | −59°                      |
+| M1    | 10   | +51°                      |
+| M2    | 11   | ~−51°                     |
 
 - **Positive encoder angle** → M1 side is lower, M2 side is higher
 - **Negative encoder angle** → M2 side is lower, M1 side is higher

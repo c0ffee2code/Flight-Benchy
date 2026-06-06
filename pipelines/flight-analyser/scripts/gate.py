@@ -29,7 +29,7 @@ Checks (run in order):
   log-truncated log.csv has fewer than 5 rows — SD write likely interrupted.
                 Exits immediately — remaining checks cannot run.
 
-  start-angle   First encoder reading outside +/-10deg of +58deg. Reset-position step
+  start-angle   First encoder reading outside +/-10deg of +51deg. Reset-position step
                 was missed; KPIs are not comparable to standard runs.
                 Exits immediately — pipeline stops.
 
