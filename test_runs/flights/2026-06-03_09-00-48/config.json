@@ -1,4 +1,12 @@
 {
+  "session": {
+    "duration_s": 60,
+    "setpoint": {
+      "roll_deg": 0.0,
+      "pitch_deg": 0.0,
+      "yaw_deg": 0.0
+    }
+  },
   "vehicle": {
     "loops": {
       "angle": {
@@ -42,18 +50,10 @@
       "encoder_invert": true,
       "imu_invert": false
     },
-    "session": {
-      "duration_s": 60,
-      "setpoint": {
-        "roll_deg": 0.0,
-        "pitch_deg": 0.0,
-        "yaw_deg": 0.0
-      }
-    },
-    "start_angle_deg": 51.0
-  },
-  "telemetry": {
-    "sample_every": 5,
-    "preallocate_bytes": 1048576
+    "start_angle_deg": 51.0,
+    "telemetry": {
+      "sample_every": 5,
+      "preallocate_bytes": 1048576
+    }
   }
 }

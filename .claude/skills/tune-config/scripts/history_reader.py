@@ -52,7 +52,7 @@ def extract_config(cfg):
     rp = _get(cfg, 'vehicle', 'loops', 'rate', 'pid') or {}
     mo = _get(cfg, 'vehicle', 'motor') or {}
     ff = _get(cfg, 'vehicle', 'feedforward')
-    sp = _get(cfg, 'bench', 'session', 'setpoint') or {}
+    sp = _get(cfg, 'session', 'setpoint') or {}
 
     return {
         'angle_kp':    ap.get('kp'),

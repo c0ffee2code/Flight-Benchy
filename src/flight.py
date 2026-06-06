@@ -91,7 +91,7 @@ def prespin_motors(motors, throttle_min, base):
 def init_session(cfg, sink, dt):
     """Open a recording session and return TelemetryRecorder."""
     sink.init_session(dt)
-    telemetry = TelemetryRecorder(cfg["telemetry"]["sample_every"], sink=sink)
+    telemetry = TelemetryRecorder(cfg["bench"]["telemetry"]["sample_every"], sink=sink)
     telemetry.begin_session()
     return telemetry
 
@@ -111,7 +111,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
     outer_dt = (inner_ms * outer_ticks) / 1000.0  # fixed nominal dt — avoids I2C-jitter noise in D term
     axis_center = cfg["bench"]["encoder"]["axis_center"]
     feedforward_lead_s = cfg["vehicle"]["feedforward"]["lead_ms"] / 1000.0
-    setpoint_roll_deg = cfg["bench"]["session"]["setpoint"]["roll_deg"]
+    setpoint_roll_deg = cfg["session"]["setpoint"]["roll_deg"]
     orientation = cfg["bench"]["sensor_orientation"]
     enc_sign = -1 if orientation["encoder_invert"] else 1
     imu_sign = -1 if orientation["imu_invert"] else 1
@@ -209,7 +209,7 @@ def run():
             mosi=PIN_SD_MOSI,
             miso=PIN_SD_MISO,
             cs=PIN_SD_CS,
-            preallocate_bytes=cfg["telemetry"].get("preallocate_bytes", 0),
+            preallocate_bytes=cfg["bench"]["telemetry"].get("preallocate_bytes", 0),
         )
         telemetry = init_session(cfg, sd_sink, time_source.now())
 
@@ -247,7 +247,7 @@ def run():
         arm_motors(motors, cfg["vehicle"]["motor"]["throttle_min"])
         prespin_motors(motors, cfg["vehicle"]["motor"]["throttle_min"], cfg["vehicle"]["motor"]["base_throttle"])
 
-        duration_s = cfg["bench"]["session"]["duration_s"]
+        duration_s = cfg["session"]["duration_s"]
         stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg,
                   duration_ms=int(duration_s * 1000) if duration_s is not None else None)
         set_led(b=1)

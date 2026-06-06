@@ -94,10 +94,10 @@ def load_configuration(run_dir) -> Configuration:
     loops_raw = _req(vehicle, "loops")
     motor     = _req(vehicle, "motor")
     ff        = vehicle.get("feedforward", {})
-    telemetry = _req(raw, "telemetry")
+    telemetry = _req(raw, "bench", "telemetry")
 
     return Configuration(
-        setpoint_roll_deg=float(_req(raw, "bench", "session", "setpoint", "roll_deg")),
+        setpoint_roll_deg=float(_req(raw, "session", "setpoint", "roll_deg")),
         start_angle_deg=float(_req(raw, "bench", "start_angle_deg")),
         loops=LoopsConfig(
             angle=_load_loop(_req(loops_raw, "angle")),
