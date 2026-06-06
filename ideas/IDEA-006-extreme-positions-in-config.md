@@ -1,4 +1,4 @@
-# IDEA-006: Add lever extreme positions to config.json bench section
+# IDEA-006: Add lever extreme positions to config.json bench section [PARTIALLY RESOLVED]
 
 ## Observation
 
@@ -24,10 +24,9 @@ Add these as named fields under `bench` in config.json, e.g.:
 
 ## Motivation
 
-- **Gate check**: `gate.py` uses a hardcoded `_STANDARD_START_DEG = 51.0`
-  with a ±10 deg window. Without the restrictor, M1 rests at ~48-49 deg, which
-  sits right at the gate floor and causes marginal failures. Reading the actual
-  limit from config would let the gate adapt to the current rig geometry.
+- **Gate check**: ~~`gate.py` uses a hardcoded `_STANDARD_START_DEG = 51.0`~~
+  **RESOLVED (2026-06-06)**: `bench.start_angle_deg` added to config.json; `gate.py`
+  reads it from there. All historical run configs backfilled with 51.0.
 - **Reset position validation**: `reset_position.py` could confirm M1 reached
   its expected limit rather than an arbitrary angle.
 - **Constraint-aware control**: knowing the physical limits allows the analyser

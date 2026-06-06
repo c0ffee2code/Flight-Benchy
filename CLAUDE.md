@@ -171,8 +171,8 @@ Motors are mounted such that **thrust pushes the motor end DOWN** (confirmed by 
 
 | Motor | GPIO | Encoder at lowest position |
 |-------|------|---------------------------|
-| M1    | 10   | +51°                      |
-| M2    | 11   | ~−51°                     |
+| M1    | 10   | positive (see bench.start_angle_deg in config.json) |
+| M2    | 11   | negative (symmetric)      |
 
 - **Positive encoder angle** → M1 side is lower, M2 side is higher
 - **Negative encoder angle** → M2 side is lower, M1 side is higher

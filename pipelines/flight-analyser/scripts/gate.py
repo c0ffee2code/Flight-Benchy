@@ -29,7 +29,7 @@ Checks (run in order):
   log-truncated log.csv has fewer than 5 rows — SD write likely interrupted.
                 Exits immediately — remaining checks cannot run.
 
-  start-angle   First encoder reading outside +/-10deg of +51deg. Reset-position step
+  start-angle   First encoder reading outside +/-10deg of bench.start_angle_deg. Reset-position step
                 was missed; KPIs are not comparable to standard runs.
                 Exits immediately — pipeline stops.
 
@@ -63,8 +63,7 @@ from configuration_loader import load_configuration     # noqa: E402
 from flight_data_loader import load_raw_rows            # noqa: E402
 from specification_loader import load_specification      # noqa: E402
 
-# Start-angle thresholds
-_STANDARD_START_DEG      = 51.0
+# Start-angle tolerance (the expected start angle comes from bench.start_angle_deg in config.json)
 _START_TOLERANCE_DEG     = 10.0
 
 # Power-cut thresholds
@@ -79,19 +78,19 @@ _LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0
 _SAMPLE_RATE_JITTER_FACTOR   = 5.0
 
 
-def check_start_angle(rows):
+def check_start_angle(rows, start_angle_deg):
     """Return detail string if the first encoder reading is outside the standard start zone."""
     first = float(rows[0]["ENC_ROLL"])
-    if abs(first - _STANDARD_START_DEG) > _START_TOLERANCE_DEG:
+    if abs(first - start_angle_deg) > _START_TOLERANCE_DEG:
         return (
             f"start angle={first:+.1f}deg is outside "
-            f"{_STANDARD_START_DEG}deg +/- {_START_TOLERANCE_DEG}deg. "
+            f"{start_angle_deg}deg +/- {_START_TOLERANCE_DEG}deg. "
             f"Reset-position step was missed -- KPIs are not comparable to standard runs."
         )
     return None
 
 
-def check_power_cut(rows, setpoint, tolerance_deg):
+def check_power_cut(rows, setpoint, tolerance_deg, start_angle_deg):
     """Return detail string on detection, None if clean."""
     enc   = [float(r["ENC_ROLL"]) for r in rows]
     diffs = [abs(float(r["M2"]) - float(r["M1"])) for r in rows]
@@ -103,7 +102,7 @@ def check_power_cut(rows, setpoint, tolerance_deg):
     enc_std   = math.sqrt(sum((a - mean_a) ** 2 for a in enc) / len(enc))
     mean_diff = sum(diffs) / len(diffs)
 
-    if mean_a < _STANDARD_START_DEG - _POWER_CUT_GRAVITY_MARGIN_DEG:
+    if mean_a < start_angle_deg - _POWER_CUT_GRAVITY_MARGIN_DEG:
         return None
 
     if enc_std < _POWER_CUT_FLAT_STD_DEG and mean_diff > _POWER_CUT_ACTIVE_DIFF:
@@ -200,13 +199,13 @@ def main():
     start_angle = float(rows[0]["ENC_ROLL"])
     result["flight_id"]   = run_dir.name
     result["start_angle"] = round(start_angle, 2)
-    result["start_ok"]    = abs(start_angle - _STANDARD_START_DEG) <= _START_TOLERANCE_DEG
+    result["start_ok"]    = abs(start_angle - cfg.start_angle_deg) <= _START_TOLERANCE_DEG
     result["duration_s"]  = round((times[-1] - times[0]) / 1000.0, 2)
     result["n_samples"]   = len(rows)
 
     for name, detail_fn in [
-        ("start-angle",   lambda: check_start_angle(rows)),
-        ("power-cut",     lambda: check_power_cut(rows, setpoint, spec.tolerance_deg)),
+        ("start-angle",   lambda: check_start_angle(rows, cfg.start_angle_deg)),
+        ("power-cut",     lambda: check_power_cut(rows, setpoint, spec.tolerance_deg, cfg.start_angle_deg)),
         ("loop-meltdown", lambda: check_loop_meltdown(rows)),
         ("sample-rate-jitter", lambda: check_sample_rate(rows)),
     ]:

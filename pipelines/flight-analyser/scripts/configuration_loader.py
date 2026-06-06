@@ -49,6 +49,7 @@ class TelemetryConfig:
 @dataclass
 class Configuration:
     setpoint_roll_deg:   float
+    start_angle_deg:     float
     loops:               LoopsConfig
     motor:               MotorConfig
     telemetry:           TelemetryConfig
@@ -97,6 +98,7 @@ def load_configuration(run_dir) -> Configuration:
 
     return Configuration(
         setpoint_roll_deg=float(_req(raw, "bench", "session", "setpoint", "roll_deg")),
+        start_angle_deg=float(_req(raw, "bench", "start_angle_deg")),
         loops=LoopsConfig(
             angle=_load_loop(_req(loops_raw, "angle")),
             rate=_load_loop(_req(loops_raw, "rate")),

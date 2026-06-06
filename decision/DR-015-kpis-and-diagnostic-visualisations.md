@@ -18,7 +18,7 @@ Three requirements shaped the framework:
 
 ### Standard test convention
 
-Every comparable run starts with M1-end resting on the restrictor at approximately **+51°** (encoder reading). The algorithm lifts the lever to within ±10° of the configured setpoint and holds. Runs that do not start within ±10° of +51° are **non-standard** — their KPIs are recorded for the paper trail but must not inform tuning decisions, because the initial error and hence the control authority required is different.
+Every comparable run starts with M1-end resting on the restrictor at the angle specified by `bench.start_angle_deg` in `config.json`. The algorithm lifts the lever to within ±10° of the configured setpoint and holds. Runs that do not start within ±10° of `bench.start_angle_deg` are **non-standard** — their KPIs are recorded for the paper trail but must not inform tuning decisions, because the initial error and hence the control authority required is different.
 
 The **±10° acceptance band** is the operational definition of "close enough to setpoint". It is wide enough to be achievable under reasonable gains and narrow enough to be a meaningful hold target at this bench scale.
 
