@@ -79,14 +79,9 @@ _LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0
 _SAMPLE_RATE_JITTER_FACTOR   = 5.0
 
 
-def _quat_to_angle(qr, qi):
-    return math.degrees(2.0 * math.atan2(float(qi), float(qr)))
-
-
-
 def check_start_angle(rows):
     """Return detail string if the first encoder reading is outside the standard start zone."""
-    first = _quat_to_angle(rows[0]["ENC_QR"], rows[0]["ENC_QI"])
+    first = float(rows[0]["ENC_ROLL"])
     if abs(first - _STANDARD_START_DEG) > _START_TOLERANCE_DEG:
         return (
             f"start angle={first:+.1f}deg is outside "
@@ -98,7 +93,7 @@ def check_start_angle(rows):
 
 def check_power_cut(rows, setpoint, tolerance_deg):
     """Return detail string on detection, None if clean."""
-    enc   = [_quat_to_angle(r["ENC_QR"], r["ENC_QI"]) for r in rows]
+    enc   = [float(r["ENC_ROLL"]) for r in rows]
     diffs = [abs(float(r["M2"]) - float(r["M1"])) for r in rows]
 
     if any(abs(a - setpoint) <= tolerance_deg for a in enc):
@@ -122,7 +117,7 @@ def check_power_cut(rows, setpoint, tolerance_deg):
 
 def check_loop_meltdown(rows):
     """Return detail string on detection, None if clean."""
-    enc = [_quat_to_angle(r["ENC_QR"], r["ENC_QI"]) for r in rows]
+    enc = [float(r["ENC_ROLL"]) for r in rows]
 
     enc_range = max(enc) - min(enc)
 
@@ -202,7 +197,7 @@ def main():
 
     # Identity fields — only reachable when rows >= 5
     times       = [float(r["T_MS"]) for r in rows]
-    start_angle = _quat_to_angle(rows[0]["ENC_QR"], rows[0]["ENC_QI"])
+    start_angle = float(rows[0]["ENC_ROLL"])
     result["flight_id"]   = run_dir.name
     result["start_angle"] = round(start_angle, 2)
     result["start_ok"]    = abs(start_angle - _STANDARD_START_DEG) <= _START_TOLERANCE_DEG

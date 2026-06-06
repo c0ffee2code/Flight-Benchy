@@ -142,3 +142,7 @@ See `test_runs/2026-02-17_19-15-59/` for data and plot.
 
 - BNO085 driver delivering reliable game rotation vector data at 100 Hz — validated in `BNO085/tests/report_rate/`
 - BNO085 physically connected: I2C on GPIO 0/1, RST on GPIO 2, INT on GPIO 3
+
+### Encoder angle encoding removed (2026-06-06)
+
+`angle_to_quat()` and the four `ENC_QR/QI/QJ/QK` CSV columns were removed (`refactor/encoder-direct-angle`). Encoder angle is now logged as a single `ENC_ROLL` scalar (degrees) directly. The IMU quaternion (`IMU_QR/QI/QJ/QK`) is retained. Binary format changed from `"<I8f11fHHHH"` (88 bytes) to `"<I16fHHHH"` (76 bytes); CSV columns reduced from 24 to 21.

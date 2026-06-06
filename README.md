@@ -26,7 +26,7 @@ Single PI(D) loop at 50 Hz using AS5600 encoder feedback. Differential thrust mi
 
 ### M2: Switch to BNO085 IMU as primary control input — DONE
 
-PID input switched from AS5600 encoder to BNO085 game rotation vector (gyro+accel, no magnetometer). Roll angle extracted from quaternion via single `atan2`. AS5600 encoder retained as telemetry-only ground truth. Telemetry now stores raw quaternions from both sensors for offline analysis. See [DR-005](decision/DR-005-bno085-pid-input.md).
+PID input switched from AS5600 encoder to BNO085 game rotation vector (gyro+accel, no magnetometer). Roll angle extracted from quaternion via single `atan2`. AS5600 encoder retained as telemetry-only ground truth. Telemetry stores encoder angle as a direct scalar (degrees) and raw IMU quaternion for offline analysis. See [DR-005](decision/DR-005-bno085-pid-input.md).
 
 BNO085 sensor calibration (accel, gyro, magnetometer) and all-axes tare completed and saved to flash. Calibration + tare reduced MAE from 22 deg to 2.87 deg and eliminated limit cycle oscillation. See [BNO085 ADR-004](BNO085/decision/004-sensor-calibration.md).
 

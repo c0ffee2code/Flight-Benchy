@@ -384,4 +384,4 @@ Hardware testing on 2026-02-19 revealed ~1.5°/min drift in encoder-vs-IMU diver
 
 **Replacement:** GRV (game rotation vector, 0x08) for the outer (angle) loop and calibrated gyroscope (0x02) for the inner (rate) loop — see **DR-010** for full rationale, evidence, and implementation notes.
 
-The cascaded loop architecture, timing, gains, and telemetry schema in this DR remain valid and unchanged.
+The cascaded loop architecture, timing, and gains in this DR remain valid. The telemetry schema has since changed: `DT_MS`/`MAX_DT_MS` columns were added by DR-016, and `ENC_QR/QI/QJ/QK` (4 columns) were replaced by a single `ENC_ROLL` scalar (degrees) — see amendment in DR-005 dated 2026-06-06. Current format: 21 columns.
