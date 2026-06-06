@@ -43,7 +43,7 @@
       "imu_invert": false
     },
     "session": {
-      "duration_s": 60,
+      "duration_s": 120,
       "setpoint": {
         "roll_deg": 0.0,
         "pitch_deg": 0.0,
