@@ -1,0 +1,65 @@
+{
+  "sample_rate": {
+    "n_samples": 1545,
+    "duration_s": 119.855,
+    "nominal_hz": 15.0,
+    "actual_hz": 12.882232697843227,
+    "dt_mean_ms": 77.62629533678756,
+    "dt_median_ms": 76.0,
+    "dt_p99_ms": 106.56999999999994,
+    "dt_max_ms": 118.0
+  },
+  "cycle_timing": {
+    "nominal_inner_ms": 3.33,
+    "dt_mean_ms": 3.8,
+    "dt_p99_ms": 5.0,
+    "dt_max_ms": 18.0,
+    "max_dt_mean_ms": 6.36,
+    "max_dt_p99_ms": 29.0,
+    "max_dt_max_ms": 30.0,
+    "spike_count": 192,
+    "spike_pct": 12.4,
+    "spike_interval_ms": 771.0
+  },
+  "sensor_health": {
+    "mae": 0.7305505853426453,
+    "rms_error": 0.8235140863998656,
+    "max_ae": 2.322912306802512,
+    "bias": 0.7160369549321818,
+    "mae_fast": 0.7186850124033012,
+    "mae_slow": 0.7245809647747598,
+    "correlation": 0.9954913205839567,
+    "enc_range": 56.25,
+    "imu_range": 54.33314294466756
+  },
+  "hold_tracking": {
+    "bias": -0.6709986902423053,
+    "std": 3.146807163277336,
+    "p95": 6.064,
+    "max_ae": 9.58,
+    "fft_freq_hz": 0.008435926163887346,
+    "fft_freq_resolution_hz": 0.008435926163887346,
+    "whole_run_enc_mae": 2.8720459546925565
+  },
+  "approach_tracking": null,
+  "control_effort": {
+    "mean_throttle": 600.0,
+    "rms_throttle": 600.0,
+    "saturation_upper_pct": 0.0,
+    "saturation_lower_pct": 0.0,
+    "rms_dm1_dt": 154.05081494170375,
+    "rms_dm2_dt": 154.05081494170375,
+    "ang_i_mean": -0.18565160445317616,
+    "m2_m1_mean": -0.5343811394891945,
+    "iterm_sign_ok": null
+  },
+  "inner_loop": {
+    "rate_tracking_rms": 15.493817521884035
+  },
+  "windup": {
+    "ang_windup_events": 0,
+    "ang_windup_threshold": 2.5,
+    "rate_windup_events": 0,
+    "rate_windup_threshold": 25.0
+  }
+}

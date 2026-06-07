@@ -1,0 +1,40 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "name": "files-missing",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "log-truncated",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "start-angle",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "power-cut",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "loop-meltdown",
+      "passed": true,
+      "detail": null
+    },
+    {
+      "name": "sample-rate-jitter",
+      "passed": true,
+      "detail": null
+    }
+  ],
+  "flight_id": "2026-06-07_13-48-31",
+  "start_angle": 49.75,
+  "start_ok": true,
+  "duration_s": 119.86,
+  "n_samples": 1545
+}
