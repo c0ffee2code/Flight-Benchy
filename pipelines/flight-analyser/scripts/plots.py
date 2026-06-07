@@ -451,6 +451,8 @@ def render_timeseries(
 
     ax5.plot(t_s, fd.m1, label="M1", linewidth=0.8)
     ax5.plot(t_s, fd.m2, label="M2", linewidth=0.8)
+    ax5.plot(t_s, fd.m3, label="M3", linewidth=0.8, linestyle="--")
+    ax5.plot(t_s, fd.m4, label="M4", linewidth=0.8, linestyle="--")
     ax5.axhline(throttle_max, color="red", linestyle=":", linewidth=0.6, alpha=0.5, zorder=0)
     ax5.axhline(throttle_min, color="red", linestyle=":", linewidth=0.6, alpha=0.5, zorder=0)
     ax5.set_ylabel("Throttle")

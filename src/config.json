@@ -35,8 +35,7 @@
     "motor": {
       "base_throttle": 600,
       "throttle_min": 90,
-      "throttle_max": 900,
-      "expo": 0.0
+      "throttle_max": 900
     },
     "feedforward": {
       "lead_ms": 12

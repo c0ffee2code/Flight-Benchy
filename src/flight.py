@@ -27,9 +27,11 @@ PIN_I2C0_SCL   = const(1)
 PIN_IMU_RST    = const(2)
 PIN_IMU_INT    = const(3)
 
-# DShot motors (moved from GP6/7 to free RGB LED pins, see DR-004)
+# DShot motors — M1/M2 moved from GP6/7 to free RGB LED pins (DR-004); M3/M4 on GP4/5
 PIN_MOTOR1     = const(10)
 PIN_MOTOR2     = const(11)
+PIN_MOTOR3     = const(4)
+PIN_MOTOR4     = const(5)
 
 # SD card breakout — SPI0
 PIN_SD_MISO    = const(16)
@@ -40,6 +42,8 @@ PIN_SD_MOSI    = const(19)
 # =====================================================
 # Constants
 # =====================================================
+MS_PER_S          = const(1000)  # milliseconds per second — used for ms<->s conversions throughout
+
 PRESPIN_SETTLE_MS = const(5000)  # wait at throttle_min after arming — lets both ESCs finish their start sequence before the ramp begins
 PRESPIN_STEP_MS   = const(100)   # delay between throttle increments during pre-spin ramp
 PRESPIN_DWELL_MS  = const(1000)  # wait after reaching base_throttle before starting the control loop
@@ -64,27 +68,27 @@ def enable_imu_reports(imu, grv_hz, imu_hz):
     imu.gyro.enable(hertz=imu_hz)
 
 def arm_motors(motors, throttle_min):
-    """Green LED, start DShot, arm ESCs."""
+    """Green LED, start DShot, arm ESCs, then idle at throttle_min for PRESPIN_SETTLE_MS.
+
+    The settle delay absorbs the 0.25-0.5s ESC start-time stagger so all motors
+    reach steady idle before the ramp begins.
+    """
     set_led(g=1)
     motors.start()
     motors.arm()
-    motors.setAllThrottles([throttle_min, throttle_min])
-    """Settle, ramp both motors from throttle_min to base, then dwell.
-
-    PRESPIN_SETTLE_MS idles both motors at throttle_min first — observed 0.25–0.5s
-    stagger between ESC start times means one motor can be pushing before the other
-    has started; the settle delay lets both reach steady idle before the ramp begins.
-    Ramping in 10-unit increments every PRESPIN_STEP_MS limits inrush current so the
-    supply stays live through the ramp.
-    PRESPIN_DWELL_MS dwell lets the motors reach steady RPM before the control loop
-    opens and applies differential thrust.
-    """
+    motors.setAllThrottles([throttle_min, throttle_min, throttle_min, throttle_min])
     utime.sleep_ms(PRESPIN_SETTLE_MS)
 
 def prespin_motors(motors, throttle_min, base):
+    """Ramp all motors from throttle_min to base in 10-unit steps, then dwell.
+
+    10-unit increments every PRESPIN_STEP_MS limit inrush current so the supply
+    stays live through the ramp. PRESPIN_DWELL_MS dwell lets motors reach steady
+    RPM before the control loop opens and applies differential thrust.
+    """
     for t in range(throttle_min, base + 10, 10):
         v = min(t, base)
-        motors.setAllThrottles([v, v])
+        motors.setAllThrottles([v, v, v, v])
         utime.sleep_ms(PRESPIN_STEP_MS)
     utime.sleep_ms(PRESPIN_DWELL_MS)
 
@@ -106,11 +110,11 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
     """
     rate_loop_hz  = cfg["vehicle"]["loops"]["rate"]["frequency_hz"]
     angle_loop_hz = cfg["vehicle"]["loops"]["angle"]["frequency_hz"]
-    inner_ms    = 1000 // rate_loop_hz
+    inner_ms    = MS_PER_S // rate_loop_hz
     outer_ticks = rate_loop_hz // angle_loop_hz
-    outer_dt = (inner_ms * outer_ticks) / 1000.0  # fixed nominal dt — avoids I2C-jitter noise in D term
+    outer_dt = (inner_ms * outer_ticks) / MS_PER_S  # fixed nominal dt — avoids I2C-jitter noise in D term
     axis_center = cfg["bench"]["encoder"]["axis_center"]
-    feedforward_lead_s = cfg["vehicle"]["feedforward"]["lead_ms"] / 1000.0
+    feedforward_lead_s = cfg["vehicle"]["feedforward"]["lead_ms"] / MS_PER_S
     setpoint_roll_deg = cfg["session"]["setpoint"]["roll_deg"]
     orientation = cfg["bench"]["sensor_orientation"]
     enc_sign = -1 if orientation["encoder_invert"] else 1
@@ -140,7 +144,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
         dt_ms = utime.ticks_diff(now_ms, prev_ms)
         prev_ms = now_ms
 
-        dt = dt_ms / 1000.0
+        dt = dt_ms / MS_PER_S
 
         gx, _gy, _gz = imu.gyro
         # Negate imu_sign: GRV reports position (positive = M1 lower), but the gyroscope
@@ -170,10 +174,9 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
         # --- inner loop (every cycle) ---
         rate_error = rate_setpoint - gyro_x
         output = rate_pid.compute(rate_error, dt, measurement=gyro_x)
-        m1, m2 = mixer.compute(output)
+        m1, m2, m3, m4 = mixer.compute(output)
 
-        motors.setThrottle(0, m1)
-        motors.setThrottle(1, m2)
+        motors.setAllThrottles([m1, m2, m3, m4])
 
         # --- encoder (read at inner rate for telemetry) ---
         enc_angle = enc_sign * to_degrees(encoder.read_raw_angle(), axis_center)
@@ -187,7 +190,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
             angle_pid.last_p, angle_pid.last_i, angle_pid.last_d,
             rate_setpoint,
             rate_error, rate_pid.last_p, rate_pid.last_i, rate_pid.last_d,
-            output, m1, m2
+            output, m1, m2, m3, m4
         )
 
         if is_outer_tick and utime.ticks_diff(now_ms, last_gc_ms) >= 800:
@@ -233,9 +236,11 @@ def run():
             throttle_base=cfg["vehicle"]["motor"]["base_throttle"],
             throttle_min=cfg["vehicle"]["motor"]["throttle_min"],
             throttle_max=cfg["vehicle"]["motor"]["throttle_max"],
-            expo=cfg["vehicle"]["motor"]["expo"],
         )
-        motors = MotorThrottleGroup([Pin(PIN_MOTOR1), Pin(PIN_MOTOR2)], DSHOT_SPEEDS.DSHOT600)
+        motors = MotorThrottleGroup(
+            [Pin(PIN_MOTOR1), Pin(PIN_MOTOR2), Pin(PIN_MOTOR3), Pin(PIN_MOTOR4)],
+            DSHOT_SPEEDS.DSHOT600,
+        )
 
         imu = BNO08X_I2C(
             i2c,
@@ -249,7 +254,7 @@ def run():
 
         duration_s = cfg["session"]["duration_s"]
         stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg,
-                  duration_ms=int(duration_s * 1000) if duration_s is not None else None)
+                  duration_ms=int(duration_s * MS_PER_S) if duration_s is not None else None)
         set_led(b=1)
 
     except Exception as e:

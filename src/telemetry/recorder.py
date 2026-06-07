@@ -9,7 +9,7 @@ _SD_MOUNT    = "/sd"
 _LOG_DIR     = _SD_MOUNT + "/flights"
 _SECTOR      = 512
 _FILL_CHUNK  = b'\x00' * _SECTOR
-_RECORD_FMT  = "<I16fHHHH"
+_RECORD_FMT  = "<I16fHHHHHH"
 _RECORD_SIZE = struct.calcsize(_RECORD_FMT)
 
 
@@ -161,7 +161,7 @@ class TelemetryRecorder:
 
     Records are packed via struct.pack_into into a pre-allocated bytearray with zero
     heap allocation per record. pull_flights.py decodes log.bin -> log.csv on the PC.
-    Record format: _RECORD_FMT = "<I16fHHHH" (76 bytes per record).
+    Record format: _RECORD_FMT = "<I16fHHHHHH" (80 bytes per record).
     """
 
     def __init__(self, sample_every, sink):
@@ -178,7 +178,7 @@ class TelemetryRecorder:
 
     def record(self, t_ms, dt_ms, enc_roll, iqr, iqi, iqj, iqk,
                gyro_x, ang_err, ang_p, ang_i, ang_d, rate_sp,
-               rate_err, rate_p, rate_i, rate_d, pid_out, m1, m2):
+               rate_err, rate_p, rate_i, rate_d, pid_out, m1, m2, m3, m4):
         """Pack and emit a binary record every sample_every-th call. Others are silently dropped."""
         if dt_ms > self._max_dt_ms:
             self._max_dt_ms = dt_ms
@@ -193,7 +193,7 @@ class TelemetryRecorder:
             t_ms, enc_roll, iqr, iqi, iqj, iqk,
             gyro_x, ang_err, ang_p, ang_i, ang_d, rate_sp,
             rate_err, rate_p, rate_i, rate_d, pid_out,
-            m1, m2, dt_ms, max_dt)
+            m1, m2, m3, m4, dt_ms, max_dt)
         self._sink.write_bytes(self._pack_buf)
 
     def write_crash_log(self, exc):

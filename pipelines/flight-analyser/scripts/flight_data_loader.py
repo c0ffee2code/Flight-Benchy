@@ -85,6 +85,8 @@ class FlightData:
     pid_out   : Combined PID output (PID_OUT), throttle units. Shape (n,).
     m1        : Motor 1 throttle command (M1), throttle units. Shape (n,).
     m2        : Motor 2 throttle command (M2), throttle units. Shape (n,).
+    m3        : Motor 3 throttle command (M3, co-located with M1), throttle units. Shape (n,).
+    m4        : Motor 4 throttle command (M4, co-located with M2), throttle units. Shape (n,).
     dt_ms     : Inner cycle period of the logged row (DT_MS), milliseconds. Shape (n,).
     max_dt_ms : Worst cycle period across sample_every window (MAX_DT_MS), ms. Shape (n,).
     """
@@ -104,6 +106,8 @@ class FlightData:
     pid_out:   np.ndarray
     m1:        np.ndarray
     m2:        np.ndarray
+    m3:        np.ndarray
+    m4:        np.ndarray
     dt_ms:     np.ndarray
     max_dt_ms: np.ndarray
 
@@ -152,6 +156,8 @@ def load_flight(csv_path: Path) -> FlightData:
         pid_out=col("PID_OUT"),
         m1=col("M1"),
         m2=col("M2"),
+        m3=col("M3"),
+        m4=col("M4"),
         dt_ms=col("DT_MS"),
         max_dt_ms=col("MAX_DT_MS"),
     )

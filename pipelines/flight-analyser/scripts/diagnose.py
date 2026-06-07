@@ -399,11 +399,19 @@ def _approach_tracking_stats(
 def _control_effort_stats(fd: FlightData, cfg: Configuration, hi: int) -> ControlEffortStats:
     hold_m1   = fd.m1[hi:]
     hold_m2   = fd.m2[hi:]
+    hold_m3   = fd.m3[hi:]
+    hold_m4   = fd.m4[hi:]
     hold_t_ms = fd.t_ms[hi:]
-    avg_thr   = (hold_m1 + hold_m2) / 2.0
+    avg_thr   = (hold_m1 + hold_m2 + hold_m3 + hold_m4) / 4.0
 
-    saturation_upper = (hold_m1 >= cfg.motor.throttle_max) | (hold_m2 >= cfg.motor.throttle_max)
-    saturation_lower = (hold_m1 <= cfg.motor.throttle_min) | (hold_m2 <= cfg.motor.throttle_min)
+    saturation_upper = (
+        (hold_m1 >= cfg.motor.throttle_max) | (hold_m2 >= cfg.motor.throttle_max) |
+        (hold_m3 >= cfg.motor.throttle_max) | (hold_m4 >= cfg.motor.throttle_max)
+    )
+    saturation_lower = (
+        (hold_m1 <= cfg.motor.throttle_min) | (hold_m2 <= cfg.motor.throttle_min) |
+        (hold_m3 <= cfg.motor.throttle_min) | (hold_m4 <= cfg.motor.throttle_min)
+    )
 
     hold_dts = np.diff(hold_t_ms) / 1000.0
     safe_dts = np.where(hold_dts > 0, hold_dts, 1e-6)

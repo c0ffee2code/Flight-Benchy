@@ -93,7 +93,7 @@ def check_start_angle(rows, start_angle_deg):
 def check_power_cut(rows, setpoint, tolerance_deg, start_angle_deg):
     """Return detail string on detection, None if clean."""
     enc   = [float(r["ENC_ROLL"]) for r in rows]
-    diffs = [abs(float(r["M2"]) - float(r["M1"])) for r in rows]
+    diffs = [max(abs(float(r["M2"]) - float(r["M1"])), abs(float(r["M4"]) - float(r["M3"]))) for r in rows]
 
     if any(abs(a - setpoint) <= tolerance_deg for a in enc):
         return None
