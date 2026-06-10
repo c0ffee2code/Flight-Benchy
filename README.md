@@ -155,11 +155,11 @@ See [DR-001, "Test Bench vs Real Drone" section](decision/DR-001-pid-lever-stabi
 │   ├── ui.py            # Operator interface — buttons + RGB LED
 │   └── telemetry/
 │       ├── recorder.py  # TelemetryRecorder, SdSink
-│       ├── time_source.py  # TimeSource, read_rtc — PCF8523 RTC facade
 │       └── sdcard.py    # SD card SPI driver (micropython-lib, with stop bit fix)
 ├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
 ├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
 ├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
+├── PCF8523/             # Git submodule: github.com/c0ffee2code/PCF8523
 ├── .claude/
 │   └── skills/
 │       └── analyse-flight/   # Analysis pipeline for a single flight run
@@ -171,7 +171,6 @@ See [DR-001, "Test Bench vs Real Drone" section](decision/DR-001-pid-lever-stabi
 │           └── templates/
 │               └── flight_analysis.md # Structured report template
 ├── tools/               # Pico utilities (upload to Pico, not used on desktop)
-│   ├── set_rtc.py           # Set PCF8523 RTC clock
 │   └── tare_and_measure.py  # IMU tare calibration with before/after comparison
 ├── test_runs/           # Copied run folders from SD card for offline analysis
 ├── decision/            # Architecture Decision Records

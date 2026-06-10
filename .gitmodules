@@ -7,3 +7,6 @@
 [submodule "DShot"]
 	path = DShot
 	url = https://github.com/c0ffee2code/DShot.git
+[submodule "PCF8523"]
+	path = PCF8523
+	url = https://github.com/c0ffee2code/PCF8523.git

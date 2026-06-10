@@ -55,7 +55,6 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   ├── specification.json  # KPI acceptance thresholds (deployed to Pico)
 │   └── telemetry/
 │       ├── recorder.py  # TelemetryRecorder, SdSink
-│       ├── time_source.py  # TimeSource, read_rtc — PCF8523 RTC facade
 │       └── sdcard.py    # SD card SPI driver (micropython-lib, with stop bit fix)
 ├── pipelines/
 │   ├── flight-runner/   # Deploy and run scripts (COM7)
@@ -77,12 +76,13 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │   └── driver/
 │       ├── dshot_pio.py
 │       └── motor_throttle_group.py
+├── PCF8523/             # Git submodule: github.com/c0ffee2code/PCF8523
+│   └── src/pcf8523.py
 ├── .claude/
 │   ├── commands/        # Skill trigger files (analyse-flight, deploy, run-flight, etc.)
 │   └── skills/
 │       └── tune-config/ # Skill: structured PID tuning sessions with iteration tracking
 ├── tools/               # Pico utilities (upload to Pico, not used on desktop)
-│   ├── set_rtc.py       # Set PCF8523 RTC clock
 │   └── tare.py          # IMU tare calibration with before/after comparison
 ├── test_runs/           # Copied run folders from SD card for analysis
 │   └── flights/
@@ -106,8 +106,8 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - `src/mixer.py`
 - `src/ui.py`
 - `src/telemetry/recorder.py` (deployed as `recorder.py`)
-- `src/telemetry/time_source.py` (deployed as `time_source.py`)
 - `src/telemetry/sdcard.py` (deployed as `sdcard.py`)
+- `PCF8523/src/pcf8523.py` (deployed as `pcf8523.py`)
 - `AS5600/driver/as5600.py`
 - `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
 - `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
@@ -118,8 +118,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 - `recorder.py` — Telemetry pipeline:
   - `TelemetryRecorder` — facade called from the main loop. Handles decimation and binary struct encoding, delegates I/O to `SdSink`. A session ends in one of two ways: `end_session()` on clean completion, or `write_crash_log(exc)` on failure (writes a traceback to `crash.log` in the session folder). Binary record format `"<I16fHHHH"` (76 bytes): `T_MS` (uint32), `ENC_ROLL` (float32, degrees), `IMU_QR/QI/QJ/QK` (4×float32), `GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,RATE_D,PID_OUT` (11×float32), `M1,M2,DT_MS,MAX_DT_MS` (4×uint16). Decoded to CSV by `pull_flights.py` on the PC side.
-  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, directory create, write, unmount). `init_session(dt)` receives a `(year, month, day, hour, minute, second)` tuple from `TimeSource.now()` — no RTC access of its own. Creates `/sd/flights/YYYY-MM-DD_hh-mm-ss/` and pre-allocates `log.tmp` to `bench.telemetry.preallocate_bytes`; all writes go to `log.tmp` during the session. At `close()`, copies the actual bytes to `log.bin` and removes `log.tmp` (`_finalize_log()`). Also copies `config.json` and `specification.json` raw; writes `crash.log` on failure.
-- `time_source.py` — `TimeSource` facade over the PCF8523 RTC. `now()` returns `(year, month, day, hour, minute, second)`. Also contains `read_rtc(i2c, addr)` as the low-level implementation.
+  - `SdSink` — owns the full SD card lifecycle (SPI init, mount, directory create, write, unmount). `init_session(dt)` receives a `(year, month, day, weekday, hour, minute, second)` tuple from `PCF8523.datetime()` — no RTC access of its own. Creates `/sd/flights/YYYY-MM-DD_hh-mm-ss/` and pre-allocates `log.tmp` to `bench.telemetry.preallocate_bytes`; all writes go to `log.tmp` during the session. At `close()`, copies the actual bytes to `log.bin` and removes `log.tmp` (`_finalize_log()`). Also copies `config.json` and `specification.json` raw; writes `crash.log` on failure.
 - `sdcard.py` — SD card SPI driver from micropython-lib with a stop bit fix (`crc | 0x01`). The upstream driver omits the mandatory end bit in the SPI command frame, which causes some cards to reject all commands after CMD8.
 
 ### AS5600 Encoder (`AS5600/driver/as5600.py`)

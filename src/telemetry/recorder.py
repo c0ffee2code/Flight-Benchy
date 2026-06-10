@@ -45,7 +45,7 @@ class SdSink:
     def init_session(self, dt):
         """Create a timestamped run directory, copy config and open log file.
 
-        dt: (year, month, day, hour, minute, second) from TimeSource.now().
+        dt: (year, month, day, weekday, hour, minute, second) from PCF8523.datetime().
         Call once when the recording session actually starts (after arming).
         """
         try:
@@ -53,7 +53,7 @@ class SdSink:
         except OSError:
             pass  # already exists
         self._run_dir = "{}/{:04d}-{:02d}-{:02d}_{:02d}-{:02d}-{:02d}".format(
-            _LOG_DIR, dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]
+            _LOG_DIR, dt[0], dt[1], dt[2], dt[4], dt[5], dt[6]
         )
         os.mkdir(self._run_dir)
 

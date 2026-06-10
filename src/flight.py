@@ -12,7 +12,7 @@ from motor_throttle_group import MotorThrottleGroup
 from dshot_pio import DSHOT_SPEEDS
 from pid import PID
 from recorder import TelemetryRecorder, SdSink
-from time_source import TimeSource
+from pcf8523 import PCF8523
 from mixer import LeverMixer
 from ui import set_led
 
@@ -206,7 +206,7 @@ def run():
     try:
         cfg = load_config()
 
-        time_source = TimeSource(i2c)
+        rtc = PCF8523(i2c)
         sd_sink = SdSink(
             sck=PIN_SD_SCK,
             mosi=PIN_SD_MOSI,
@@ -214,7 +214,7 @@ def run():
             cs=PIN_SD_CS,
             preallocate_bytes=cfg["bench"]["telemetry"].get("preallocate_bytes", 0),
         )
-        telemetry = init_session(cfg, sd_sink, time_source.now())
+        telemetry = init_session(cfg, sd_sink, rtc.datetime())
 
         apid = cfg["vehicle"]["loops"]["angle"]["pid"]
         rpid = cfg["vehicle"]["loops"]["rate"]["pid"]

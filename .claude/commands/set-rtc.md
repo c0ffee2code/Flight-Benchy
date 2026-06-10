@@ -1,0 +1,1 @@
+Run `python PCF8523/tools/set_rtc.py` from the project root and show the output. This syncs the PCF8523 RTC to the current PC time via mpremote.
