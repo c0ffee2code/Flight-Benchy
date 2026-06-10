@@ -28,7 +28,7 @@ Single PI(D) loop at 50 Hz using AS5600 encoder feedback. Differential thrust mi
 
 PID input switched from AS5600 encoder to BNO085 game rotation vector (gyro+accel, no magnetometer). Roll angle extracted from quaternion via single `atan2`. AS5600 encoder retained as telemetry-only ground truth. Telemetry stores encoder angle as a direct scalar (degrees) and raw IMU quaternion for offline analysis. See [DR-005](decision/DR-005-bno085-pid-input.md).
 
-BNO085 sensor calibration (accel, gyro, magnetometer) and all-axes tare completed and saved to flash. Calibration + tare reduced MAE from 22 deg to 2.87 deg and eliminated limit cycle oscillation. See [BNO085 ADR-004](BNO085/decision/004-sensor-calibration.md).
+BNO085 sensor calibration (accel, gyro, magnetometer) and all-axes tare completed and saved to flash. Calibration + tare reduced MAE from 22 deg to 2.87 deg and eliminated limit cycle oscillation. See [BNO085 ADR-004](dependencies/BNO085/decision/004-sensor-calibration.md).
 
 ### M2a: Telemetry logging (black box) — DONE
 
@@ -156,10 +156,11 @@ See [DR-001, "Test Bench vs Real Drone" section](decision/DR-001-pid-lever-stabi
 │   └── telemetry/
 │       ├── recorder.py  # TelemetryRecorder, SdSink
 │       └── sdcard.py    # SD card SPI driver (micropython-lib, with stop bit fix)
-├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
-├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
-├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
-├── PCF8523/             # Git submodule: github.com/c0ffee2code/PCF8523
+├── dependencies/
+│   ├── AS5600/          # Git submodule: github.com/c0ffee2code/AS5600
+│   ├── BNO085/          # Git submodule: github.com/c0ffee2code/BNO085
+│   ├── DShot/           # Git submodule: github.com/c0ffee2code/DShot
+│   └── PCF8523/         # Git submodule: github.com/c0ffee2code/PCF8523
 ├── .claude/
 │   └── skills/
 │       └── analyse-flight/   # Analysis pipeline for a single flight run
@@ -191,9 +192,9 @@ Upload to Pico root (flat structure — no subdirectories on Pico):
 - `src/ui.py`
 - `src/telemetry/recorder.py` (as `recorder.py`)
 - `src/telemetry/sdcard.py` (as `sdcard.py`)
-- `AS5600/driver/as5600.py`
-- `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
-- `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
+- `dependencies/AS5600/driver/as5600.py`
+- `dependencies/BNO085/driver/bno08x.py` + `dependencies/BNO085/driver/i2c.py`
+- `dependencies/DShot/driver/dshot_pio.py` + `dependencies/DShot/driver/motor_throttle_group.py`
 
 ## License
 

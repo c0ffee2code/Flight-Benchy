@@ -25,13 +25,13 @@ SOURCE_FILES = [
     ("src/mixer.py",                         "mixer.py"),
     ("src/ui.py",                            "ui.py"),
     ("src/telemetry/recorder.py",            "recorder.py"),
-    ("PCF8523/src/pcf8523.py",               "pcf8523.py"),
-    ("src/telemetry/sdcard.py",              "sdcard.py"),
-    ("AS5600/driver/as5600.py",              "as5600.py"),
-    ("BNO085/driver/bno08x.py",              "bno08x.py"),
-    ("BNO085/driver/i2c.py",                 "i2c.py"),
-    ("DShot/driver/dshot_pio.py",            "dshot_pio.py"),
-    ("DShot/driver/motor_throttle_group.py", "motor_throttle_group.py"),
+    ("dependencies/PCF8523/src/pcf8523.py",               "pcf8523.py"),
+    ("src/telemetry/sdcard.py",                           "sdcard.py"),
+    ("dependencies/AS5600/driver/as5600.py",              "as5600.py"),
+    ("dependencies/BNO085/driver/bno08x.py",              "bno08x.py"),
+    ("dependencies/BNO085/driver/i2c.py",                 "i2c.py"),
+    ("dependencies/DShot/driver/dshot_pio.py",            "dshot_pio.py"),
+    ("dependencies/DShot/driver/motor_throttle_group.py", "motor_throttle_group.py"),
 ]
 
 CONFIG_FILES = [

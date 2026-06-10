@@ -72,7 +72,7 @@ BNO085 shares I2C bus 0 with the AS5600 encoder (GPIO 0/1, 400 kHz). Both device
 - `pid.py` — PID controller is input-agnostic (accepts any scalar error)
 - `mixer.py` — mixer is PID-output-agnostic
 - `telemetry/sdcard.py` — SD card driver unchanged
-- BNO085 driver (`BNO085/driver/`) — used as-is, no modifications needed
+- BNO085 driver (`dependencies/BNO085/driver/`) — used as-is, no modifications needed
 
 ## Amendments
 
@@ -115,8 +115,8 @@ Tested PID gain progression:
 **Improvement path (in order of complexity):**
 
 1. **PID gain tuning** — DONE. Current best: kp=3.5, ki=0.4, kd=0.3, integral_limit=50.
-2. **BNO085 calibration** — DONE (2026-02-16). All three MEMS sensors calibrated (accel accuracy 2, gyro 3, mag 3). DCD saved to flash, persists across power cycles. See `BNO085/decision/004-sensor-calibration.md`.
-3. **BNO085 tare** — DONE (2026-02-16), then corrected (2026-02-22). Initial tare used `basis=0` (Rotation Vector, magnetometer included). In the bench environment (near motors/ESCs/metal) `mag_acc=0`, so this baked an arbitrary ~45° heading offset into the tare frame — magnetometer was usable for calibration status but not for attitude reference near ferrous interference. ⚠️ **Corrected in DR-008 Amendment 2026-02-22:** tare must use `basis=1` (Game Rotation Vector, gyro+accel only, no magnetometer). Eliminates Phase 0 (figure-8 detach sequence). See BNO085/decision/004-sensor-calibration.md Bug 4.
+2. **BNO085 calibration** — DONE (2026-02-16). All three MEMS sensors calibrated (accel accuracy 2, gyro 3, mag 3). DCD saved to flash, persists across power cycles. See `dependencies/BNO085/decision/004-sensor-calibration.md`.
+3. **BNO085 tare** — DONE (2026-02-16), then corrected (2026-02-22). Initial tare used `basis=0` (Rotation Vector, magnetometer included). In the bench environment (near motors/ESCs/metal) `mag_acc=0`, so this baked an arbitrary ~45° heading offset into the tare frame — magnetometer was usable for calibration status but not for attitude reference near ferrous interference. ⚠️ **Corrected in DR-008 Amendment 2026-02-22:** tare must use `basis=1` (Game Rotation Vector, gyro+accel only, no magnetometer). Eliminates Phase 0 (figure-8 detach sequence). See dependencies/BNO085/decision/004-sensor-calibration.md Bug 4.
 4. **Gyro-integrated rotation vector** — SUPERSEDED. GIRV (0x2A) was used as the initial M4 inner loop input (DR-008) because it bundles quaternion + angular velocity in one packet. Hardware testing on 2026-02-19 revealed ~1.5°/min drift (10.8° over 9 min) — GIRV integrates raw gyro without accelerometer correction. Replaced by GRV (0x08) for the outer loop + calibrated gyroscope (0x02) for the inner loop. See DR-010.
 
 ### Calibration + tare results (2026-02-17)
@@ -140,7 +140,7 @@ See `test_runs/2026-02-17_19-15-59/` for data and plot.
 
 ## Dependencies
 
-- BNO085 driver delivering reliable game rotation vector data at 100 Hz — validated in `BNO085/tests/report_rate/`
+- BNO085 driver delivering reliable game rotation vector data at 100 Hz — validated in `dependencies/BNO085/tests/report_rate/`
 - BNO085 physically connected: I2C on GPIO 0/1, RST on GPIO 2, INT on GPIO 3
 
 ### Encoder angle encoding removed (2026-06-06)

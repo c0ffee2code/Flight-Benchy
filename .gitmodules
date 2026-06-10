@@ -1,12 +1,12 @@
 [submodule "AS5600"]
-	path = AS5600
+	path = dependencies/AS5600
 	url = https://github.com/c0ffee2code/AS5600.git
 [submodule "BNO085"]
-	path = BNO085
+	path = dependencies/BNO085
 	url = https://github.com/c0ffee2code/BNO085.git
 [submodule "DShot"]
-	path = DShot
+	path = dependencies/DShot
 	url = https://github.com/c0ffee2code/DShot.git
 [submodule "PCF8523"]
-	path = PCF8523
+	path = dependencies/PCF8523
 	url = https://github.com/c0ffee2code/PCF8523.git

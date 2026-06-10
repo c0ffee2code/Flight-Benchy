@@ -66,18 +66,19 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 │       │                #   configuration_loader.py, specification_loader.py,
 │       │                #   flight_data_loader.py
 │       └── templates/   # Report templates
-├── AS5600/              # Git submodule: github.com/c0ffee2code/AS5600
-│   └── driver/as5600.py
-├── BNO085/              # Git submodule: github.com/c0ffee2code/BNO085
-│   └── driver/
-│       ├── bno08x.py
-│       └── i2c.py
-├── DShot/               # Git submodule: github.com/c0ffee2code/DShot
-│   └── driver/
-│       ├── dshot_pio.py
-│       └── motor_throttle_group.py
-├── PCF8523/             # Git submodule: github.com/c0ffee2code/PCF8523
-│   └── src/pcf8523.py
+├── dependencies/
+│   ├── AS5600/          # Git submodule: github.com/c0ffee2code/AS5600
+│   │   └── driver/as5600.py
+│   ├── BNO085/          # Git submodule: github.com/c0ffee2code/BNO085
+│   │   └── driver/
+│   │       ├── bno08x.py
+│   │       └── i2c.py
+│   ├── DShot/           # Git submodule: github.com/c0ffee2code/DShot
+│   │   └── driver/
+│   │       ├── dshot_pio.py
+│   │       └── motor_throttle_group.py
+│   └── PCF8523/         # Git submodule: github.com/c0ffee2code/PCF8523
+│       └── src/pcf8523.py
 ├── .claude/
 │   ├── commands/        # Skill trigger files (analyse-flight, deploy, run-flight, etc.)
 │   └── skills/
@@ -107,10 +108,10 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - `src/ui.py`
 - `src/telemetry/recorder.py` (deployed as `recorder.py`)
 - `src/telemetry/sdcard.py` (deployed as `sdcard.py`)
-- `PCF8523/src/pcf8523.py` (deployed as `pcf8523.py`)
-- `AS5600/driver/as5600.py`
-- `BNO085/driver/bno08x.py` + `BNO085/driver/i2c.py`
-- `DShot/driver/dshot_pio.py` + `DShot/driver/motor_throttle_group.py`
+- `dependencies/PCF8523/src/pcf8523.py` (deployed as `pcf8523.py`)
+- `dependencies/AS5600/driver/as5600.py`
+- `dependencies/BNO085/driver/bno08x.py` + `dependencies/BNO085/driver/i2c.py`
+- `dependencies/DShot/driver/dshot_pio.py` + `dependencies/DShot/driver/motor_throttle_group.py`
 
 ## Architecture
 
@@ -121,11 +122,11 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
   - `SdSink` — owns the full SD card lifecycle (SPI init, mount, directory create, write, unmount). `init_session(dt)` receives a `(year, month, day, weekday, hour, minute, second)` tuple from `PCF8523.datetime()` — no RTC access of its own. Creates `/sd/flights/YYYY-MM-DD_hh-mm-ss/` and pre-allocates `log.tmp` to `bench.telemetry.preallocate_bytes`; all writes go to `log.tmp` during the session. At `close()`, copies the actual bytes to `log.bin` and removes `log.tmp` (`_finalize_log()`). Also copies `config.json` and `specification.json` raw; writes `crash.log` on failure.
 - `sdcard.py` — SD card SPI driver from micropython-lib with a stop bit fix (`crc | 0x01`). The upstream driver omits the mandatory end bit in the SPI command frame, which causes some cards to reject all commands after CMD8.
 
-### AS5600 Encoder (`AS5600/driver/as5600.py`)
+### AS5600 Encoder (`dependencies/AS5600/driver/as5600.py`)
 
 Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center)` converts raw 12-bit readings to degrees relative to a calibrated center position. Includes low-latency filter configuration and diagnostic telemetry.
 
-### BNO085 IMU (`BNO085/driver/`)
+### BNO085 IMU (`dependencies/BNO085/driver/`)
 
 - `bno08x.py` - BNO08x driver with SHTP protocol, interrupt-driven sensor updates, quaternion/euler output, and precise timestamp tracking.
 - `i2c.py` - I2C transport layer for BNO08x. Handles non-standard clock stretching and fragment reassembly.
@@ -134,7 +135,7 @@ Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center
 
 Hardware: [Pimoroni Pico Display Pack](https://shop.pimoroni.com/products/pico-display-pack). Buttons on GPIO 12–15 and RGB LED on GPIO 6/7/8. LCD is disconnected (SPI0 conflict with SD card breakout, see DR-004). Status indicated by LED color: blue=idle, green=armed, red=error. `ui.py` owns all LED/button pin constants, hardware init, and UI helpers (`set_led`, `buttons_by_held`, `wait_for_arm`, `wait_for_go`).
 
-### Motor Control (`DShot/driver/`)
+### Motor Control (`dependencies/DShot/driver/`)
 
 - `dshot_pio.py` - Low-level DShot protocol via RP2040/RP2350 PIO. Supports DSHOT150/300/600/1200.
 - `motor_throttle_group.py` - Dual-core facade for managing multiple motors. Core 1 runs a dedicated 1kHz command loop for reliable ESC communication. Provides arming, throttle control, emergency stop, and health monitoring.

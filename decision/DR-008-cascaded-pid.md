@@ -239,7 +239,7 @@ Motor authority ±150 DShot units (typical). Inner loop stays proportional up to
 | Windup events | 0 | 0 |
 
 **Changes that drove the improvement:**
-1. **BNO085 re-calibration + correct tare basis** — previous tare used `basis=0` (Rotation Vector), which fuses the magnetometer into the tare reference frame. In the bench environment (near motors, ESCs, metal), `mag_acc=0`, so the BNO085 used an arbitrary heading that baked ~45° of tilt into every tare. Fix: switch to `basis=1` (Game Rotation Vector) — accel + gyro only, no magnetometer. Also eliminates Phase 0 (figure-8 mag cal, sensor detached): tare procedure simplified to attach → settle 10 s → tare. See BNO085/decision/004-sensor-calibration.md Bug 4.
+1. **BNO085 re-calibration + correct tare basis** — previous tare used `basis=0` (Rotation Vector), which fuses the magnetometer into the tare reference frame. In the bench environment (near motors, ESCs, metal), `mag_acc=0`, so the BNO085 used an arbitrary heading that baked ~45° of tilt into every tare. Fix: switch to `basis=1` (Game Rotation Vector) — accel + gyro only, no magnetometer. Also eliminates Phase 0 (figure-8 mag cal, sensor detached): tare procedure simplified to attach → settle 10 s → tare. See dependencies/BNO085/decision/004-sensor-calibration.md Bug 4.
 2. **AXIS_CENTER corrected 422 → 411** — encoder zero corrected from tare validation data (offset: `(411−422) × 360/4096 = −0.97°`).
 
 Gains (`kp`, `ki`, `kd`) and all architecture unchanged.
