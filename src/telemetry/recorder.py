@@ -201,5 +201,8 @@ class TelemetryRecorder:
         self._sink.write_crash_log(exc)
 
     def end_session(self):
-        """Flush and close the sink. Call when leaving STABILIZING state (before disarm)."""
-        self._sink.close()
+        """Flush and close the sink. Call after motors are stopped. SD errors are swallowed."""
+        try:
+            self._sink.close()
+        except Exception:
+            pass

@@ -44,19 +44,30 @@ PIN_SD_MOSI    = const(19)
 # =====================================================
 MS_PER_S          = const(1000)  # milliseconds per second — used for ms<->s conversions throughout
 
-PRESPIN_SETTLE_MS = const(5000)  # wait at throttle_min after arming — lets both ESCs finish their start sequence before the ramp begins
-PRESPIN_STEP_MS   = const(100)   # delay between throttle increments during pre-spin ramp
-PRESPIN_DWELL_MS  = const(1000)  # wait after reaching base_throttle before starting the control loop
+GC_INTERVAL_MS = const(800)  # minimum gap between gc.collect() calls in the control loop
+IMU_POLL_US    = const(500)  # yield when update_sensors() returns 0 (no new IMU data)
 
 # =====================================================
 # Hardware
 # =====================================================
-i2c     = I2C(0, scl=Pin(PIN_I2C0_SCL), sda=Pin(PIN_I2C0_SDA), freq=400_000)
+i2c = I2C(0, scl=Pin(PIN_I2C0_SCL), sda=Pin(PIN_I2C0_SDA), freq=400_000)
 encoder = AS5600(i2c=i2c)
 
 def load_config():
     with open("config.json") as f:
         return ujson.load(f)
+
+# =====================================================
+# Time conversion helpers
+# =====================================================
+def ms_to_s(ms):
+    return ms / MS_PER_S
+
+def s_to_ms(s):
+    return int(s * MS_PER_S)
+
+def hz_to_period_ms(hz):
+    return MS_PER_S // hz
 
 # =====================================================
 # State helpers
@@ -68,29 +79,33 @@ def enable_imu_reports(imu, grv_hz, imu_hz):
     imu.gyro.enable(hertz=imu_hz)
 
 def arm_motors(motors, throttle_min):
-    """Green LED, start DShot, arm ESCs, then idle at throttle_min for PRESPIN_SETTLE_MS.
+    """Green LED, start DShot, arm ESCs, then idle at throttle_min.
 
     The settle delay absorbs the 0.25-0.5s ESC start-time stagger so all motors
     reach steady idle before the ramp begins.
     """
+    settle_ms = 5000
     set_led(g=1)
     motors.start()
     motors.arm()
     motors.setAllThrottles([throttle_min, throttle_min, throttle_min, throttle_min])
-    utime.sleep_ms(PRESPIN_SETTLE_MS)
+    utime.sleep_ms(settle_ms)
 
 def prespin_motors(motors, throttle_min, base):
-    """Ramp all motors from throttle_min to base in 10-unit steps, then dwell.
+    """Ramp all motors from throttle_min to base in steps, then dwell.
 
-    10-unit increments every PRESPIN_STEP_MS limit inrush current so the supply
-    stays live through the ramp. PRESPIN_DWELL_MS dwell lets motors reach steady
-    RPM before the control loop opens and applies differential thrust.
+    10-unit increments every 100 ms limit inrush current so the supply stays live
+    through the ramp. 1 s dwell lets motors reach steady RPM before the control
+    loop opens and applies differential thrust.
     """
-    for t in range(throttle_min, base + 10, 10):
+    step_ms       = 100   # delay between throttle increments
+    dwell_ms      = 1000  # wait after reaching base before control loop opens
+    throttle_step = 10    # throttle units added per ramp step
+    for t in range(throttle_min, base + throttle_step, throttle_step):
         v = min(t, base)
         motors.setAllThrottles([v, v, v, v])
-        utime.sleep_ms(PRESPIN_STEP_MS)
-    utime.sleep_ms(PRESPIN_DWELL_MS)
+        utime.sleep_ms(step_ms)
+    utime.sleep_ms(dwell_ms)
 
 def init_session(cfg, sink, dt):
     """Open a recording session and return TelemetryRecorder."""
@@ -101,20 +116,19 @@ def init_session(cfg, sink, dt):
 
 
 def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_ms=None):
-    """Run cascaded PID control loop until B+Y disarm combo or duration_ms elapses.
+    """Run cascaded PID control loop until duration_ms elapses.
 
     Inner (rate) loop runs on sensor data delivery: each iteration calls update_sensors()
     first; if no new report is available the cycle is skipped (500us yield, continue).
     Outer (angle) loop runs every outer_ticks confirmed inner cycles at angle_loop_hz.
-    duration_ms=None means no time constraint — manual stop only.
+    duration_ms=None means run indefinitely — cut power to stop.
     """
     rate_loop_hz  = cfg["vehicle"]["loops"]["rate"]["frequency_hz"]
     angle_loop_hz = cfg["vehicle"]["loops"]["angle"]["frequency_hz"]
-    inner_ms    = MS_PER_S // rate_loop_hz
-    outer_ticks = rate_loop_hz // angle_loop_hz
-    outer_dt = (inner_ms * outer_ticks) / MS_PER_S  # fixed nominal dt — avoids I2C-jitter noise in D term
+    outer_ticks    = rate_loop_hz // angle_loop_hz
+    outer_period_s = outer_ticks / rate_loop_hz  # nominal outer loop period in seconds
     axis_center = cfg["bench"]["encoder"]["axis_center"]
-    feedforward_lead_s = cfg["vehicle"]["feedforward"]["lead_ms"] / MS_PER_S
+    feedforward_lead_s = ms_to_s(cfg["vehicle"]["feedforward"]["lead_ms"])
     setpoint_roll_deg = cfg["session"]["setpoint"]["roll_deg"]
     orientation = cfg["bench"]["sensor_orientation"]
     enc_sign = -1 if orientation["encoder_invert"] else 1
@@ -137,14 +151,14 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
 
         # --- wait for new sensor data ---
         if imu.update_sensors() == 0:
-            utime.sleep_us(500)
+            utime.sleep_us(IMU_POLL_US)
             continue
 
         now_ms = utime.ticks_ms()
         dt_ms = utime.ticks_diff(now_ms, prev_ms)
         prev_ms = now_ms
 
-        dt = dt_ms / MS_PER_S
+        dt_s = ms_to_s(dt_ms)
 
         gx, _gy, _gz = imu.gyro
         # Negate imu_sign: GRV reports position (positive = M1 lower), but the gyroscope
@@ -169,11 +183,11 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
             feedforward_roll = (imu_roll + gyro_x * feedforward_lead_s) - setpoint_roll_deg
             ang_err = feedforward_roll
 
-            rate_setpoint = angle_pid.compute(feedforward_roll, outer_dt)
+            rate_setpoint = angle_pid.compute(feedforward_roll, outer_period_s)
 
         # --- inner loop (every cycle) ---
         rate_error = rate_setpoint - gyro_x
-        output = rate_pid.compute(rate_error, dt, measurement=gyro_x)
+        output = rate_pid.compute(rate_error, dt_s, measurement=gyro_x)
         m1, m2, m3, m4 = mixer.compute(output)
 
         motors.setAllThrottles([m1, m2, m3, m4])
@@ -193,7 +207,7 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
             output, m1, m2, m3, m4
         )
 
-        if is_outer_tick and utime.ticks_diff(now_ms, last_gc_ms) >= 800:
+        if is_outer_tick and utime.ticks_diff(now_ms, last_gc_ms) >= GC_INTERVAL_MS:
             gc.collect()
             last_gc_ms = now_ms
 
@@ -254,8 +268,7 @@ def run():
 
         duration_s = cfg["session"]["duration_s"]
         stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg,
-                  duration_ms=int(duration_s * MS_PER_S) if duration_s is not None else None)
-        set_led(b=1)
+                  duration_ms=s_to_ms(duration_s) if duration_s is not None else None)
 
     except Exception as e:
         set_led(r=1)
@@ -264,12 +277,11 @@ def run():
         raise
 
     finally:
+        if motors is not None:
+            motors.stop()
+            set_led(b=1)
         if telemetry is not None:
             telemetry.end_session()
-        if motors is not None:
-            motors.disarm()
-            motors.stop()
-
 
 if __name__ == '__main__':
     import sys
