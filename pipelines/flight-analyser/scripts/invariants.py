@@ -3,8 +3,8 @@ Telemetry invariants gate -- run after plots, before verdict.
 
 Answers: "Do sign and orientation contracts hold?"
 
-Hard FAILs (I1-I6, I9, I11): sign/validity contracts; a violation makes KPIs meaningless.
-WARNs only  (I7, I8, I10): quality/perf flags; KPIs remain valid even when these fire.
+Hard FAILs: sign/validity contracts; a violation makes KPIs meaningless.
+WARNs only: quality/perf flags; KPIs remain valid even when these fire.
 
 Exit 0 if no hard FAIL; exit 1 if any hard FAIL.
 Writes analysis/invariants.json.
