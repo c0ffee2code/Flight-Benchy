@@ -29,8 +29,9 @@ from flight_data_loader import (  # noqa: E402
 from specification_loader import load_specification  # noqa: E402
 
 
-_MAX_DT_HARD_MS      = 25.0   # hard ceiling for any single inner cycle
 _TIMING_TOLERANCE    = 0.20   # 20% band around expected period
+_P99_DT_FACTOR       = 3.0    # I6: FAIL if p99 dt exceeds this multiple of expected period
+_MAX_DT_WARN_MS      = 25.0   # I6: WARN if any single cycle exceeds this (single spike)
 _MIN_TRANSIENT_N     = 10     # skip I5 if transient shorter than this
 _SAT_WARN_THRESHOLD  = 0.30   # I7: WARN if saturation fraction exceeds this
 _BIAS_WARN_THRESHOLD = 1.5    # I8: WARN if hold-phase RMS exceeds this (deg)
@@ -179,27 +180,42 @@ def _i5(fd, reach_event):
 
 
 def _i6(fd, rate_hz):
-    """I6: Loop timing (FAIL). Median within 20%, max < 25ms."""
-    expected_ms = 1000.0 / rate_hz
-    median_dt   = float(np.median(fd.dt_ms))
-    max_dt      = float(np.max(fd.dt_ms))
-    tol_lo      = expected_ms * (1.0 - _TIMING_TOLERANCE)
-    tol_hi      = expected_ms * (1.0 + _TIMING_TOLERANCE)
-    threshold   = (
-        f"median in [{tol_lo:.1f},{tol_hi:.1f}]ms, max < {_MAX_DT_HARD_MS:.0f}ms"
+    """I6: Loop timing. Median and p99 are FAIL; max spike is WARN.
+
+    p99 catches systematic tail jitter that degrades D-term accuracy.
+    max catches isolated spikes (single GC pause) -- flagged but not blocking.
+    """
+    expected_ms  = 1000.0 / rate_hz
+    median_dt    = float(np.median(fd.dt_ms))
+    p99_dt       = float(np.percentile(fd.dt_ms, 99))
+    max_dt       = float(np.max(fd.dt_ms))
+    tol_lo       = expected_ms * (1.0 - _TIMING_TOLERANCE)
+    tol_hi       = expected_ms * (1.0 + _TIMING_TOLERANCE)
+    p99_ceiling  = expected_ms * _P99_DT_FACTOR
+    threshold    = (
+        f"median in [{tol_lo:.1f},{tol_hi:.1f}]ms, "
+        f"p99 < {p99_ceiling:.1f}ms (FAIL), "
+        f"max < {_MAX_DT_WARN_MS:.0f}ms (WARN)"
     )
-    issues = []
+
+    fail_issues = []
     if not (tol_lo <= median_dt <= tol_hi):
-        issues.append(
+        fail_issues.append(
             f"median dt={median_dt:.1f}ms outside [{tol_lo:.1f},{tol_hi:.1f}]ms "
             f"(expected {expected_ms:.1f}ms for {rate_hz}Hz)"
         )
-    if max_dt >= _MAX_DT_HARD_MS:
-        issues.append(
-            f"max dt={max_dt:.1f}ms >= {_MAX_DT_HARD_MS:.0f}ms ceiling"
+    if p99_dt >= p99_ceiling:
+        fail_issues.append(
+            f"p99 dt={p99_dt:.1f}ms >= {p99_ceiling:.1f}ms ({_P99_DT_FACTOR:.0f}x expected)"
         )
-    if issues:
-        return _fail("loop-timing", round(median_dt, 2), threshold, "; ".join(issues))
+    if fail_issues:
+        return _fail("loop-timing", round(p99_dt, 2), threshold, "; ".join(fail_issues))
+
+    if max_dt >= _MAX_DT_WARN_MS:
+        return _warn("loop-timing", round(max_dt, 2), threshold,
+                     f"max dt={max_dt:.1f}ms >= {_MAX_DT_WARN_MS:.0f}ms "
+                     f"(isolated spike; p99={p99_dt:.1f}ms is clean)")
+
     return _pass("loop-timing", round(median_dt, 2), threshold)
 
 
