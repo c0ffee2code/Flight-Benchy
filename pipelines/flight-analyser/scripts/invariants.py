@@ -98,7 +98,7 @@ def _rms(a):
 # ---------------------------------------------------------------------------
 
 def _i1(fd):
-    """I1: IMU-encoder position agreement (FAIL)."""
+    """IMU-encoder position agreement (FAIL)."""
     c = _pearson(fd.imu_roll, fd.enc_roll)
     threshold = "> +0.95"
     if np.isnan(c):
@@ -112,7 +112,7 @@ def _i1(fd):
 
 
 def _i2(fd):
-    """I2: Gyro rate sign contract (FAIL). Contract: gyro_x = -phi_dot."""
+    """Gyro rate sign contract (FAIL). Contract: gyro_x = -phi_dot."""
     times = fd.t_ms / 1000.0
     # Do not smooth before differentiating here: np.convolve zero-pads boundaries,
     # creating spurious velocity spikes at run edges that corrupt the correlation.
@@ -130,7 +130,7 @@ def _i2(fd):
 
 
 def _i3(fd):
-    """I3: IMU-encoder rate agreement (FAIL)."""
+    """IMU-encoder rate agreement (FAIL)."""
     times = fd.t_ms / 1000.0
     dimu  = _central_diff(_smooth(fd.imu_roll), times)
     denc  = _central_diff(_smooth(fd.enc_roll), times)
@@ -145,7 +145,7 @@ def _i3(fd):
 
 
 def _i4(fd, setpoint):
-    """I4: Angle error convention (FAIL). ang_err should track enc_roll - setpoint."""
+    """Angle error convention (FAIL). ang_err should track enc_roll - setpoint."""
     c         = _pearson(fd.ang_err, fd.enc_roll - setpoint)
     threshold = "> +0.9"
     if np.isnan(c):
@@ -158,7 +158,7 @@ def _i4(fd, setpoint):
 
 
 def _i5(fd, reach_event):
-    """I5: Actuation direction over transient (FAIL). corr(m2-m1, d2(enc)) < 0."""
+    """Actuation direction over transient (FAIL). corr(m2-m1, d2(enc)) < 0."""
     end_idx   = reach_event.start_idx if reach_event is not None else len(fd.enc_roll) // 2
     threshold = "< 0 (transient only)"
     if end_idx < _MIN_TRANSIENT_N:
@@ -180,7 +180,7 @@ def _i5(fd, reach_event):
 
 
 def _i6(fd, rate_hz):
-    """I6: Loop timing. Median and p99 are FAIL; max spike is WARN.
+    """Loop timing. Median and p99 are FAIL; max spike is WARN.
 
     p99 catches systematic tail jitter that degrades D-term accuracy.
     max catches isolated spikes (single GC pause) -- flagged but not blocking.
@@ -220,7 +220,7 @@ def _i6(fd, rate_hz):
 
 
 def _i7(fd, reach_event, hold_window, throttle_min, throttle_max, rate_output_limit):
-    """I7: Saturation report (WARN only)."""
+    """Saturation report (WARN only)."""
     if hold_window is not None:
         start_idx = hold_window.start_idx
         phase     = "hold"
@@ -254,7 +254,7 @@ def _i7(fd, reach_event, hold_window, throttle_min, throttle_max, rate_output_li
 
 
 def _i8(fd, hold_window):
-    """I8: IMU-encoder hold bias (WARN only)."""
+    """IMU-encoder hold bias (WARN only)."""
     threshold = f"rms < {_BIAS_WARN_THRESHOLD}deg (WARN)"
     if hold_window is None:
         return _skip("imu-enc-hold-bias", threshold, "No confirmed hold window.")
@@ -268,7 +268,7 @@ def _i8(fd, hold_window):
 
 
 def _i9(fd, start_angle_deg):
-    """I9: Start angle sign and magnitude agreement (FAIL)."""
+    """Start angle sign and magnitude agreement (FAIL)."""
     first     = float(fd.enc_roll[0])
     same_sign = (
         (first > 1.0  and start_angle_deg > 1.0)
@@ -292,7 +292,7 @@ def _i9(fd, start_angle_deg):
 
 
 def _i10(fd, lead_ms):
-    """I10: Feedforward direction (WARN only). Reports all three RMS variants."""
+    """Feedforward direction (WARN only). Reports all three RMS variants."""
     threshold = "code sign RMS <= no-FF RMS (WARN)"
     if lead_ms is None or lead_ms <= 0:
         return _skip("feedforward-direction", threshold,
@@ -314,7 +314,7 @@ def _i10(fd, lead_ms):
 
 
 def _i11(fd):
-    """I11: Mixer output sign (FAIL). corr(pid_out, m2-m1) > 0.9.
+    """Mixer output sign (FAIL). corr(pid_out, m2-m1) > 0.9.
 
     LeverMixer: m2 = base + pid_out, m1 = base - pid_out, so m2-m1 = 2*pid_out exactly.
     Expected correlation ~1.0. Inverted mixer gives ~-1.0.
