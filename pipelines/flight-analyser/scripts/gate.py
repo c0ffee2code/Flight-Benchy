@@ -145,13 +145,13 @@ def main():
     result = {"passed": True, "checks": checks}
 
     def _fail(name, detail):
-        checks.append({"name": name, "passed": False, "detail": detail})
+        checks.append({"name": name, "status": "FAIL", "detail": detail})
         result["passed"] = False
         _emit(run_dir, result)
         sys.exit(1)
 
     def _pass(name):
-        checks.append({"name": name, "passed": True, "detail": None})
+        checks.append({"name": name, "status": "PASS", "detail": None})
 
     missing = [name for name, path in [
         ("log.csv",            csv_path),

@@ -3,7 +3,7 @@ Telemetry invariants gate -- run after plots, before verdict.
 
 Answers: "Do sign and orientation contracts hold?"
 
-Hard FAILs (I1-I6, I9): sign/validity contracts; a violation makes KPIs meaningless.
+Hard FAILs (I1-I6, I9, I11): sign/validity contracts; a violation makes KPIs meaningless.
 WARNs only  (I7, I8, I10): quality/perf flags; KPIs remain valid even when these fire.
 
 Exit 0 if no hard FAIL; exit 1 if any hard FAIL.
@@ -40,28 +40,28 @@ _BIAS_WARN_THRESHOLD = 1.5    # I8: WARN if hold-phase RMS exceeds this (deg)
 # Result builders
 # ---------------------------------------------------------------------------
 
-def _r(id_, name, result, value, threshold, detail=None):
+def _r(name, status, value, threshold, detail=None):
     return {
-        "id": id_, "name": name, "result": result,
+        "name": name, "status": status,
         "value": round(float(value), 4) if value is not None else None,
         "threshold": threshold, "detail": detail,
     }
 
 
-def _pass(id_, name, value, threshold):
-    return _r(id_, name, "PASS", value, threshold)
+def _pass(name, value, threshold):
+    return _r(name, "PASS", value, threshold)
 
 
-def _fail(id_, name, value, threshold, detail):
-    return _r(id_, name, "FAIL", value, threshold, detail)
+def _fail(name, value, threshold, detail):
+    return _r(name, "FAIL", value, threshold, detail)
 
 
-def _warn(id_, name, value, threshold, detail):
-    return _r(id_, name, "WARN", value, threshold, detail)
+def _warn(name, value, threshold, detail):
+    return _r(name, "WARN", value, threshold, detail)
 
 
-def _skip(id_, name, threshold, detail):
-    return _r(id_, name, "SKIP", None, threshold, detail)
+def _skip(name, threshold, detail):
+    return _r(name, "SKIP", None, threshold, detail)
 
 
 # ---------------------------------------------------------------------------
@@ -101,13 +101,13 @@ def _i1(fd):
     c = _pearson(fd.imu_roll, fd.enc_roll)
     threshold = "> +0.95"
     if np.isnan(c):
-        return _skip("I1", "imu-enc-position-agreement", threshold,
+        return _skip("imu-enc-position-agreement", threshold,
                      "Zero variance -- could not compute.")
     if c <= 0.95:
-        return _fail("I1", "imu-enc-position-agreement", c, threshold,
+        return _fail("imu-enc-position-agreement", c, threshold,
                      f"corr={c:+.3f}; expect > +0.95. "
                      f"Check imu_invert or encoder_invert in config.")
-    return _pass("I1", "imu-enc-position-agreement", c, threshold)
+    return _pass("imu-enc-position-agreement", c, threshold)
 
 
 def _i2(fd):
@@ -120,12 +120,12 @@ def _i2(fd):
     c     = _pearson(fd.gyro_x, denc)
     threshold = "< -0.4"
     if np.isnan(c):
-        return _skip("I2", "gyro-rate-sign", threshold, "Could not compute correlation.")
+        return _skip("gyro-rate-sign", threshold, "Could not compute correlation.")
     if c >= -0.4:
-        return _fail("I2", "gyro-rate-sign", c, threshold,
+        return _fail("gyro-rate-sign", c, threshold,
                      f"corr={c:+.3f}; expect < -0.4. Contract: gyro_x = -phi_dot. "
                      f"Check imu_invert, encoder_invert, or gyro negation in flight.py.")
-    return _pass("I2", "gyro-rate-sign", c, threshold)
+    return _pass("gyro-rate-sign", c, threshold)
 
 
 def _i3(fd):
@@ -136,11 +136,11 @@ def _i3(fd):
     c     = _pearson(dimu, denc)
     threshold = "> +0.5"
     if np.isnan(c):
-        return _skip("I3", "imu-enc-rate-agreement", threshold, "Could not compute correlation.")
+        return _skip("imu-enc-rate-agreement", threshold, "Could not compute correlation.")
     if c <= 0.5:
-        return _fail("I3", "imu-enc-rate-agreement", c, threshold,
+        return _fail("imu-enc-rate-agreement", c, threshold,
                      f"corr={c:+.3f}; expect > +0.5. IMU rate diverges from encoder rate.")
-    return _pass("I3", "imu-enc-rate-agreement", c, threshold)
+    return _pass("imu-enc-rate-agreement", c, threshold)
 
 
 def _i4(fd, setpoint):
@@ -148,12 +148,12 @@ def _i4(fd, setpoint):
     c         = _pearson(fd.ang_err, fd.enc_roll - setpoint)
     threshold = "> +0.9"
     if np.isnan(c):
-        return _skip("I4", "angle-error-convention", threshold, "Could not compute correlation.")
+        return _skip("angle-error-convention", threshold, "Could not compute correlation.")
     if c <= 0.9:
-        return _fail("I4", "angle-error-convention", c, threshold,
+        return _fail("angle-error-convention", c, threshold,
                      f"corr={c:+.3f}; expect > +0.9. "
                      f"Setpoint sign regression (2026-05-02 bug class).")
-    return _pass("I4", "angle-error-convention", c, threshold)
+    return _pass("angle-error-convention", c, threshold)
 
 
 def _i5(fd, reach_event):
@@ -161,7 +161,7 @@ def _i5(fd, reach_event):
     end_idx   = reach_event.start_idx if reach_event is not None else len(fd.enc_roll) // 2
     threshold = "< 0 (transient only)"
     if end_idx < _MIN_TRANSIENT_N:
-        return _skip("I5", "actuation-direction", threshold,
+        return _skip("actuation-direction", threshold,
                      f"Transient only {end_idx} samples (< {_MIN_TRANSIENT_N}).")
     times  = fd.t_ms / 1000.0
     enc_s  = _smooth(fd.enc_roll)
@@ -170,12 +170,12 @@ def _i5(fd, reach_event):
     diff_m = (fd.m2 - fd.m1)[:end_idx]
     c      = _pearson(diff_m, d2enc[:end_idx])
     if np.isnan(c):
-        return _skip("I5", "actuation-direction", threshold, "Could not compute correlation.")
+        return _skip("actuation-direction", threshold, "Could not compute correlation.")
     if c >= 0:
-        return _fail("I5", "actuation-direction", c, threshold,
+        return _fail("actuation-direction", c, threshold,
                      f"corr(m2-m1, d2(enc))={c:+.3f}; expect < 0. "
                      f"Check mixer sign or motor wiring.")
-    return _pass("I5", "actuation-direction", c, threshold)
+    return _pass("actuation-direction", c, threshold)
 
 
 def _i6(fd, rate_hz):
@@ -199,8 +199,8 @@ def _i6(fd, rate_hz):
             f"max dt={max_dt:.1f}ms >= {_MAX_DT_HARD_MS:.0f}ms ceiling"
         )
     if issues:
-        return _fail("I6", "loop-timing", round(median_dt, 2), threshold, "; ".join(issues))
-    return _pass("I6", "loop-timing", round(median_dt, 2), threshold)
+        return _fail("loop-timing", round(median_dt, 2), threshold, "; ".join(issues))
+    return _pass("loop-timing", round(median_dt, 2), threshold)
 
 
 def _i7(fd, reach_event, hold_window, throttle_min, throttle_max, rate_output_limit):
@@ -222,7 +222,7 @@ def _i7(fd, reach_event, hold_window, throttle_min, throttle_max, rate_output_li
     threshold = f"< {_SAT_WARN_THRESHOLD:.0%} (WARN)"
 
     if n == 0:
-        return _skip("I7", "saturation-report", threshold, "Empty window.")
+        return _skip("saturation-report", threshold, "Empty window.")
 
     pid_sat = float(np.mean(np.abs(pid_out) >= rate_output_limit * 0.99))
     m1_sat  = float(np.mean((m1 >= throttle_max * 0.99) | (m1 <= throttle_min * 1.01)))
@@ -233,22 +233,22 @@ def _i7(fd, reach_event, hold_window, throttle_min, throttle_max, rate_output_li
         f"({phase}, {n} samples)"
     )
     if max_sat > _SAT_WARN_THRESHOLD:
-        return _warn("I7", "saturation-report", round(max_sat, 4), threshold, detail)
-    return _pass("I7", "saturation-report", round(max_sat, 4), threshold)
+        return _warn("saturation-report", round(max_sat, 4), threshold, detail)
+    return _pass("saturation-report", round(max_sat, 4), threshold)
 
 
 def _i8(fd, hold_window):
     """I8: IMU-encoder hold bias (WARN only)."""
     threshold = f"rms < {_BIAS_WARN_THRESHOLD}deg (WARN)"
     if hold_window is None:
-        return _skip("I8", "imu-enc-hold-bias", threshold, "No confirmed hold window.")
+        return _skip("imu-enc-hold-bias", threshold, "No confirmed hold window.")
     diff    = fd.imu_roll[hold_window.start_idx:] - fd.enc_roll[hold_window.start_idx:]
     rms_val = _rms(diff)
     bias    = float(np.mean(diff))
     detail  = f"rms={rms_val:.3f}deg, bias={bias:+.3f}deg ({len(diff)} samples in hold)"
     if rms_val > _BIAS_WARN_THRESHOLD:
-        return _warn("I8", "imu-enc-hold-bias", round(rms_val, 4), threshold, detail)
-    return _pass("I8", "imu-enc-hold-bias", round(rms_val, 4), threshold)
+        return _warn("imu-enc-hold-bias", round(rms_val, 4), threshold, detail)
+    return _pass("imu-enc-hold-bias", round(rms_val, 4), threshold)
 
 
 def _i9(fd, start_angle_deg):
@@ -271,8 +271,30 @@ def _i9(fd, start_angle_deg):
             f"enc[0]={first:+.1f}deg outside start_angle={start_angle_deg:+.1f}deg +/-10deg"
         )
     if issues:
-        return _fail("I9", "start-angle-sign", round(first, 2), threshold, "; ".join(issues))
-    return _pass("I9", "start-angle-sign", round(first, 2), threshold)
+        return _fail("start-angle-sign", round(first, 2), threshold, "; ".join(issues))
+    return _pass("start-angle-sign", round(first, 2), threshold)
+
+
+def _i10(fd, lead_ms):
+    """I10: Feedforward direction (WARN only). Reports all three RMS variants."""
+    threshold = "code sign RMS <= no-FF RMS (WARN)"
+    if lead_ms is None or lead_ms <= 0:
+        return _skip("feedforward-direction", threshold,
+                     "feedforward_lead_ms not set or zero.")
+    lead_s        = lead_ms / 1000.0
+    rms_no_ff     = _rms(fd.imu_roll - fd.enc_roll)
+    rms_code_sign = _rms(fd.imu_roll + fd.gyro_x * lead_s - fd.enc_roll)
+    rms_flip_sign = _rms(fd.imu_roll - fd.gyro_x * lead_s - fd.enc_roll)
+    detail        = (
+        f"no-FF={rms_no_ff:.4f}, code(+)={rms_code_sign:.4f}, "
+        f"flip(-)={rms_flip_sign:.4f} deg"
+    )
+    if rms_code_sign > rms_no_ff:
+        return _warn("feedforward-direction", round(rms_code_sign, 4), threshold,
+                     detail + ". Code sign (+) makes estimate worse. "
+                     "See F1 in REVIEW-2026-06-10. "
+                     "Fix: change (+) to (-) in feedforward_roll in flight.py.")
+    return _pass("feedforward-direction", round(rms_code_sign, 4), threshold)
 
 
 def _i11(fd):
@@ -285,35 +307,13 @@ def _i11(fd):
     c         = _pearson(fd.pid_out, fd.m2 - fd.m1)
     threshold = "> +0.9"
     if np.isnan(c):
-        return _skip("I11", "mixer-output-sign", threshold, "Could not compute correlation.")
+        return _skip("mixer-output-sign", threshold, "Could not compute correlation.")
     if c <= 0.9:
-        return _fail("I11", "mixer-output-sign", c, threshold,
+        return _fail("mixer-output-sign", c, threshold,
                      f"corr(pid_out, m2-m1)={c:+.3f}; expect > +0.9. "
                      f"Correct LeverMixer gives ~+1.0; inverted mixer gives ~-1.0. "
                      f"Check mixer.py sign or motor wiring.")
-    return _pass("I11", "mixer-output-sign", c, threshold)
-
-
-def _i10(fd, lead_ms):
-    """I10: Feedforward direction (WARN only). Reports all three RMS variants."""
-    threshold = "code sign RMS <= no-FF RMS (WARN)"
-    if lead_ms is None or lead_ms <= 0:
-        return _skip("I10", "feedforward-direction", threshold,
-                     "feedforward_lead_ms not set or zero.")
-    lead_s        = lead_ms / 1000.0
-    rms_no_ff     = _rms(fd.imu_roll - fd.enc_roll)
-    rms_code_sign = _rms(fd.imu_roll + fd.gyro_x * lead_s - fd.enc_roll)
-    rms_flip_sign = _rms(fd.imu_roll - fd.gyro_x * lead_s - fd.enc_roll)
-    detail        = (
-        f"no-FF={rms_no_ff:.4f}, code(+)={rms_code_sign:.4f}, "
-        f"flip(-)={rms_flip_sign:.4f} deg"
-    )
-    if rms_code_sign > rms_no_ff:
-        return _warn("I10", "feedforward-direction", round(rms_code_sign, 4), threshold,
-                     detail + ". Code sign (+) makes estimate worse. "
-                     "See F1 in REVIEW-2026-06-10. "
-                     "Fix: change (+) to (-) in feedforward_roll in flight.py.")
-    return _pass("I10", "feedforward-direction", round(rms_code_sign, 4), threshold)
+    return _pass("mixer-output-sign", c, threshold)
 
 
 # ---------------------------------------------------------------------------
@@ -350,8 +350,8 @@ def main():
         _i11(fd),
     ]
 
-    any_fail = any(r["result"] == "FAIL" for r in results)
-    any_warn = any(r["result"] == "WARN" for r in results)
+    any_fail = any(r["status"] == "FAIL" for r in results)
+    any_warn = any(r["status"] == "WARN" for r in results)
 
     output = {
         "passed":    not any_fail,
@@ -365,13 +365,13 @@ def main():
     out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
 
     if any_fail:
-        fail_ids = [r["id"] for r in results if r["result"] == "FAIL"]
-        print(f"FAIL -- {', '.join(fail_ids)} -- wrote {out_path}")
+        fail_names = [r["name"] for r in results if r["status"] == "FAIL"]
+        print(f"FAIL -- {', '.join(fail_names)} -- wrote {out_path}")
         sys.exit(1)
 
     if any_warn:
-        warn_ids = [r["id"] for r in results if r["result"] == "WARN"]
-        print(f"WARN -- {', '.join(warn_ids)} -- wrote {out_path}")
+        warn_names = [r["name"] for r in results if r["status"] == "WARN"]
+        print(f"WARN -- {', '.join(warn_names)} -- wrote {out_path}")
     else:
         print(f"PASS -- wrote {out_path}")
     sys.exit(0)
