@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 SCRIPTS = Path(__file__).parent / "scripts"
-STAGES = ["gate", "plots", "verdict", "diagnose", "report"]
+STAGES = ["gate", "plots", "invariants", "verdict", "diagnose", "report"]
 
 
 def _error_summary(r):

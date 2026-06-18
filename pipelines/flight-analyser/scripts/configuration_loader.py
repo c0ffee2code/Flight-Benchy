@@ -15,10 +15,11 @@ from pathlib import Path
 
 @dataclass
 class PidConfig:
-    kp:          float
-    ki:          float
-    kd:          float
-    iterm_limit: float
+    kp:           float
+    ki:           float
+    kd:           float
+    iterm_limit:  float
+    output_limit: float
 
 
 @dataclass
@@ -73,6 +74,7 @@ def _load_pid(pid_raw) -> PidConfig:
         ki=float(_req(pid_raw, "ki")),
         kd=float(_req(pid_raw, "kd")),
         iterm_limit=float(_req(pid_raw, "iterm_limit")),
+        output_limit=float(_req(pid_raw, "output_limit")),
     )
 
 def _load_loop(loop_raw) -> LoopConfig:
