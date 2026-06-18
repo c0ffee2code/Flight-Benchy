@@ -275,6 +275,25 @@ def _i9(fd, start_angle_deg):
     return _pass("I9", "start-angle-sign", round(first, 2), threshold)
 
 
+def _i11(fd):
+    """I11: Mixer output sign (FAIL). corr(pid_out, m2-m1) > 0.9.
+
+    LeverMixer: m2 = base + pid_out, m1 = base - pid_out, so m2-m1 = 2*pid_out exactly.
+    Expected correlation ~1.0. Inverted mixer gives ~-1.0.
+    Catches software mixer sign inversion -- the one root cause not covered by I1-I10.
+    """
+    c         = _pearson(fd.pid_out, fd.m2 - fd.m1)
+    threshold = "> +0.9"
+    if np.isnan(c):
+        return _skip("I11", "mixer-output-sign", threshold, "Could not compute correlation.")
+    if c <= 0.9:
+        return _fail("I11", "mixer-output-sign", c, threshold,
+                     f"corr(pid_out, m2-m1)={c:+.3f}; expect > +0.9. "
+                     f"Correct LeverMixer gives ~+1.0; inverted mixer gives ~-1.0. "
+                     f"Check mixer.py sign or motor wiring.")
+    return _pass("I11", "mixer-output-sign", c, threshold)
+
+
 def _i10(fd, lead_ms):
     """I10: Feedforward direction (WARN only). Reports all three RMS variants."""
     threshold = "code sign RMS <= no-FF RMS (WARN)"
@@ -328,6 +347,7 @@ def main():
         _i8(fd, hold_window),
         _i9(fd, cfg.start_angle_deg),
         _i10(fd, cfg.feedforward_lead_ms),
+        _i11(fd),
     ]
 
     any_fail = any(r["result"] == "FAIL" for r in results)

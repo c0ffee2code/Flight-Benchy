@@ -38,13 +38,6 @@ Checks (run in order):
                 (std < 3deg) AND motor differential is active (mean |M2-M1| > 20).
                 Exits immediately — pipeline stops.
 
-  loop-meltdown Inner rate loop running in positive feedback.
-                Signature: encoder traverses near-full mechanical range (>90deg)
-                AND IMU persistently lags encoder direction (trail >40% of moving
-                samples). Both conditions must fire to avoid false-positives from
-                hard-slam startups that overshoot but then hold cleanly.
-                Exits immediately — pipeline stops.
-
   sample-rate-jitter Loop timing jitter is severe enough to degrade KPI accuracy.
                 Signature: dt_p99 > 5x median dt.
                 Exits immediately — pipeline stops.
@@ -70,9 +63,6 @@ _START_TOLERANCE_DEG     = 10.0
 _POWER_CUT_FLAT_STD_DEG  = 3.0
 _POWER_CUT_ACTIVE_DIFF   = 20.0
 _POWER_CUT_GRAVITY_MARGIN_DEG = 5.0   # if lever is held this far below gravity resting pos, ESCs have authority
-
-# Loop-meltdown thresholds — both must fire
-_LOOP_MELTDOWN_ENC_RANGE_DEG = 90.0
 
 # Sample-rate jitter threshold
 _SAMPLE_RATE_JITTER_FACTOR   = 5.0
@@ -113,19 +103,6 @@ def check_power_cut(rows, setpoint, tolerance_deg, start_angle_deg):
         )
     return None
 
-
-def check_loop_meltdown(rows):
-    """Return detail string on detection, None if clean."""
-    enc = [float(r["ENC_ROLL"]) for r in rows]
-
-    enc_range = max(enc) - min(enc)
-
-    if enc_range > _LOOP_MELTDOWN_ENC_RANGE_DEG:
-        return (
-            f"encoder range={enc_range:.1f}deg (>{_LOOP_MELTDOWN_ENC_RANGE_DEG:.0f}deg). "
-            f"Rate loop in positive feedback -- check sensor_orientation in config."
-        )
-    return None
 
 
 def check_sample_rate(rows):
@@ -204,9 +181,8 @@ def main():
     result["n_samples"]   = len(rows)
 
     for name, detail_fn in [
-        ("start-angle",   lambda: check_start_angle(rows, cfg.start_angle_deg)),
-        ("power-cut",     lambda: check_power_cut(rows, setpoint, spec.tolerance_deg, cfg.start_angle_deg)),
-        ("loop-meltdown", lambda: check_loop_meltdown(rows)),
+        ("start-angle",        lambda: check_start_angle(rows, cfg.start_angle_deg)),
+        ("power-cut",          lambda: check_power_cut(rows, setpoint, spec.tolerance_deg, cfg.start_angle_deg)),
         ("sample-rate-jitter", lambda: check_sample_rate(rows)),
     ]:
         detail = detail_fn()
