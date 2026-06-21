@@ -1,6 +1,5 @@
 from micropython import const
 from machine import I2C, Pin
-from math import degrees, atan2
 import utime
 import ujson
 import gc
@@ -10,10 +9,9 @@ from bno08x import BNO08X
 from i2c import BNO08X_I2C
 from motor_throttle_group import MotorThrottleGroup
 from dshot_pio import DSHOT_SPEEDS
-from pid import PID
+from core.control import ControlCore
 from recorder import TelemetryRecorder, SdSink
 from pcf8523 import PCF8523
-from mixer import LeverMixer
 from ui import set_led
 
 # =====================================================
@@ -115,7 +113,7 @@ def init_session(cfg, sink, dt):
     return telemetry
 
 
-def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_ms=None):
+def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
     """Run cascaded PID control loop until duration_ms elapses.
 
     Inner (rate) loop runs on sensor data delivery: each iteration calls update_sensors()
@@ -123,91 +121,47 @@ def stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg, duration_
     Outer (angle) loop runs every outer_ticks confirmed inner cycles at angle_loop_hz.
     duration_ms=None means run indefinitely — cut power to stop.
     """
-    rate_loop_hz  = cfg["vehicle"]["loops"]["rate"]["frequency_hz"]
-    angle_loop_hz = cfg["vehicle"]["loops"]["angle"]["frequency_hz"]
-    outer_ticks    = rate_loop_hz // angle_loop_hz
-    outer_period_s = outer_ticks / rate_loop_hz  # nominal outer loop period in seconds
     axis_center = cfg["bench"]["encoder"]["axis_center"]
-    feedforward_lead_s = ms_to_s(cfg["vehicle"]["feedforward"]["lead_ms"])
-    setpoint_roll_deg = cfg["session"]["setpoint"]["roll_deg"]
-    orientation = cfg["bench"]["sensor_orientation"]
-    enc_sign = -1 if orientation["encoder_invert"] else 1
-    imu_sign = -1 if orientation["imu_invert"] else 1
+    enc_sign    = -1 if cfg["bench"]["sensor_orientation"]["encoder_invert"] else 1
 
-    # Seed initial quaternion so telemetry has valid values before first outer tick
-    imu.update_sensors()
-    iqr, iqi, iqj, iqk, _acc, _ts = imu.game_quaternion.full
+    imu.update_sensors()  # flush initial packets
     run_start_ms = utime.ticks_ms()
-    prev_ms = run_start_ms
+    prev_ms      = run_start_ms
+    last_gc_ms   = run_start_ms
 
-    outer_counter = 0
-    rate_setpoint = 0.0
-    ang_err = 0.0  # holds last outer-loop angle error for telemetry
-
-    last_gc_ms = utime.ticks_ms()
     while True:
         if duration_ms is not None and utime.ticks_diff(utime.ticks_ms(), run_start_ms) >= duration_ms:
             break
 
-        # --- wait for new sensor data ---
         if imu.update_sensors() == 0:
             utime.sleep_us(IMU_POLL_US)
             continue
 
         now_ms = utime.ticks_ms()
-        dt_ms = utime.ticks_diff(now_ms, prev_ms)
+        dt_ms  = utime.ticks_diff(now_ms, prev_ms)
         prev_ms = now_ms
 
-        dt_s = ms_to_s(dt_ms)
+        gx, _gy, _gz  = imu.gyro
+        iqr, iqi, iqj, iqk = imu.game_quaternion
 
-        gx, _gy, _gz = imu.gyro
-        # Negate imu_sign: GRV reports position (positive = M1 lower), but the gyroscope
-        # reports velocity (dA/dt < 0 when falling toward M2-down). The outer loop issues
-        # a positive rate_setpoint when M1 needs to descend, so gyro_x must be positive
-        # when the lever IS descending — opposite to raw_gx. If the IMU is physically
-        # flipped (imu_sign = −1), raw_gx also flips, so -imu_sign stays correct.
-        gyro_x = -imu_sign * degrees(gx)
-
-        # --- outer loop (every outer_ticks cycles) ---
-        outer_counter += 1
-        is_outer_tick = outer_counter >= outer_ticks
-        if is_outer_tick:
-            outer_counter = 0
-
-            iqr, iqi, iqj, iqk = imu.game_quaternion
-            imu_roll = imu_sign * degrees(2.0 * atan2(iqi, iqr))
-
-            # Feedforward: predict where the lever will be in feedforward_lead_s seconds
-            # to compensate GRV filter lag. All signals are in encoder convention
-            # (positive = M1 lower), so the error is simply predicted_angle - setpoint.
-            feedforward_roll = (imu_roll + gyro_x * feedforward_lead_s) - setpoint_roll_deg
-            ang_err = feedforward_roll
-
-            rate_setpoint = angle_pid.compute(feedforward_roll, outer_period_s)
-
-        # --- inner loop (every cycle) ---
-        rate_error = rate_setpoint - gyro_x
-        output = rate_pid.compute(rate_error, dt_s, measurement=gyro_x)
-        m1, m2, m3, m4 = mixer.compute(output)
-
+        m1, m2, m3, m4 = core.step(iqr, iqi, iqj, iqk, gx, ms_to_s(dt_ms))
         motors.setAllThrottles([m1, m2, m3, m4])
 
-        # --- encoder (read at inner rate for telemetry) ---
         enc_angle = enc_sign * to_degrees(encoder.read_raw_angle(), axis_center)
 
         telemetry.record(
             now_ms, dt_ms,
             enc_angle,
             iqr, iqi, iqj, iqk,
-            gyro_x,
-            ang_err,
-            angle_pid.last_p, angle_pid.last_i, angle_pid.last_d,
-            rate_setpoint,
-            rate_error, rate_pid.last_p, rate_pid.last_i, rate_pid.last_d,
-            output, m1, m2, m3, m4
+            core.last_gyro_x,
+            core.last_ang_err,
+            core.angle_pid.last_p, core.angle_pid.last_i, core.angle_pid.last_d,
+            core.last_rate_setpoint,
+            core.last_rate_error, core.rate_pid.last_p, core.rate_pid.last_i, core.rate_pid.last_d,
+            core.last_output, m1, m2, m3, m4,
         )
 
-        if is_outer_tick and utime.ticks_diff(now_ms, last_gc_ms) >= GC_INTERVAL_MS:
+        if core.last_is_outer and utime.ticks_diff(now_ms, last_gc_ms) >= GC_INTERVAL_MS:
             gc.collect()
             last_gc_ms = now_ms
 
@@ -230,27 +184,7 @@ def run():
         )
         telemetry = init_session(cfg, sd_sink, rtc.datetime())
 
-        apid = cfg["vehicle"]["loops"]["angle"]["pid"]
-        rpid = cfg["vehicle"]["loops"]["rate"]["pid"]
-        angle_pid = PID(
-            kp=apid["kp"],
-            ki=apid["ki"],
-            kd=apid["kd"],
-            iterm_limit=apid["iterm_limit"],
-            output_limit=apid["output_limit"],
-        )
-        rate_pid = PID(
-            kp=rpid["kp"],
-            ki=rpid["ki"],
-            kd=rpid["kd"],
-            iterm_limit=rpid["iterm_limit"],
-            output_limit=rpid["output_limit"],
-        )
-        mixer = LeverMixer(
-            throttle_base=cfg["vehicle"]["motor"]["base_throttle"],
-            throttle_min=cfg["vehicle"]["motor"]["throttle_min"],
-            throttle_max=cfg["vehicle"]["motor"]["throttle_max"],
-        )
+        core = ControlCore(cfg)
         motors = MotorThrottleGroup(
             [Pin(PIN_MOTOR1), Pin(PIN_MOTOR2), Pin(PIN_MOTOR3), Pin(PIN_MOTOR4)],
             DSHOT_SPEEDS.DSHOT600,
@@ -265,9 +199,13 @@ def run():
         enable_imu_reports(imu, cfg["vehicle"]["loops"]["angle"]["frequency_hz"], cfg["vehicle"]["loops"]["rate"]["frequency_hz"])
         arm_motors(motors, cfg["vehicle"]["motor"]["throttle_min"])
         prespin_motors(motors, cfg["vehicle"]["motor"]["throttle_min"], cfg["vehicle"]["motor"]["base_throttle"])
-
         duration_s = cfg["session"]["duration_s"]
-        stabilize(angle_pid, rate_pid, mixer, motors, telemetry, imu, cfg,
+
+        stabilize(core,
+                  motors,
+                  telemetry,
+                  imu,
+                  cfg,
                   duration_ms=s_to_ms(duration_s) if duration_s is not None else None)
 
     except Exception as e:

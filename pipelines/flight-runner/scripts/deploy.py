@@ -21,8 +21,10 @@ ROOT     = Path(__file__).resolve().parents[3]
 SOURCE_FILES = [
     ("src/main.py",                          "main.py"),
     ("src/flight.py",                        "flight.py"),
-    ("src/pid.py",                           "pid.py"),
-    ("src/mixer.py",                         "mixer.py"),
+    ("src/core/__init__.py",                 "core/__init__.py"),
+    ("src/core/control.py",                  "core/control.py"),
+    ("src/core/pid.py",                      "core/pid.py"),
+    ("src/core/mixer.py",                    "core/mixer.py"),
     ("src/ui.py",                            "ui.py"),
     ("src/telemetry/recorder.py",            "recorder.py"),
     ("dependencies/PCF8523/src/pcf8523.py",               "pcf8523.py"),
@@ -38,6 +40,14 @@ CONFIG_FILES = [
     ("src/config.json",        "config.json"),
     ("src/specification.json", "specification.json"),
 ]
+
+
+def _ensure_core_dir():
+    """Create :core/ on the Pico if it does not exist (ignore error if it does)."""
+    subprocess.run(
+        [PYTHON, "-m", "mpremote", "connect", COM_PORT, "fs", "mkdir", ":core"],
+        capture_output=True, timeout=10,
+    )
 
 
 def _upload(local_rel, remote_name):
@@ -62,6 +72,8 @@ def main():
     mode = "full deploy" if full else "config only"
 
     print(f"Deploying to Pico on {COM_PORT} ({mode})...")
+    if full:
+        _ensure_core_dir()
     ok = sum(_upload(loc, rem) for loc, rem in files)
     failed = len(files) - ok
 

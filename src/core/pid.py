@@ -23,7 +23,8 @@ class PID:
         changes, which matters for the inner rate loop when rate_setpoint steps each outer tick.
         On the first call after reset, D is zero regardless.
         """
-        self._integral += error * dt
+        if self.ki:
+            self._integral += error * dt
         if self._integral > self.iterm_limit:
             self._integral = self.iterm_limit
         elif self._integral < -self.iterm_limit:

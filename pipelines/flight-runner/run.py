@@ -51,7 +51,16 @@ def main():
     fill_overhead_s = preallocate_bytes // 150_000  # measured ~218 KB/s at 25MHz SPI; 150 KB/s is conservative floor
     flight_timeout = int(duration_s) + 30 + fill_overhead_s
 
-    # Step 1: check config
+    # Step 1: run tests
+    r = subprocess.run(
+        ["python", "-m", "pytest", "tests/", "-q", "--tb=short"],
+        capture_output=True, text=True,
+    )
+    sys.stderr.write(r.stdout); sys.stderr.write(r.stderr)
+    if r.returncode != 0:
+        _fail("tests", error_summary=_error_summary(r))
+
+    # Step 2: check config
     r = subprocess.run(
         ["python", str(SCRIPTS / "check_config.py")],
         capture_output=True, text=True,
@@ -60,7 +69,7 @@ def main():
     if r.returncode != 0:
         _fail("check_config", error_summary=_error_summary(r))
 
-    # Step 2: reset position
+    # Step 3: reset position
     r = subprocess.run(
         ["python", "-m", "mpremote", "connect", COM_PORT, "run",
          str(SCRIPTS / "reset_position.py")],
@@ -72,7 +81,7 @@ def main():
               error_summary=_error_summary(r) or "reset did not confirm Done",
               rig_state="needs_human")
 
-    # Step 3: deploy config
+    # Step 4: deploy config
     r = subprocess.run(
         ["python", str(SCRIPTS / "deploy.py")],
         capture_output=True, text=True,
@@ -84,7 +93,7 @@ def main():
     # Snapshot before flight
     before = _snapshot()
 
-    # Step 4: run flight
+    # Step 5: run flight
     try:
         r = subprocess.run(
             ["python", "-m", "mpremote", "connect", COM_PORT, "run", "src/flight.py"],
@@ -96,7 +105,7 @@ def main():
     if r.returncode != 0 or "Traceback" in r.stdout or "Traceback" in r.stderr:
         _fail("run", error_summary=_error_summary(r) or "flight.py failed")
 
-    # Step 5: pull telemetry
+    # Step 6: pull telemetry
     r = subprocess.run(
         ["python", str(SCRIPTS / "pull_flights.py")],
         capture_output=True, text=True,
