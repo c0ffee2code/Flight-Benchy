@@ -3,6 +3,22 @@ from math import degrees, atan2
 from core.pid import PID
 from core.mixer import LeverMixer
 
+
+def assert_motor_range(base, output_limit, throttle_min, throttle_max):
+    """Raise ValueError if base +/- output_limit falls outside [throttle_min, throttle_max].
+
+    Called at ControlCore init time so config errors surface before any motor movement.
+    """
+    if base + output_limit > throttle_max:
+        raise ValueError(
+            "Config: base_throttle({}) + output_limit({}) > throttle_max({})".format(
+                base, output_limit, throttle_max))
+    if base - output_limit < throttle_min:
+        raise ValueError(
+            "Config: base_throttle({}) - output_limit({}) < throttle_min({})".format(
+                base, output_limit, throttle_min))
+
+
 class ControlCore:
     """Hardware-free cascaded PID control logic for the lever bench.
 
@@ -39,6 +55,13 @@ class ControlCore:
         self._ff_sign    = ff_sign
         self._err_sign   = err_sign
         self._mixer_sign = mixer_sign
+
+        rate_output_limit = rpid_cfg.get("output_limit")
+        if rate_output_limit is not None:
+            assert_motor_range(
+                motor_cfg["base_throttle"], rate_output_limit,
+                motor_cfg["throttle_min"], motor_cfg["throttle_max"],
+            )
 
         self.angle_pid = PID(
             kp=apid_cfg["kp"],
@@ -104,3 +127,4 @@ class ControlCore:
         self.last_is_outer      = is_outer
 
         return m1, m2, m3, m4
+

@@ -1,0 +1,83 @@
+{
+  "passed": false,
+  "flight_id": "2026-06-23_21-59-35",
+  "invariants": [
+    {
+      "name": "imu-enc-position-agreement",
+      "status": "PASS",
+      "value": 0.981,
+      "threshold": "> +0.95",
+      "detail": null
+    },
+    {
+      "name": "gyro-rate-sign",
+      "status": "FAIL",
+      "value": 0.052,
+      "threshold": "< -0.4",
+      "detail": "corr=+0.052; expect < -0.4. Contract: gyro_x = -phi_dot. Check imu_invert, encoder_invert, or gyro negation in flight.py."
+    },
+    {
+      "name": "imu-enc-rate-agreement",
+      "status": "PASS",
+      "value": 0.994,
+      "threshold": "> +0.5",
+      "detail": null
+    },
+    {
+      "name": "angle-error-convention",
+      "status": "PASS",
+      "value": 0.9739,
+      "threshold": "> +0.9",
+      "detail": null
+    },
+    {
+      "name": "actuation-direction",
+      "status": "FAIL",
+      "value": 0.0019,
+      "threshold": "< 0 (transient only)",
+      "detail": "corr(m2-m1, d2(enc))=+0.002; expect < 0. Check mixer sign or motor wiring."
+    },
+    {
+      "name": "loop-timing",
+      "status": "WARN",
+      "value": 30.0,
+      "threshold": "median in [2.7,4.0]ms, p99 < 10.0ms (FAIL), max < 25ms (WARN)",
+      "detail": "max dt=30.0ms >= 25ms (isolated spike; p99=6.0ms is clean)"
+    },
+    {
+      "name": "saturation-report",
+      "status": "PASS",
+      "value": 0.0,
+      "threshold": "< 30% (WARN)",
+      "detail": null
+    },
+    {
+      "name": "imu-enc-hold-bias",
+      "status": "PASS",
+      "value": 1.1189,
+      "threshold": "rms < 1.5deg (WARN)",
+      "detail": null
+    },
+    {
+      "name": "start-angle-sign",
+      "status": "PASS",
+      "value": 50.8,
+      "threshold": "same sign and within 10deg of config start_angle_deg",
+      "detail": null
+    },
+    {
+      "name": "feedforward-direction",
+      "status": "WARN",
+      "value": 1.6098,
+      "threshold": "code sign RMS <= no-FF RMS (WARN)",
+      "detail": "no-FF=1.5235, code(+)=1.6098, flip(-)=1.4792 deg. Code sign (+) makes estimate worse. See F1 in REVIEW-2026-06-10. Fix: change (+) to (-) in feedforward_roll in flight.py."
+    },
+    {
+      "name": "mixer-output-sign",
+      "status": "PASS",
+      "value": 0.9997,
+      "threshold": "> +0.9",
+      "detail": null
+    }
+  ]
+}

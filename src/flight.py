@@ -42,8 +42,12 @@ PIN_SD_MOSI    = const(19)
 # =====================================================
 MS_PER_S          = const(1000)  # milliseconds per second — used for ms<->s conversions throughout
 
-GC_INTERVAL_MS = const(800)  # minimum gap between gc.collect() calls in the control loop
-IMU_POLL_US    = const(500)  # yield when update_sensors() returns 0 (no new IMU data)
+GC_INTERVAL_MS     = const(800)   # minimum gap between gc.collect() calls in the control loop
+IMU_POLL_US        = const(500)   # yield when update_sensors() returns 0 (no new IMU data)
+IMU_STALE_MS       = const(100)   # ms without any IMU packet before aborting
+CTRL_DIR_TRIP_TICKS   = const(50)   # outer ticks saturated+diverging before abort (~0.5s at 100Hz)
+SENSOR_COH_WARMUP_TICKS = const(200) # outer ticks before coherence fuse activates (~2s at 100Hz)
+SENSOR_COH_THRESHOLD    = const(300) # coherence accumulator trip value (positive = wrong signs)
 
 # =====================================================
 # Hardware
@@ -112,6 +116,71 @@ def init_session(cfg, sink, dt):
     telemetry.begin_session()
     return telemetry
 
+class FuseImuStaleness:
+    """Raises RuntimeError if no IMU packet arrives within stale_ms milliseconds."""
+
+    def __init__(self, stale_ms):
+        self.stale_ms = stale_ms
+        self.last_packet_ms = utime.ticks_ms()
+
+    def on_packet(self, now_ms):
+        self.last_packet_ms = now_ms
+
+    def check(self):
+        if utime.ticks_diff(utime.ticks_ms(), self.last_packet_ms) > self.stale_ms:
+            raise RuntimeError("FuseImuStaleness: no packet for >{}ms".format(self.stale_ms))
+
+
+class FuseControlDirection:
+    """Raises RuntimeError if error diverges while angle PID output is saturated.
+
+    Saturated output that fails to shrink the error means the control direction is wrong:
+    inverted sign, disconnected motor, or severely detuned gains.
+    """
+
+    def __init__(self, output_limit, trip_ticks):
+        self.output_limit = output_limit
+        self.trip_ticks   = trip_ticks
+        self.counter      = 0
+        self.prev_err     = 0.0
+
+    def update(self, rate_setpoint, ang_err_abs):
+        if self.output_limit and abs(rate_setpoint) >= self.output_limit:
+            if ang_err_abs >= self.prev_err:
+                self.counter += 1
+            else:
+                self.counter = 0
+            if self.counter >= self.trip_ticks:
+                raise RuntimeError("FuseControlDirection: error diverging under saturated output")
+        else:
+            self.counter = 0
+        self.prev_err = ang_err_abs
+
+
+class FuseSensorCoherence:
+    """Raises RuntimeError if gyro and encoder rate signs are incoherent.
+
+    Under the correct sign contract gyro_x = -phi_dot, so gyro_x * delta_enc <= 0 always.
+    A positive accumulator beyond threshold means one of the signs is flipped.
+    """
+
+    def __init__(self, warmup_ticks, threshold):
+        self.warmup_ticks = warmup_ticks
+        self.threshold    = threshold
+        self.warmup       = 0
+        self.acc_sum      = 0.0
+        self.prev_enc     = 0.0
+
+    def update(self, gyro_x, enc_angle):
+        if self.warmup < self.warmup_ticks:
+            self.warmup += 1
+            self.prev_enc = enc_angle
+            return
+        self.acc_sum += gyro_x * (enc_angle - self.prev_enc)
+        self.prev_enc = enc_angle
+        if self.acc_sum > self.threshold:
+            raise RuntimeError("FuseSensorCoherence: gyro/encoder sign mismatch (sum={:.0f})".format(self.acc_sum))
+
 
 def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
     """Run cascaded PID control loop until duration_ms elapses.
@@ -129,15 +198,21 @@ def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
     prev_ms      = run_start_ms
     last_gc_ms   = run_start_ms
 
+    imu_stale  = FuseImuStaleness(IMU_STALE_MS)
+    ctrl_dir   = FuseControlDirection(core.angle_pid.output_limit, CTRL_DIR_TRIP_TICKS)
+    sensor_coh = FuseSensorCoherence(SENSOR_COH_WARMUP_TICKS, SENSOR_COH_THRESHOLD)
+
     while True:
         if duration_ms is not None and utime.ticks_diff(utime.ticks_ms(), run_start_ms) >= duration_ms:
             break
 
         if imu.update_sensors() == 0:
+            imu_stale.check()
             utime.sleep_us(IMU_POLL_US)
             continue
 
         now_ms = utime.ticks_ms()
+        imu_stale.on_packet(now_ms)
         dt_ms  = utime.ticks_diff(now_ms, prev_ms)
         prev_ms = now_ms
 
@@ -161,9 +236,13 @@ def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
             core.last_output, m1, m2, m3, m4,
         )
 
-        if core.last_is_outer and utime.ticks_diff(now_ms, last_gc_ms) >= GC_INTERVAL_MS:
-            gc.collect()
-            last_gc_ms = now_ms
+        if core.last_is_outer:
+            if utime.ticks_diff(now_ms, last_gc_ms) >= GC_INTERVAL_MS:
+                gc.collect()
+                last_gc_ms = now_ms
+
+            ctrl_dir.update(core.last_rate_setpoint, abs(core.last_ang_err))
+            sensor_coh.update(core.last_gyro_x, enc_angle)
 
 # =====================================================
 # Entry point
