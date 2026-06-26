@@ -76,7 +76,8 @@ def test_convergence(cfg):
 
 def test_mutation_gyro_sign_diverges(cfg):
     """gyro_sign=+1: positive damping flips to negative -> unstable oscillation."""
-    core = ControlCore(cfg, gyro_sign=+1)
+    cfg["vehicle"]["signs"]["gyro_sign"] = 1
+    core = ControlCore(cfg)
     phis = _simulate(core)
     assert not _in_band(phis), (
         "Expected divergence with gyro_sign=+1 but system stayed in band."
@@ -85,7 +86,8 @@ def test_mutation_gyro_sign_diverges(cfg):
 
 def test_mutation_mixer_sign_diverges(cfg):
     """mixer_sign=-1: M1/M2 roles swapped -> positive feedback -> diverges."""
-    core = ControlCore(cfg, mixer_sign=-1)
+    cfg["vehicle"]["signs"]["mixer_sign"] = -1
+    core = ControlCore(cfg)
     phis = _simulate(core)
     assert not _in_band(phis), (
         "Expected divergence with mixer_sign=-1 but system stayed in band."
@@ -94,7 +96,8 @@ def test_mutation_mixer_sign_diverges(cfg):
 
 def test_mutation_err_sign_diverges(cfg):
     """err_sign=-1: angle error inverted -> outer loop drives away from setpoint."""
-    core = ControlCore(cfg, err_sign=-1)
+    cfg["vehicle"]["signs"]["err_sign"] = -1
+    core = ControlCore(cfg)
     phis = _simulate(core)
     assert not _in_band(phis), (
         "Expected divergence with err_sign=-1 but system stayed in band."

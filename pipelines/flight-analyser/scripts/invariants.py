@@ -30,11 +30,11 @@ from specification_loader import load_specification  # noqa: E402
 
 
 _TIMING_TOLERANCE    = 0.20   # 20% band around expected period
-_P99_DT_FACTOR       = 3.0    # I6: FAIL if p99 dt exceeds this multiple of expected period
-_MAX_DT_WARN_MS      = 25.0   # I6: WARN if any single cycle exceeds this (single spike)
-_MIN_TRANSIENT_N     = 10     # skip I5 if transient shorter than this
-_SAT_WARN_THRESHOLD  = 0.30   # I7: WARN if saturation fraction exceeds this
-_BIAS_WARN_THRESHOLD = 1.5    # I8: WARN if hold-phase RMS exceeds this (deg)
+_P99_DT_FACTOR       = 3.0    # loop timing: FAIL if p99 dt exceeds this multiple of expected period
+_MAX_DT_WARN_MS      = 25.0   # loop timing: WARN if any single cycle exceeds this (single spike)
+_MIN_TRANSIENT_N     = 10     # skip actuation direction check if transient shorter than this
+_SAT_WARN_THRESHOLD  = 0.30   # saturation: WARN if saturation fraction exceeds this
+_BIAS_WARN_THRESHOLD = 1.5    # imu-enc-hold-bias: WARN if hold-phase RMS exceeds this (deg)
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +97,7 @@ def _rms(a):
 # Invariant checks
 # ---------------------------------------------------------------------------
 
-def _i1(fd):
+def _check_imu_enc_position_agreement(fd):
     """IMU-encoder position agreement (FAIL)."""
     c = _pearson(fd.imu_roll, fd.enc_roll)
     threshold = "> +0.95"
@@ -111,7 +111,7 @@ def _i1(fd):
     return _pass("imu-enc-position-agreement", c, threshold)
 
 
-def _i2(fd):
+def _check_gyro_rate_sign(fd):
     """Gyro rate sign contract (FAIL). Contract: gyro_x = -phi_dot."""
     times = fd.t_ms / 1000.0
     # Do not smooth before differentiating here: np.convolve zero-pads boundaries,
@@ -129,7 +129,7 @@ def _i2(fd):
     return _pass("gyro-rate-sign", c, threshold)
 
 
-def _i3(fd):
+def _check_imu_enc_rate_agreement(fd):
     """IMU-encoder rate agreement (FAIL)."""
     times = fd.t_ms / 1000.0
     dimu  = _central_diff(_smooth(fd.imu_roll), times)
@@ -144,7 +144,7 @@ def _i3(fd):
     return _pass("imu-enc-rate-agreement", c, threshold)
 
 
-def _i4(fd, setpoint):
+def _check_angle_error_convention(fd, setpoint):
     """Angle error convention (FAIL). ang_err should track enc_roll - setpoint."""
     c         = _pearson(fd.ang_err, fd.enc_roll - setpoint)
     threshold = "> +0.9"
@@ -157,7 +157,7 @@ def _i4(fd, setpoint):
     return _pass("angle-error-convention", c, threshold)
 
 
-def _i5(fd, reach_event):
+def _check_actuation_direction(fd, reach_event):
     """Actuation direction over transient (FAIL). corr(m2-m1, d2(enc)) < 0."""
     end_idx   = reach_event.start_idx if reach_event is not None else len(fd.enc_roll) // 2
     threshold = "< 0 (transient only)"
@@ -179,7 +179,7 @@ def _i5(fd, reach_event):
     return _pass("actuation-direction", c, threshold)
 
 
-def _i6(fd, rate_hz):
+def _check_loop_timing(fd, rate_hz):
     """Loop timing. Median and p99 are FAIL; max spike is WARN.
 
     p99 catches systematic tail jitter that degrades D-term accuracy.
@@ -219,7 +219,7 @@ def _i6(fd, rate_hz):
     return _pass("loop-timing", round(median_dt, 2), threshold)
 
 
-def _i7(fd, reach_event, hold_window, throttle_min, throttle_max, rate_output_limit):
+def _check_saturation(fd, reach_event, hold_window, throttle_min, throttle_max, rate_output_limit):
     """Saturation report (WARN only)."""
     if hold_window is not None:
         start_idx = hold_window.start_idx
@@ -253,7 +253,7 @@ def _i7(fd, reach_event, hold_window, throttle_min, throttle_max, rate_output_li
     return _pass("saturation-report", round(max_sat, 4), threshold)
 
 
-def _i8(fd, hold_window):
+def _check_imu_enc_hold_bias(fd, hold_window):
     """IMU-encoder hold bias (WARN only)."""
     threshold = f"rms < {_BIAS_WARN_THRESHOLD}deg (WARN)"
     if hold_window is None:
@@ -267,7 +267,7 @@ def _i8(fd, hold_window):
     return _pass("imu-enc-hold-bias", round(rms_val, 4), threshold)
 
 
-def _i9(fd, start_angle_deg):
+def _check_start_angle(fd, start_angle_deg):
     """Start angle sign and magnitude agreement (FAIL)."""
     first     = float(fd.enc_roll[0])
     same_sign = (
@@ -291,34 +291,35 @@ def _i9(fd, start_angle_deg):
     return _pass("start-angle-sign", round(first, 2), threshold)
 
 
-def _i10(fd, lead_ms):
+def _check_feedforward_direction(fd, lead_ms, ff_sign):
     """Feedforward direction (WARN only). Reports all three RMS variants."""
     threshold = "code sign RMS <= no-FF RMS (WARN)"
     if lead_ms is None or lead_ms <= 0:
         return _skip("feedforward-direction", threshold,
                      "feedforward_lead_ms not set or zero.")
     lead_s        = lead_ms / 1000.0
+    ff_s          = int(ff_sign)
     rms_no_ff     = _rms(fd.imu_roll - fd.enc_roll)
-    rms_code_sign = _rms(fd.imu_roll + fd.gyro_x * lead_s - fd.enc_roll)
-    rms_flip_sign = _rms(fd.imu_roll - fd.gyro_x * lead_s - fd.enc_roll)
+    rms_code_sign = _rms(fd.imu_roll + ff_s    * fd.gyro_x * lead_s - fd.enc_roll)
+    rms_flip_sign = _rms(fd.imu_roll + (-ff_s) * fd.gyro_x * lead_s - fd.enc_roll)
+    code_label    = "code(+)" if ff_s > 0 else "code(-)"
+    flip_label    = "flip(-)" if ff_s > 0 else "flip(+)"
     detail        = (
-        f"no-FF={rms_no_ff:.4f}, code(+)={rms_code_sign:.4f}, "
-        f"flip(-)={rms_flip_sign:.4f} deg"
+        f"no-FF={rms_no_ff:.4f}, {code_label}={rms_code_sign:.4f}, "
+        f"{flip_label}={rms_flip_sign:.4f} deg"
     )
     if rms_code_sign > rms_no_ff:
         return _warn("feedforward-direction", round(rms_code_sign, 4), threshold,
-                     detail + ". Code sign (+) makes estimate worse. "
-                     "See F1 in REVIEW-2026-06-10. "
-                     "Fix: change (+) to (-) in feedforward_roll in flight.py.")
+                     detail + f". {code_label} makes estimate worse.")
     return _pass("feedforward-direction", round(rms_code_sign, 4), threshold)
 
 
-def _i11(fd):
+def _check_mixer_output_sign(fd):
     """Mixer output sign (FAIL). corr(pid_out, m2-m1) > 0.9.
 
     LeverMixer: m2 = base + pid_out, m1 = base - pid_out, so m2-m1 = 2*pid_out exactly.
     Expected correlation ~1.0. Inverted mixer gives ~-1.0.
-    Catches software mixer sign inversion -- the one root cause not covered by I1-I10.
+    Catches software mixer sign inversion -- the one root cause not covered by the other checks.
     """
     c         = _pearson(fd.pid_out, fd.m2 - fd.m1)
     threshold = "> +0.9"
@@ -351,19 +352,19 @@ def main():
     hold_window = detect_hold_window(fd, reach_event, cfg.setpoint_roll_deg, spec.tolerance_deg)
 
     results = [
-        _i1(fd),
-        _i2(fd),
-        _i3(fd),
-        _i4(fd, cfg.setpoint_roll_deg),
-        _i5(fd, reach_event),
-        _i6(fd, cfg.loops.rate.frequency_hz),
-        _i7(fd, reach_event, hold_window,
+        _check_imu_enc_position_agreement(fd),
+        _check_gyro_rate_sign(fd),
+        _check_imu_enc_rate_agreement(fd),
+        _check_angle_error_convention(fd, cfg.setpoint_roll_deg),
+        _check_actuation_direction(fd, reach_event),
+        _check_loop_timing(fd, cfg.loops.rate.frequency_hz),
+        _check_saturation(fd, reach_event, hold_window,
             cfg.motor.throttle_min, cfg.motor.throttle_max,
             cfg.loops.rate.pid.output_limit),
-        _i8(fd, hold_window),
-        _i9(fd, cfg.start_angle_deg),
-        _i10(fd, cfg.feedforward_lead_ms),
-        _i11(fd),
+        _check_imu_enc_hold_bias(fd, hold_window),
+        _check_start_angle(fd, cfg.start_angle_deg),
+        _check_feedforward_direction(fd, cfg.feedforward_lead_ms, cfg.signs.ff_sign),
+        _check_mixer_output_sign(fd),
     ]
 
     any_fail = any(r["status"] == "FAIL" for r in results)

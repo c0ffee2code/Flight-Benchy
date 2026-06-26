@@ -14,7 +14,7 @@
         "imu_report": "game_rotation_vector",
         "pid": {
           "kp": 3.5,
-          "ki": 0.10,
+          "ki": 0.1,
           "kd": 0.65,
           "iterm_limit": 5.0,
           "output_limit": 130
@@ -39,6 +39,12 @@
     },
     "feedforward": {
       "lead_ms": 12
+    },
+    "signs": {
+      "gyro_sign": -1,
+      "ff_sign": 1,
+      "err_sign": 1,
+      "mixer_sign": 1
     }
   },
   "bench": {

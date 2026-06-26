@@ -250,17 +250,74 @@ test flight). Fuse 2 threshold (300) should be validated offline against referen
 
 ---
 
+## F1 — Feedforward sign inverted
+
+**Commit:** (2026-06-24)
+
+**Fix:** `ff_sign` default in `ControlCore.__init__` changed from `+1` to `-1`.
+`test_feedforward_direction` rewritten to assert that the default-constructed
+`ControlCore` produces an angle estimate closer to truth than raw GRV (red with the
+old default, green with the fix).
+
+**Why `-1`:**
+The GRV is `lead_ms` stale. To predict the current angle we extrapolate forward:
+`phi_now = phi_grv + phi_dot * lead_s`. Under the established sign contract
+`gyro_x = -phi_dot`, so `phi_dot = -gyro_x`, giving:
+`phi_now = phi_grv - gyro_x * lead_s = imu_roll + (-1) * gyro_x * lead_s`.
+Hence `ff_sign = -1`.
+
+**Why we proceeded without A/B/C flights:**
+The review called for an A/B/C session. In practice, invariant I10
+(`feedforward-direction`) already computes this from real telemetry: it evaluates
+`RMS(imu_roll + sign * gyro_x * lead - enc_roll)` for both signs against the encoder
+ground truth. Every run since 2026-06-07 shows `flip(-) < no-FF < code(+)`. That is
+the empirical A/B result without needing a dedicated session. A/B/C flight remains
+the recommended next step to confirm the expected D-chatter reduction during approach.
+
+**Coordinate system question raised (2026-06-24):**
+Before applying the fix, the sign derivation was challenged: is `gyro_x = -phi_dot`
+textbook assumption or bench-confirmed? Analysis of invariants.json for
+2026-06-23_21-59-35 showed I2 (`gyro-rate-sign`) FAIL at `corr=+0.052`.
+
+Conclusion: the +0.052 is a noise-floor artifact, not a sign reversal. During
+stabilized hold, angular velocity is ~0.7 deg/s; central-difference of encoder at
+66 ms sample interval has a noise floor of ~1.9 deg/s (SNR < 1). I2 was designed to
+catch gross inversions (expected -0.9), but produces structurally unreliable correlations
+at `sample_every=20`. Independent confirmation that the sign contract is intact:
+- I1 passes at 0.981 (IMU-encoder position agreement)
+- I3 passes at 0.994 (IMU-encoder rate agreement, smoothed path)
+- I4 passes at 0.973 (angle error convention)
+- `FuseSensorCoherence` accumulator stayed negative throughout the run (runtime confirm)
+- I10 empirically prefers ff_sign=-1 from real data
+
+The investigation also revealed that the sign convention is implicit across tests,
+invariants, and comments — there is no single canonical definition. This is a standing
+quality issue; see backlog item below.
+
+---
+
 ## Not yet addressed
 
-Phase 1.5 QA: QA-C (conventions block), QA-S (signcheck tool).
+**Phase 1.5 QA:** QA-C (conventions block), QA-S (signcheck tool).
 
-Phase 2 correctness: F1 (feedforward sign — A/B/C flight), F8 (us-resolution dt),
-F9 (convention cleanup decision).
+**Coordinate system documentation (from F1 investigation 2026-06-24):**
+The sign convention (`gyro_x = -phi_dot`, encoder positive = M1 lower, etc.) is
+implicit — scattered across `test_gyro_sign_contract`, invariant I2, the CLAUDE.md
+section "Motor and Encoder Sign Convention", and flight.py comments. There is no
+single document or `specification.json` block that is the canonical definition.
+Consequence: every new sign-related decision requires re-deriving from first principles
+and cross-checking multiple files, with risk of contradiction. Plan:
+- Formalise as `QA-C` from the review — a `sign_convention` block in `specification.json`
+- Or a standalone `decision/DR-NNN-sign-convention.md` with a diagram
+- `signcheck.py` (QA-S) would anchor to this definition, not to scattered comments
+This is a pre-requisite for F9 (convention cleanup) and makes future re-assemblies safer.
 
-Phase 3+: F6 (anti-windup), F10 (D-term LPF), F11 (per-report gating), F12 (roll
+**Phase 2 correctness:** F8 (us-resolution dt), F9 (convention cleanup decision).
+
+**Phase 3+:** F6 (anti-windup), F10 (D-term LPF), F11 (per-report gating), F12 (roll
 formula), F7-full, F16 (telemetry flags).
 
-Cosmetic: F13 (LED comment), F14 (50 ms wait note).
+**Cosmetic:** F13 (LED comment), F14 (50 ms wait note).
 
 ---
 

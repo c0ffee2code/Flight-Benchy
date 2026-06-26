@@ -27,13 +27,10 @@ class ControlCore:
     Post-step state is readable via last_* attributes and the pid/mixer objects.
     """
 
-    def __init__(self, cfg, *, gyro_sign=-1, ff_sign=1, err_sign=1, mixer_sign=1):
+    def __init__(self, cfg):
         """
         cfg : dict
             Full config.json contents.
-        gyro_sign, ff_sign, err_sign, mixer_sign : int
-            Sign convention overrides. Production code always uses the defaults.
-            Pass non-default values only for mutation testing (see tests/test_sil.py).
         """
         vehicle   = cfg["vehicle"]
         rate_hz   = vehicle["loops"]["rate"]["frequency_hz"]
@@ -43,18 +40,18 @@ class ControlCore:
         motor_cfg = vehicle["motor"]
         ff_cfg    = vehicle["feedforward"]
         orient    = cfg["bench"]["sensor_orientation"]
+        signs     = vehicle["signs"]
 
         self._outer_ticks   = rate_hz // angle_hz
-        self.outer_period_s = self._outer_ticks / rate_hz  # float division — QA-F2
+        self.outer_period_s = self._outer_ticks / rate_hz  # float division
         self._lead_s        = ff_cfg["lead_ms"] / 1000.0
         self._setpoint      = cfg["session"]["setpoint"]["roll_deg"]
         self._imu_sign      = -1 if orient["imu_invert"] else 1
 
-        # Sign convention overrides (production: all defaults)
-        self._gyro_sign  = gyro_sign
-        self._ff_sign    = ff_sign
-        self._err_sign   = err_sign
-        self._mixer_sign = mixer_sign
+        self._gyro_sign  = int(signs["gyro_sign"])
+        self._ff_sign    = int(signs["ff_sign"])
+        self._err_sign   = int(signs["err_sign"])
+        self._mixer_sign = int(signs["mixer_sign"])
 
         rate_output_limit = rpid_cfg.get("output_limit")
         if rate_output_limit is not None:

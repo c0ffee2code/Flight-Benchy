@@ -219,3 +219,18 @@ All pin constants are defined in `src/main.py` with descriptive names:
 | 19 | `PIN_SD_MOSI` | SD card breakout MOSI (SPI0) |
 
 **Note:** PCF8523 RTC shares I2C Bus 0 (GPIO 0/1) with AS5600 and BNO085. No address conflicts (0x68 vs 0x36/0x4A). RTC is read once per session before the control loop starts, so there is no bus contention at runtime.
+
+## Code and Documentation Style
+
+**Documentation must stand alone.** A reader has only the source file — not the review meeting, not the session log, not the ticket tracker. Never anchor documentation to external tracking artifacts: review finding IDs (F1, QA-F2), ticket numbers, issue IDs, or session dates carry zero information outside the event where they were created and rot immediately.
+
+Write the constraint, invariant, or expected behavior directly. The artifact ID belongs in the commit message or review notes — not the source file.
+
+| Don't | Do |
+|-------|----|
+| `"""F1: feedforward must improve on raw GRV."""` | `"""feedforward must improve on raw GRV."""` |
+| `# float division — QA-F2` | `# float division` |
+| `def test_f7_invariant()` | `def test_motor_range_fits_config()` |
+| `def _i10(fd, lead_ms, ff_sign)` | `def _check_feedforward_direction(fd, lead_ms, ff_sign)` |
+
+This applies to all identifiers, not just docstrings. A name like `_i10` is an opaque serial number; `_check_feedforward_direction` tells you what the function does without any external reference.

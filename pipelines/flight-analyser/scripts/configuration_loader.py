@@ -48,6 +48,14 @@ class TelemetryConfig:
 
 
 @dataclass
+class SignsConfig:
+    gyro_sign:  int
+    ff_sign:    int
+    err_sign:   int
+    mixer_sign: int
+
+
+@dataclass
 class Configuration:
     setpoint_roll_deg:   float
     start_angle_deg:     float
@@ -55,6 +63,7 @@ class Configuration:
     motor:               MotorConfig
     telemetry:           TelemetryConfig
     feedforward_lead_ms: float | None
+    signs:               SignsConfig
 
 
 def _req(obj, *path):
@@ -96,6 +105,7 @@ def load_configuration(run_dir) -> Configuration:
     loops_raw = _req(vehicle, "loops")
     motor     = _req(vehicle, "motor")
     ff        = vehicle.get("feedforward", {})
+    signs_raw = _req(vehicle, "signs")
     telemetry = _req(raw, "bench", "telemetry")
 
     return Configuration(
@@ -108,10 +118,16 @@ def load_configuration(run_dir) -> Configuration:
         motor=MotorConfig(
             throttle_min=float(_req(motor, "throttle_min")),
             throttle_max=float(_req(motor, "throttle_max")),
-            base_throttle=float(motor.get("base_throttle", 0)),
+            base_throttle=float(_req(motor, "base_throttle")),
         ),
         telemetry=TelemetryConfig(
             sample_every=int(_req(telemetry, "sample_every")),
         ),
         feedforward_lead_ms=float(ff["lead_ms"]) if "lead_ms" in ff else None,
+        signs=SignsConfig(
+            gyro_sign =int(_req(signs_raw, "gyro_sign")),
+            ff_sign   =int(_req(signs_raw, "ff_sign")),
+            err_sign  =int(_req(signs_raw, "err_sign")),
+            mixer_sign=int(_req(signs_raw, "mixer_sign")),
+        ),
     )

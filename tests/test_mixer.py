@@ -38,9 +38,14 @@ def test_lower_clamp(mixer):
     assert m2 == 90
 
 
-def test_f7_invariant():
-    """F7: base +/- output_limit must stay within [throttle_min, throttle_max]."""
-    mixer = LeverMixer(throttle_base=600, throttle_min=90, throttle_max=900)
-    output_limit = 300  # from config
+def test_motor_range_fits_config(cfg):
+    """base +/- rate output_limit must stay within [throttle_min, throttle_max]."""
+    motor = cfg["vehicle"]["motor"]
+    output_limit = cfg["vehicle"]["loops"]["rate"]["pid"]["output_limit"]
+    mixer = LeverMixer(
+        throttle_base=motor["base_throttle"],
+        throttle_min=motor["throttle_min"],
+        throttle_max=motor["throttle_max"],
+    )
     assert mixer.throttle_base + output_limit <= mixer.throttle_max
     assert mixer.throttle_base - output_limit >= mixer.throttle_min

@@ -1,3 +1,9 @@
+"""
+Shared pytest fixtures for all test modules in this directory.
+
+pytest loads this file automatically before any test module — fixtures defined
+here are available to every test_*.py file without an explicit import.
+"""
 import sys
 import json
 from pathlib import Path

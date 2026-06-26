@@ -1,4 +1,4 @@
-"""ControlCore unit tests — loop scheduling, sign contracts, QA-F2, feedforward direction."""
+"""ControlCore unit tests — loop scheduling, sign contracts, outer period precision, feedforward direction."""
 import pytest
 from math import radians, cos, sin
 from core.control import ControlCore
@@ -24,11 +24,11 @@ def _step_n(core, n, iqr, iqi, iqj, iqk, raw_gx, dt):
 
 
 # ---------------------------------------------------------------------------
-# QA-F2 — outer_period_s must use float division
+# outer_period_s must use float division
 # ---------------------------------------------------------------------------
 
-def test_outer_period_qa_f2(cfg):
-    """QA-F2: outer_period_s == 0.010 s at 300/100 Hz (not 0.009 from integer division)."""
+def test_outer_period_float_division(cfg):
+    """outer_period_s == 0.010 s at 300/100 Hz (not 0.009 from integer division)."""
     core = ControlCore(cfg)
     assert core.outer_period_s == pytest.approx(0.010)
 
@@ -96,15 +96,16 @@ def test_imu_roll_sign_contract(cfg):
 
 
 # ---------------------------------------------------------------------------
-# Feedforward direction — F1 indicator
+# Feedforward direction
 # ---------------------------------------------------------------------------
 
 def test_feedforward_direction(cfg):
-    """F1 indicator: with simulated 12ms GRV lag, ff_sign=+1 (current code) makes the
-    angle estimate worse than raw GRV alone; ff_sign=-1 (correct per F1) makes it better.
+    """ControlCore must produce an angle estimate closer to truth than raw GRV.
 
-    This test documents the known bug. It will need updating when F1 is fixed and the
-    ff_sign default changes to -1.
+    GRV has a lag. The feedforward lead compensates by extrapolating forward using
+    gyro rate: phi_predicted = phi_grv + phi_dot * lead = phi_grv - gyro_x * lead.
+    That requires ff_sign=-1 in the formula (imu_roll + ff_sign * gyro_x * lead).
+    ff_sign=+1 retrodicates instead — making the estimate worse than raw GRV.
     """
     phi = 30.0        # current lever angle (deg, truth)
     phi_dot = -20.0   # deg/s, lever falling
@@ -119,25 +120,26 @@ def test_feedforward_direction(cfg):
     outer_n = _outer_ticks(cfg)
     dt = _dt(cfg)
 
-    core_buggy   = ControlCore(cfg)             # ff_sign=+1 (default, current code)
-    core_correct = ControlCore(cfg, ff_sign=-1)  # ff_sign=-1 (correct per F1 analysis)
+    core_default = ControlCore(cfg)                     # ff_sign=-1 from config (correct)
+    cfg["vehicle"]["signs"]["ff_sign"] = 1
+    core_wrong   = ControlCore(cfg)                     # ff_sign=+1 retrodicates
 
-    _step_n(core_buggy,   outer_n, iqr, iqi, iqj, iqk, raw_gx, dt)
-    _step_n(core_correct, outer_n, iqr, iqi, iqj, iqk, raw_gx, dt)
+    _step_n(core_default, outer_n, iqr, iqi, iqj, iqk, raw_gx, dt)
+    _step_n(core_wrong,   outer_n, iqr, iqi, iqj, iqk, raw_gx, dt)
 
-    assert core_buggy.last_is_outer and core_correct.last_is_outer
+    assert core_default.last_is_outer and core_wrong.last_is_outer
 
     # setpoint=0, so ang_err == feedforward estimate
-    estimate_buggy   = core_buggy.last_ang_err    # 30.24 + 20*0.012 = 30.48
-    estimate_correct = core_correct.last_ang_err  # 30.24 - 20*0.012 = 30.00
+    estimate_default = core_default.last_ang_err  # with ff_sign=-1: 30.24 - 20*0.012 = 30.00
+    estimate_wrong   = core_wrong.last_ang_err    # with ff_sign=+1: 30.24 + 20*0.012 = 30.48
 
-    # Bug: feedforward makes estimate worse than raw GRV
-    assert abs(estimate_buggy - phi) > abs(phi_grv - phi), (
-        f"Expected ff_sign=+1 to worsen estimate vs raw GRV. "
-        f"buggy={estimate_buggy:.3f}, phi_grv={phi_grv:.3f}, truth={phi:.3f}"
+    # Default (ff_sign=-1): estimate is closer to truth than raw GRV
+    assert abs(estimate_default - phi) < abs(phi_grv - phi), (
+        f"Expected default ff_sign to improve estimate vs raw GRV. "
+        f"default={estimate_default:.3f}, phi_grv={phi_grv:.3f}, truth={phi:.3f}"
     )
-    # Correct sign: estimate is closer to truth
-    assert abs(estimate_correct - phi) < abs(estimate_buggy - phi), (
-        f"Expected ff_sign=-1 to be better than ff_sign=+1. "
-        f"correct={estimate_correct:.3f}, buggy={estimate_buggy:.3f}, truth={phi:.3f}"
+    # Wrong sign (ff_sign=+1): estimate is worse than raw GRV
+    assert abs(estimate_wrong - phi) > abs(phi_grv - phi), (
+        f"Expected ff_sign=+1 to worsen estimate vs raw GRV. "
+        f"wrong={estimate_wrong:.3f}, phi_grv={phi_grv:.3f}, truth={phi:.3f}"
     )
