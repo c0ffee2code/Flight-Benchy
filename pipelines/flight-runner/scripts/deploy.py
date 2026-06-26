@@ -30,8 +30,8 @@ SOURCE_FILES = [
     ("dependencies/PCF8523/src/pcf8523.py",               "pcf8523.py"),
     ("src/telemetry/sdcard.py",                           "sdcard.py"),
     ("dependencies/AS5600/driver/as5600.py",              "as5600.py"),
-    ("dependencies/BNO085/driver/bno08x.py",              "bno08x.py"),
-    ("dependencies/BNO085/driver/i2c.py",                 "i2c.py"),
+    ("dependencies/BNO085/src/bno08x.py",                 "bno08x.py"),
+    ("dependencies/BNO085/src/i2c.py",                    "i2c.py"),
     ("dependencies/DShot/driver/dshot_pio.py",            "dshot_pio.py"),
     ("dependencies/DShot/driver/motor_throttle_group.py", "motor_throttle_group.py"),
 ]

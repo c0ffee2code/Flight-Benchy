@@ -110,7 +110,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 - `src/telemetry/sdcard.py` (deployed as `sdcard.py`)
 - `dependencies/PCF8523/src/pcf8523.py` (deployed as `pcf8523.py`)
 - `dependencies/AS5600/driver/as5600.py`
-- `dependencies/BNO085/driver/bno08x.py` + `dependencies/BNO085/driver/i2c.py`
+- `dependencies/BNO085/src/bno08x.py` + `dependencies/BNO085/src/i2c.py`
 - `dependencies/DShot/driver/dshot_pio.py` + `dependencies/DShot/driver/motor_throttle_group.py`
 
 ## Architecture
@@ -126,7 +126,7 @@ Test bench for learning flight control systems, built around a Raspberry Pi Pico
 
 Magnetic rotary encoder driver. Key function: `to_degrees(raw_angle, axis_center)` converts raw 12-bit readings to degrees relative to a calibrated center position. Includes low-latency filter configuration and diagnostic telemetry.
 
-### BNO085 IMU (`dependencies/BNO085/driver/`)
+### BNO085 IMU (`dependencies/BNO085/src/`)
 
 - `bno08x.py` - BNO08x driver with SHTP protocol, interrupt-driven sensor updates, quaternion/euler output, and precise timestamp tracking.
 - `i2c.py` - I2C transport layer for BNO08x. Handles non-standard clock stretching and fragment reassembly.
