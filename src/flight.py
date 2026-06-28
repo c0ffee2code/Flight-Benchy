@@ -85,7 +85,7 @@ def enable_imu_reports(imu, grv_hz, imu_hz):
     Without begin_calibration(), ME stays inactive after every power-on regardless
     of previously saved DCD, and accuracy=0 on all readings for the entire session.
 
-    TODO: add an accuracy gate after this call — poll imu.game_quaternion until
+    TODO: add an accuracy gate after this call -- poll imu.game_quaternion until
     accuracy >= 2 before proceeding to arm_motors(). ME converges within a few
     seconds when DCD is fresh and the sensor is held still, but there is currently
     no explicit wait. The 5s motor settle in arm_motors() provides incidental time
@@ -93,7 +93,14 @@ def enable_imu_reports(imu, grv_hz, imu_hz):
     """
     imu.game_quaternion.enable(hertz=grv_hz)
     imu.gyro.enable(hertz=imu_hz)
-    imu.begin_calibration()
+    for attempt in range(3):
+        try:
+            imu.begin_calibration()
+            return
+        except RuntimeError:
+            if attempt == 2:
+                raise
+            utime.sleep_ms(500)
 
 def arm_motors(motors, throttle_min):
     """Green LED, start DShot, arm ESCs, then idle at throttle_min.
@@ -115,6 +122,8 @@ def prespin_motors(motors, throttle_min, base):
     through the ramp. 1 s dwell lets motors reach steady RPM before the control
     loop opens and applies differential thrust.
     """
+    if base <= throttle_min:
+        return
     step_ms       = 100   # delay between throttle increments
     dwell_ms      = 1000  # wait after reaching base before control loop opens
     throttle_step = 10    # throttle units added per ramp step
@@ -229,7 +238,8 @@ def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
 
         g = imu.gyro.get()
         if g.sensor_ts_ms == last_gyro_ts:
-            continue  # non-gyro packet (feature response etc.) — skip cycle
+            imu_stale.check()  # packet arrived but no new gyro — still enforce staleness
+            continue
 
         now_ms = utime.ticks_ms()
         imu_stale.update(g.host_ts_ms)
@@ -274,6 +284,7 @@ def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
 def run():
     telemetry = None
     motors = None
+    sd_sink = None
     try:
         cfg = load_config()
 
@@ -319,10 +330,15 @@ def run():
 
     finally:
         if motors is not None:
-            motors.stop()
-            set_led(b=1)
+            try:
+                motors.stop()
+            except Exception:
+                pass
+        set_led(b=1)
         if telemetry is not None:
             telemetry.end_session()
+        elif sd_sink is not None:
+            sd_sink.close()
 
 if __name__ == '__main__':
     import sys

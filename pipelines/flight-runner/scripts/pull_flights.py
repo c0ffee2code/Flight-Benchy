@@ -49,7 +49,7 @@ _cs  = Pin(17, Pin.OUT, value=1)
 _spi = SPI(0, baudrate=400_000, polarity=0, phase=0,
            sck=Pin(18), mosi=Pin(19), miso=Pin(16))
 time.sleep_ms(250)
-_sd  = sdcard.SDCard(_spi, _cs)
+_sd  = sdcard.SDCard(_spi, _cs, baudrate=25_000_000)
 os.mount(os.VfsFat(_sd), '/sd')
 """
 
@@ -205,25 +205,25 @@ def fetch(new_ids, transfer_timeout=120):
 
     ok, failed = [], []
     for fid in new_ids:
-        success = True
+        file_data = {}
         for fname in ('config.json', 'specification.json', 'log.bin'):
             key = f"{fid}/{fname}"
             data = files.get(key)
             if data is None:
                 print(f"  MISSING  {key}")
-                success = False
-                continue
-            if len(data) != expected.get(key, -1):
+            elif len(data) != expected.get(key, -1):
                 print(f"  MISMATCH {key}: expected {expected[key]}B got {len(data)}B")
-                success = False
-                continue
+            else:
+                file_data[fname] = data
+
+        if len(file_data) == 3:
             dest = LOCAL_DIR / fid
             dest.mkdir(parents=True, exist_ok=True)
-            if fname == 'log.bin':
-                (dest / 'log.csv').write_text(_decode_log_bin(data), encoding='utf-8')
-            else:
-                (dest / fname).write_bytes(data)
-        if success:
+            for fname, data in file_data.items():
+                if fname == 'log.bin':
+                    (dest / 'log.csv').write_text(_decode_log_bin(data), encoding='utf-8')
+                else:
+                    (dest / fname).write_bytes(data)
             ok.append(fid)
             print(f"  OK   {fid}")
         else:

@@ -39,7 +39,7 @@ References:
   - specification/IMU BNO08x v1.17.pdf, Section 4.1.1
 """
 
-from math import atan2, asin
+from math import atan2
 from micropython import const
 from machine import I2C, Pin
 from utime import ticks_ms, ticks_diff, sleep_ms
@@ -49,7 +49,7 @@ from i2c import BNO08X_I2C
 # === Configuration ===
 RATE_HZ = const(344)
 SAMPLES_PER_PHASE = const(2000)
-AXIS_CENTER = const(2374)  # raw reading when lever is at physical zero (was 422, corrected from tare run)
+AXIS_CENTER = const(2378)  # raw reading when lever is at physical zero (was 422, corrected from tare run)
 SETTLE_SECS = const(30)
 
 # === Ensure output directory exists ===
@@ -59,17 +59,11 @@ try:
 except OSError:
     pass
 
-_RAD2DEG = 57.2957795
+RAD2DEG = 57.2957795
 
-def euler_from_quat(qr, qi, qj, qk):
-    """Convert unit quaternion to Euler angles (roll, pitch, yaw) in degrees.
-
-    General Tait-Bryan Z-Y-X formula, valid for any orientation.
-    """
-    roll  = atan2(2.0 * (qr*qi + qj*qk), 1.0 - 2.0 * (qi*qi + qj*qj)) * _RAD2DEG
-    pitch = asin(max(-1.0, min(1.0, 2.0 * (qr*qj - qk*qi))))           * _RAD2DEG
-    yaw   = atan2(2.0 * (qr*qk + qi*qj), 1.0 - 2.0 * (qj*qj + qk*qk)) * _RAD2DEG
-    return roll, pitch, yaw
+def quat_to_roll(qr, qi):
+    """Roll in degrees from quaternion, matching the formula used by the control loop."""
+    return 2.0 * atan2(qi, qr) * RAD2DEG
 
 
 # === Hardware Setup ===
@@ -114,7 +108,7 @@ while ticks_diff(ticks_ms(), settle_start) < SETTLE_SECS * 1000:
     if r.sensor_ts_ms != last_grv_ts and ticks_diff(ticks_ms(), last_print) >= 500:
         last_grv_ts = r.sensor_ts_ms
         last_print = ticks_ms()
-        roll, _, _ = euler_from_quat(*r.data)
+        roll = quat_to_roll(r.data[0], r.data[1])
         enc = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
         remaining = (SETTLE_SECS * 1000 - ticks_diff(ticks_ms(), settle_start)) / 1000
         print(f"  ENC: {enc:+.2f}  IMU roll: {roll:+.2f}  acc: {r.accuracy}  ({remaining:.0f}s left)")
@@ -125,12 +119,12 @@ def collect_samples(output_file):
     start_ms = ticks_ms()
     count = 0
     i2c_errors = 0
-    last_grv_ts = 0.0
-
-    f = open(output_file, "w")
-    f.write("T,ENC,IMU_ROLL,IMU_ACC,Lag,ENC_RAW\n")
+    last_sample_ts = 0.0
+    f = None
 
     try:
+        f = open(output_file, "w")
+        f.write("T,ENC,IMU_ROLL,IMU_ACC,Lag,ENC_RAW\n")
         while count < SAMPLES_PER_PHASE:
             now_ms = ticks_ms()
             raw_angle = encoder.read_raw_angle()
@@ -147,9 +141,9 @@ def collect_samples(output_file):
                 continue
 
             r = imu.game_quaternion.get()
-            if r.sensor_ts_ms != last_grv_ts:
-                last_grv_ts = r.sensor_ts_ms
-                roll, _, _ = euler_from_quat(*r.data)
+            if r.sensor_ts_ms != last_sample_ts:
+                last_sample_ts = r.sensor_ts_ms
+                roll = quat_to_roll(r.data[0], r.data[1])
                 lag = imu.bno_start_diff(r.host_ts_ms) - r.sensor_ts_ms
                 elapsed = ticks_diff(now_ms, start_ms)
                 f.write(f"{elapsed},{encoder_angle:.2f},{roll:.2f},{r.accuracy},{lag:.1f},{raw_angle}\n")
@@ -157,7 +151,8 @@ def collect_samples(output_file):
     except KeyboardInterrupt:
         pass
     finally:
-        f.close()
+        if f is not None:
+            f.close()
 
     elapsed_s = ticks_diff(ticks_ms(), start_ms) / 1000.0
     hz = count / elapsed_s if elapsed_s > 0 else 0
@@ -179,7 +174,7 @@ imu.update_sensors()
 enc_at_tare = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
 r = imu.game_quaternion.get()
 if r.sensor_ts_ms != last_grv_ts:
-    roll_at_tare, _, _ = euler_from_quat(*r.data)
+    roll_at_tare = quat_to_roll(r.data[0], r.data[1])
     print(f"\nAt tare moment --- ENC: {enc_at_tare:+.2f}  IMU roll: {roll_at_tare:+.2f}  bias: {roll_at_tare - enc_at_tare:+.2f}")
 else:
     print(f"\nAt tare moment --- ENC: {enc_at_tare:+.2f}  (IMU not updated)")
@@ -200,7 +195,7 @@ for _ in range(5):
     r = imu.game_quaternion.get()
     if r.sensor_ts_ms != last_grv_ts_post:
         last_grv_ts_post = r.sensor_ts_ms
-        roll, _, _ = euler_from_quat(*r.data)
+        roll = quat_to_roll(r.data[0], r.data[1])
         enc = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
         print(f"  ENC: {enc:+.2f}  IMU roll: {roll:+.2f}  bias: {roll - enc:+.2f}")
     sleep_ms(200)

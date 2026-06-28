@@ -151,8 +151,8 @@ class SdSink:
             if self._preallocate_bytes > 0:
                 try:
                     self._finalize_log(actual_bytes)
-                except Exception:
-                    pass  # leave log.tmp on SD rather than crashing close()
+                except Exception as e:
+                    self.write_crash_log(e)  # log.tmp stays on SD; crash.log records why
         os.umount(_SD_MOUNT)
 
 
