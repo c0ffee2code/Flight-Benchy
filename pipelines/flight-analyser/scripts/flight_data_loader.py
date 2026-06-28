@@ -69,32 +69,40 @@ class FlightData:
 
     Fields
     ------
-    t_ms      : Sample timestamps, milliseconds. Shape (n,).
-    enc_roll  : Encoder roll angle, degrees (+ve = M1 end lower). Shape (n,).
-    imu_roll  : IMU roll angle, degrees (same sign convention). Shape (n,).
-    gyro_x    : Calibrated gyroscope rate, degrees/s. Shape (n,).
-    ang_err   : Outer PID angle error (ANG_ERR), degrees. Shape (n,).
-    ang_p     : Outer PID P-term (ANG_P), degrees/s. Shape (n,).
-    ang_i     : Outer PID I-term (ANG_I), degrees/s. Shape (n,).
-    ang_d     : Outer PID D-term (ANG_D), degrees/s. Shape (n,).
-    rate_sp   : Inner-loop rate setpoint (RATE_SP), degrees/s. Shape (n,).
-    rate_err  : Inner PID rate error (RATE_ERR), degrees/s. Shape (n,).
-    rate_p    : Inner PID P-term (RATE_P), throttle units. Shape (n,).
-    rate_i    : Inner PID I-term (RATE_I), throttle units. Shape (n,).
-    rate_d    : Inner PID D-term (RATE_D), throttle units. Shape (n,).
-    pid_out   : Combined PID output (PID_OUT), throttle units. Shape (n,).
-    m1        : Motor 1 throttle command (M1), throttle units. Shape (n,).
-    m2        : Motor 2 throttle command (M2), throttle units. Shape (n,).
-    m3        : Motor 3 throttle command (M3, co-located with M1), throttle units. Shape (n,).
-    m4        : Motor 4 throttle command (M4, co-located with M2), throttle units. Shape (n,).
-    dt_ms     : Inner cycle period of the logged row (DT_MS), milliseconds. Shape (n,).
-    max_dt_ms : Worst cycle period across sample_every window (MAX_DT_MS), ms. Shape (n,).
+    t_ms         : Sample timestamps, milliseconds. Shape (n,).
+    enc_roll     : Encoder roll angle, degrees (+ve = M1 end lower). Shape (n,).
+    imu_roll     : IMU roll angle, degrees (same sign convention). Shape (n,).
+    imu_grv_acc  : GRV accuracy (IMU_GRV_ACC), 0=unreliable..3=high. Shape (n,).
+    grv_lag_ms   : GRV I2C transport lag (GRV_LAG_MS), milliseconds. Shape (n,).
+    gyro_x       : Calibrated gyroscope rate, degrees/s. Shape (n,).
+    imu_gyro_acc : Gyro accuracy (IMU_GYRO_ACC), 0=unreliable..3=high. Shape (n,).
+    gyro_lag_ms  : Gyro I2C transport lag (GYRO_LAG_MS), milliseconds. Shape (n,).
+    ang_err      : Outer PID angle error (ANG_ERR), degrees. Shape (n,).
+    ang_p        : Outer PID P-term (ANG_P), degrees/s. Shape (n,).
+    ang_i        : Outer PID I-term (ANG_I), degrees/s. Shape (n,).
+    ang_d        : Outer PID D-term (ANG_D), degrees/s. Shape (n,).
+    rate_sp      : Inner-loop rate setpoint (RATE_SP), degrees/s. Shape (n,).
+    rate_err     : Inner PID rate error (RATE_ERR), degrees/s. Shape (n,).
+    rate_p       : Inner PID P-term (RATE_P), throttle units. Shape (n,).
+    rate_i       : Inner PID I-term (RATE_I), throttle units. Shape (n,).
+    rate_d       : Inner PID D-term (RATE_D), throttle units. Shape (n,).
+    pid_out      : Combined PID output (PID_OUT), throttle units. Shape (n,).
+    m1           : Motor 1 throttle command (M1), throttle units. Shape (n,).
+    m2           : Motor 2 throttle command (M2), throttle units. Shape (n,).
+    m3           : Motor 3 throttle command (M3, co-located with M1), throttle units. Shape (n,).
+    m4           : Motor 4 throttle command (M4, co-located with M2), throttle units. Shape (n,).
+    dt_ms        : Inner cycle period of the logged row (DT_MS), milliseconds. Shape (n,).
+    max_dt_ms    : Worst cycle period across sample_every window (MAX_DT_MS), ms. Shape (n,).
     """
-    t_ms:      np.ndarray
-    enc_roll:  np.ndarray
-    imu_roll:  np.ndarray
-    gyro_x:    np.ndarray
-    ang_err:   np.ndarray
+    t_ms:         np.ndarray
+    enc_roll:     np.ndarray
+    imu_roll:     np.ndarray
+    imu_grv_acc:  np.ndarray
+    grv_lag_ms:   np.ndarray
+    gyro_x:       np.ndarray
+    imu_gyro_acc: np.ndarray
+    gyro_lag_ms:  np.ndarray
+    ang_err:      np.ndarray
     ang_p:     np.ndarray
     ang_i:     np.ndarray
     ang_d:     np.ndarray
@@ -143,7 +151,11 @@ def load_flight(csv_path: Path) -> FlightData:
         t_ms=col("T_MS"),
         enc_roll=col("ENC_ROLL"),
         imu_roll=_quat_to_roll(col("IMU_QR"), col("IMU_QI")),
+        imu_grv_acc=col("IMU_GRV_ACC"),
+        grv_lag_ms=col("GRV_LAG_MS"),
         gyro_x=col("GYRO_X"),
+        imu_gyro_acc=col("IMU_GYRO_ACC"),
+        gyro_lag_ms=col("GYRO_LAG_MS"),
         ang_err=col("ANG_ERR"),
         ang_p=col("ANG_P"),
         ang_i=col("ANG_I"),

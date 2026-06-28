@@ -39,6 +39,7 @@ References:
   - specification/IMU BNO08x v1.17.pdf, Section 4.1.1
 """
 
+from math import atan2, asin
 from micropython import const
 from machine import I2C, Pin
 from utime import ticks_ms, ticks_diff, sleep_ms
@@ -57,6 +58,19 @@ try:
     os.mkdir("/data")
 except OSError:
     pass
+
+_RAD2DEG = 57.2957795
+
+def euler_from_quat(qr, qi, qj, qk):
+    """Convert unit quaternion to Euler angles (roll, pitch, yaw) in degrees.
+
+    General Tait-Bryan Z-Y-X formula, valid for any orientation.
+    """
+    roll  = atan2(2.0 * (qr*qi + qj*qk), 1.0 - 2.0 * (qi*qi + qj*qj)) * _RAD2DEG
+    pitch = asin(max(-1.0, min(1.0, 2.0 * (qr*qj - qk*qi))))           * _RAD2DEG
+    yaw   = atan2(2.0 * (qr*qk + qi*qj), 1.0 - 2.0 * (qj*qj + qk*qk)) * _RAD2DEG
+    return roll, pitch, yaw
+
 
 # === Hardware Setup ===
 i2c = I2C(0, scl=Pin(1), sda=Pin(0), freq=400_000)
@@ -86,20 +100,24 @@ wait_for_enter(
     "  Press ENTER when attached and stable.")
 
 imu.game_quaternion.enable(RATE_HZ)
+imu.begin_calibration()
 
 print(f"\nWaiting {SETTLE_SECS}s for Game Rotation Vector to stabilise.")
 print("Keep the lever fixed at zero.\n")
 
 settle_start = ticks_ms()
 last_print = ticks_ms()
+last_grv_ts = 0.0
 while ticks_diff(ticks_ms(), settle_start) < SETTLE_SECS * 1000:
     imu.update_sensors()
-    if imu.game_quaternion.updated and ticks_diff(ticks_ms(), last_print) >= 500:
+    r = imu.game_quaternion.get()
+    if r.sensor_ts_ms != last_grv_ts and ticks_diff(ticks_ms(), last_print) >= 500:
+        last_grv_ts = r.sensor_ts_ms
         last_print = ticks_ms()
-        yaw, pitch, roll, acc, ts_ms = imu.game_quaternion.euler_full
+        roll, _, _ = euler_from_quat(*r.data)
         enc = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
         remaining = (SETTLE_SECS * 1000 - ticks_diff(ticks_ms(), settle_start)) / 1000
-        print(f"  ENC: {enc:+.2f}  IMU roll: {roll:+.2f}  bias: {roll - enc:+.2f}  ({remaining:.0f}s left)")
+        print(f"  ENC: {enc:+.2f}  IMU roll: {roll:+.2f}  acc: {r.accuracy}  ({remaining:.0f}s left)")
 
 
 def collect_samples(output_file):
@@ -107,9 +125,10 @@ def collect_samples(output_file):
     start_ms = ticks_ms()
     count = 0
     i2c_errors = 0
+    last_grv_ts = 0.0
 
     f = open(output_file, "w")
-    f.write("T,ENC,IMU,Lag,ENC_RAW\n")
+    f.write("T,ENC,IMU_ROLL,IMU_ACC,Lag,ENC_RAW\n")
 
     try:
         while count < SAMPLES_PER_PHASE:
@@ -127,12 +146,13 @@ def collect_samples(output_file):
                 sleep_ms(10)
                 continue
 
-            if imu.game_quaternion.updated:
-                yaw, pitch, roll, acc, ts_ms = imu.game_quaternion.euler_full
-                imu_now_ms = imu.bno_start_diff(now_ms)
-                lag = imu_now_ms - ts_ms
+            r = imu.game_quaternion.get()
+            if r.sensor_ts_ms != last_grv_ts:
+                last_grv_ts = r.sensor_ts_ms
+                roll, _, _ = euler_from_quat(*r.data)
+                lag = imu.bno_start_diff(r.host_ts_ms) - r.sensor_ts_ms
                 elapsed = ticks_diff(now_ms, start_ms)
-                f.write(f"{elapsed},{encoder_angle:.2f},{roll:.2f},{lag:.1f},{raw_angle}\n")
+                f.write(f"{elapsed},{encoder_angle:.2f},{roll:.2f},{r.accuracy},{lag:.1f},{raw_angle}\n")
                 count += 1
     except KeyboardInterrupt:
         pass
@@ -157,11 +177,12 @@ collect_samples("/data/tare_before.csv")
 # =========================================================================
 imu.update_sensors()
 enc_at_tare = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
-if imu.game_quaternion.updated:
-    _, _, roll_at_tare, _, _ = imu.game_quaternion.euler_full
-    print(f"\nAt tare moment — ENC: {enc_at_tare:+.2f}  IMU roll: {roll_at_tare:+.2f}  bias: {roll_at_tare - enc_at_tare:+.2f}")
+r = imu.game_quaternion.get()
+if r.sensor_ts_ms != last_grv_ts:
+    roll_at_tare, _, _ = euler_from_quat(*r.data)
+    print(f"\nAt tare moment --- ENC: {enc_at_tare:+.2f}  IMU roll: {roll_at_tare:+.2f}  bias: {roll_at_tare - enc_at_tare:+.2f}")
 else:
-    print(f"\nAt tare moment — ENC: {enc_at_tare:+.2f}  (IMU not updated)")
+    print(f"\nAt tare moment --- ENC: {enc_at_tare:+.2f}  (IMU not updated)")
 
 print("Applying tare (all axes, Game Rotation Vector basis — no mag required)...")
 imu.tare(0x07, 1)
@@ -173,10 +194,13 @@ for _ in range(50):
     sleep_ms(10)
 
 print("Tare applied. Post-tare check:")
+last_grv_ts_post = 0.0
 for _ in range(5):
     imu.update_sensors()
-    if imu.game_quaternion.updated:
-        yaw, pitch, roll, acc, ts_ms = imu.game_quaternion.euler_full
+    r = imu.game_quaternion.get()
+    if r.sensor_ts_ms != last_grv_ts_post:
+        last_grv_ts_post = r.sensor_ts_ms
+        roll, _, _ = euler_from_quat(*r.data)
         enc = to_degrees(encoder.read_raw_angle(), AXIS_CENTER)
         print(f"  ENC: {enc:+.2f}  IMU roll: {roll:+.2f}  bias: {roll - enc:+.2f}")
     sleep_ms(200)

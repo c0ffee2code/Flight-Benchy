@@ -5,7 +5,7 @@ import ujson
 import gc
 
 from as5600 import AS5600, to_degrees
-from bno08x import BNO08X
+from bno08x import BNO08X, SensorResetError
 from i2c import BNO08X_I2C
 from motor_throttle_group import MotorThrottleGroup
 from dshot_pio import DSHOT_SPEEDS
@@ -76,9 +76,24 @@ def hz_to_period_ms(hz):
 # =====================================================
 
 def enable_imu_reports(imu, grv_hz, imu_hz):
-    """Enable GRV and calibrated gyro reports at their respective loop rates."""
+    """Enable GRV and calibrated gyro reports and activate the Motion Engine.
+
+    Enables GRV (outer angle loop) and calibrated gyro (inner rate loop) at their
+    respective rates, then calls begin_calibration() to activate ME for all three
+    sensors (accel, gyro, mag) and load saved DCD from flash.
+
+    Without begin_calibration(), ME stays inactive after every power-on regardless
+    of previously saved DCD, and accuracy=0 on all readings for the entire session.
+
+    TODO: add an accuracy gate after this call — poll imu.game_quaternion until
+    accuracy >= 2 before proceeding to arm_motors(). ME converges within a few
+    seconds when DCD is fresh and the sensor is held still, but there is currently
+    no explicit wait. The 5s motor settle in arm_motors() provides incidental time
+    but does not check accuracy.
+    """
     imu.game_quaternion.enable(hertz=grv_hz)
     imu.gyro.enable(hertz=imu_hz)
+    imu.begin_calibration()
 
 def arm_motors(motors, throttle_min):
     """Green LED, start DShot, arm ESCs, then idle at throttle_min.
@@ -117,17 +132,17 @@ def init_session(cfg, sink, dt):
     return telemetry
 
 class FuseImuStaleness:
-    """Raises RuntimeError if no IMU packet arrives within stale_ms milliseconds."""
+    """Raises RuntimeError if no new gyro data arrives within stale_ms milliseconds."""
 
     def __init__(self, stale_ms):
         self.stale_ms = stale_ms
-        self.last_packet_ms = utime.ticks_ms()
+        self.last_host_ts = utime.ticks_ms()
 
-    def on_packet(self, now_ms):
-        self.last_packet_ms = now_ms
+    def update(self, host_ts_ms):
+        self.last_host_ts = host_ts_ms
 
     def check(self):
-        if utime.ticks_diff(utime.ticks_ms(), self.last_packet_ms) > self.stale_ms:
+        if utime.ticks_diff(utime.ticks_ms(), self.last_host_ts) > self.stale_ms:
             raise RuntimeError("FuseImuStaleness: no packet for >{}ms".format(self.stale_ms))
 
 
@@ -194,9 +209,10 @@ def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
     enc_sign    = -1 if cfg["bench"]["sensor_orientation"]["encoder_invert"] else 1
 
     imu.update_sensors()  # flush initial packets
-    run_start_ms = utime.ticks_ms()
-    prev_ms      = run_start_ms
-    last_gc_ms   = run_start_ms
+    run_start_ms  = utime.ticks_ms()
+    prev_ms       = run_start_ms
+    last_gc_ms    = run_start_ms
+    last_gyro_ts  = 0.0  # sentinel; first real gyro packet (sensor_ts_ms > 0) always looks new
 
     imu_stale  = FuseImuStaleness(IMU_STALE_MS)
     ctrl_dir   = FuseControlDirection(core.angle_pid.output_limit, CTRL_DIR_TRIP_TICKS)
@@ -211,13 +227,21 @@ def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
             utime.sleep_us(IMU_POLL_US)
             continue
 
+        g = imu.gyro.get()
+        if g.sensor_ts_ms == last_gyro_ts:
+            continue  # non-gyro packet (feature response etc.) — skip cycle
+
         now_ms = utime.ticks_ms()
-        imu_stale.on_packet(now_ms)
+        imu_stale.update(g.host_ts_ms)
+        last_gyro_ts = g.sensor_ts_ms
         dt_ms  = utime.ticks_diff(now_ms, prev_ms)
         prev_ms = now_ms
 
-        gx, _gy, _gz  = imu.gyro
-        iqr, iqi, iqj, iqk = imu.game_quaternion
+        gx = g.data[0]
+        grv = imu.game_quaternion.get()
+        iqr, iqi, iqj, iqk = grv.data
+        grv_lag_ms  = imu.bno_start_diff(grv.host_ts_ms) - grv.sensor_ts_ms
+        gyro_lag_ms = imu.bno_start_diff(g.host_ts_ms)   - g.sensor_ts_ms
 
         m1, m2, m3, m4 = core.step(iqr, iqi, iqj, iqk, gx, ms_to_s(dt_ms))
         motors.setAllThrottles([m1, m2, m3, m4])
@@ -227,8 +251,8 @@ def stabilize(core, motors, telemetry, imu, cfg, duration_ms=None):
         telemetry.record(
             now_ms, dt_ms,
             enc_angle,
-            iqr, iqi, iqj, iqk,
-            core.last_gyro_x,
+            iqr, iqi, iqj, iqk, grv.accuracy, grv_lag_ms,
+            core.last_gyro_x, g.accuracy, gyro_lag_ms,
             core.last_ang_err,
             core.angle_pid.last_p, core.angle_pid.last_i, core.angle_pid.last_d,
             core.last_rate_setpoint,

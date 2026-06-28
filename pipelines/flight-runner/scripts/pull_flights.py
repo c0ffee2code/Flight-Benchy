@@ -23,11 +23,13 @@ import tempfile
 from pathlib import Path
 
 # Mirror of recorder.py _RECORD_FMT — must stay in sync if the Pico format changes.
-_LOG_RECORD_FMT  = "<I16fHHHHHH"
+_LOG_RECORD_FMT  = "<I20fHHHHHH"
 _LOG_RECORD_SIZE = struct.calcsize(_LOG_RECORD_FMT)
 _LOG_CSV_HEADER  = (
-    "T_MS,ENC_ROLL,IMU_QR,IMU_QI,IMU_QJ,IMU_QK,"
-    "GYRO_X,ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,"
+    "T_MS,ENC_ROLL,"
+    "IMU_QR,IMU_QI,IMU_QJ,IMU_QK,IMU_GRV_ACC,GRV_LAG_MS,"
+    "GYRO_X,IMU_GYRO_ACC,GYRO_LAG_MS,"
+    "ANG_ERR,ANG_P,ANG_I,ANG_D,RATE_SP,RATE_ERR,RATE_P,RATE_I,"
     "RATE_D,PID_OUT,M1,M2,M3,M4,DT_MS,MAX_DT_MS"
 )
 
@@ -91,14 +93,17 @@ def _decode_log_bin(raw):
     n = len(raw) // _LOG_RECORD_SIZE
     lines = [_LOG_CSV_HEADER]
     for i in range(n):
-        (t_ms, enc_roll, iqr, iqi, iqj, iqk,
-         gyro_x, ang_err, ang_p, ang_i, ang_d, rate_sp,
+        (t_ms, enc_roll,
+         iqr, iqi, iqj, iqk, grv_acc, grv_lag,
+         gyro_x, gyro_acc, gyro_lag,
+         ang_err, ang_p, ang_i, ang_d, rate_sp,
          rate_err, rate_p, rate_i, rate_d, pid_out,
          m1, m2, m3, m4, dt_ms, max_dt) = struct.unpack_from(_LOG_RECORD_FMT, raw, i * _LOG_RECORD_SIZE)
         lines.append(
             f"{t_ms},{enc_roll:.3f},"
-            f"{iqr:.5f},{iqi:.5f},{iqj:.5f},{iqk:.5f},"
-            f"{gyro_x:.2f},{ang_err:.2f},{ang_p:.2f},{ang_i:.2f},{ang_d:.2f},"
+            f"{iqr:.5f},{iqi:.5f},{iqj:.5f},{iqk:.5f},{int(grv_acc)},{grv_lag:.2f},"
+            f"{gyro_x:.2f},{int(gyro_acc)},{gyro_lag:.2f},"
+            f"{ang_err:.2f},{ang_p:.2f},{ang_i:.2f},{ang_d:.2f},"
             f"{rate_sp:.2f},{rate_err:.2f},{rate_p:.2f},{rate_i:.2f},{rate_d:.2f},"
             f"{pid_out:.2f},{m1},{m2},{m3},{m4},{dt_ms},{max_dt}"
         )

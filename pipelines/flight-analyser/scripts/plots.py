@@ -154,6 +154,8 @@ class CycleTimingPlotData:
     threshold_ms : Spike boundary = _SPIKE_THRESHOLD_FACTOR * nominal_ms. Matches diagnose.json
                    spike_count so highlighted samples correspond exactly to the counted spikes.
     spike_mask   : Bool mask -- True where MAX_DT_MS > threshold_ms. Shape (n,).
+    grv_lag_ms   : GRV I2C transport lag per row, milliseconds. Shape (n,).
+    gyro_lag_ms  : Gyro I2C transport lag per row, milliseconds. Shape (n,).
     """
     t_s:          np.ndarray
     dt_ms:        np.ndarray
@@ -161,6 +163,8 @@ class CycleTimingPlotData:
     nominal_ms:   float
     threshold_ms: float
     spike_mask:   np.ndarray
+    grv_lag_ms:   np.ndarray
+    gyro_lag_ms:  np.ndarray
 
 
 # ---------------------------------------------------------------------------
@@ -389,6 +393,8 @@ def compute_cycle_timing(fd: FlightData, rate_hz: float) -> CycleTimingPlotData:
         nominal_ms=nominal,
         threshold_ms=threshold,
         spike_mask=spike_mask,
+        grv_lag_ms=fd.grv_lag_ms,
+        gyro_lag_ms=fd.gyro_lag_ms,
     )
 
 
@@ -762,12 +768,14 @@ def render_step_response(
 
 def render_cycle_timing(data: CycleTimingPlotData, label: str) -> "plt.Figure":
     """
-    Two-panel cycle timing figure.
+    Three-panel cycle timing figure.
 
     Top -- MAX_DT_MS scatter over time.
       Blue dots: normal cycles (MAX_DT <= 2x nominal).
       Orange dots: spikes (MAX_DT > 2x nominal).
       Dashed line at nominal period; solid red line at 2x nominal threshold.
+
+    Middle -- IMU I2C transport lag over time (GRV_LAG_MS and GYRO_LAG_MS).
 
     Bottom -- DT_MS histogram.
       Distribution of the logged-row cycle period with nominal marked.
@@ -780,9 +788,11 @@ def render_cycle_timing(data: CycleTimingPlotData, label: str) -> "plt.Figure":
     spike_mask   = data.spike_mask
     normal_mask  = ~spike_mask
 
-    fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(12, 7),
-                                          gridspec_kw={"height_ratios": [2, 1]})
+    fig, (ax_top, ax_mid, ax_bot) = plt.subplots(3, 1, figsize=(12, 10),
+                                                   gridspec_kw={"height_ratios": [2, 2, 1]})
     fig.suptitle(f"Rate Loop (inner) Cycle Timing -- {label}", fontsize=13)
+
+    fmt, xlabel = _time_formatter(float(t_s[-1]))
 
     # Top: MAX_DT_MS scatter
     if np.any(normal_mask):
@@ -799,19 +809,31 @@ def render_cycle_timing(data: CycleTimingPlotData, label: str) -> "plt.Figure":
     ax_top.set_title("Worst-case rate-loop dt per sample_every window (MAX_DT_MS)")
     ax_top.legend(loc="upper right", fontsize=8)
     ax_top.grid(True, alpha=0.3)
-
-    fmt, xlabel = _time_formatter(float(t_s[-1]))
     ax_top.set_xlabel(xlabel)
     if fmt:
         ax_top.xaxis.set_major_formatter(fmt)
 
-    # Bottom: DT_MS histogram
-    fd_edges = np.histogram_bin_edges(dt_ms, bins="fd")
-    n_bins   = int(np.clip(len(fd_edges) - 1, 10, 50))
-    ax_bot.hist(dt_ms, bins=n_bins, alpha=0.7, color="tab:blue",
-                label=f"DT_MS ({len(dt_ms)} rows)")
+    # Middle: IMU I2C transport lag
+    ax_mid.scatter(t_s, data.grv_lag_ms, s=4, alpha=0.4, color="tab:green", label="GRV lag")
+    ax_mid.scatter(t_s, data.gyro_lag_ms, s=4, alpha=0.4, color="tab:purple", label="Gyro lag")
+    ax_mid.set_ylabel("ms")
+    ax_mid.set_title("IMU I2C transport lag (host receipt - sensor timestamp)")
+    ax_mid.legend(loc="upper right", fontsize=8)
+    ax_mid.grid(True, alpha=0.3)
+    ax_mid.set_xlabel(xlabel)
+    if fmt:
+        ax_mid.xaxis.set_major_formatter(fmt)
+
+    # Bottom: DT_MS histogram — fixed 1ms bins capped at 15ms for cross-run comparability
+    HIST_CAP_MS = 15
+    bins = np.arange(0, HIST_CAP_MS + 1, 1)  # edges 0..15, 15 bins of 1ms each
+    n_clipped = int(np.sum(dt_ms > HIST_CAP_MS))
+    clip_note = f", {n_clipped} clipped >{HIST_CAP_MS}ms" if n_clipped else ""
+    ax_bot.hist(dt_ms[dt_ms <= HIST_CAP_MS], bins=bins, alpha=0.7, color="tab:blue",
+                label=f"DT_MS ({len(dt_ms)} rows{clip_note})")
     ax_bot.axvline(nominal_ms, color="gray", linewidth=1.2, linestyle="--",
                    label=f"Nominal {nominal_ms:.2f} ms")
+    ax_bot.set_xlim(0, HIST_CAP_MS)
     ax_bot.set_xlabel("ms")
     ax_bot.set_ylabel("Count")
     ax_bot.set_title("Rate-loop cycle dt of the logged row (DT_MS) distribution")
